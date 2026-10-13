@@ -232,7 +232,7 @@ function contentCardHtml(item){
         '<span class="card-kind-icon">'+icon(kindMeta[item.kind].icon,{size:15})+'</span>'+
         favoriteButtonHtml(item)+
       '</div>'+
-      '<div class="type-code" style="margin:8px 0 4px">['+esc(item.type.toUpperCase())+']</div>'+
+      '<div class="type-code" style="margin:8px 0 4px">'+esc(item.type)+'</div>'+
       '<h3>'+esc(item.title)+'</h3><span class="card-cat">'+esc(item.category)+'</span>'+
       '<p>'+esc(item.description)+'</p>'+
       '<div class="tag-row">'+tags+'</div>'+
@@ -283,6 +283,7 @@ var NAV_LINKS = [
 ];
 function renderShellOnce(){
   document.body.innerHTML =
+    '<a class="skip-link" href="#app" id="skip-link">Skip to content</a>'+
     '<div class="site-shell">'+
       '<aside class="sidebar" id="sidebar">'+
         '<a href="#/" class="brand"><span class="brand-mark">V</span><span>VELOCITY<br><b>SYSTEMS</b></span></a>'+
@@ -299,8 +300,8 @@ function renderShellOnce(){
           '<form class="global-search" id="cmd-search"><span>'+icon('search')+'</span><input placeholder="Search games, tools, software, tags…" aria-label="Search all content"><span class="key">'+icon('command',{size:11})+' K</span></form>'+
           '<div class="nav-pins" id="nav-pins"></div>'+
         '</header>'+
-        '<main id="app"></main>'+
-        '<footer><span>System Monolith</span><span>Static archive · Local preferences</span></footer>'+
+        '<main id="app" tabindex="-1"></main>'+
+        '<footer><span>Velocity Systems</span><span>Static archive · Local preferences</span></footer>'+
       '</div>'+
     '</div>';
 
@@ -308,6 +309,9 @@ function renderShellOnce(){
   menuBtn.addEventListener('click', function(){ sidebar.classList.add('is-open'); scrim.style.display='block'; });
   scrim.addEventListener('click', function(){ sidebar.classList.remove('is-open'); scrim.style.display='none'; });
   qsa('.nav-link', sidebar).forEach(function(a){ a.addEventListener('click', function(){ sidebar.classList.remove('is-open'); scrim.style.display='none'; }); });
+
+  // The router listens to the hash, so the skip link focuses <main> instead of following its href.
+  qs('#skip-link').addEventListener('click', function(e){ e.preventDefault(); qs('#app').focus(); });
 
   qs('#cmd-search').addEventListener('submit', function(e){
     e.preventDefault();
@@ -396,6 +400,7 @@ function updateNavActive(){
     var route = a.getAttribute('data-route');
     var isActive = route === '#/' ? (path === '#/' || path === '') : path.indexOf(route) === 0;
     a.classList.toggle('active', isActive);
+    if(isActive) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current');
   });
 }
 
@@ -433,7 +438,7 @@ function pageHome(){
       '<div class="about-item"><h3>'+icon('package',{size:16})+'A curated library</h3><p>Hand-picked Windows software, open-source projects and useful websites, each with the links, platforms and licensing details you actually need before installing something.</p></div>'+
       '<div class="about-item"><h3>'+icon('zap',{size:16})+'Tools that just run</h3><p>Converters, generators, formatters and image utilities that work instantly in the browser. Nothing to install, and your files never leave the page.</p></div>'+
       '<div class="about-item"><h3>'+icon('gamepad',{size:16})+'Games for a spare minute</h3><p>Browser classics with proper difficulty settings and saved high scores — quick to load, easy to close, no ads in the middle.</p></div>'+
-      '<div class="about-item"><h3>'+icon('shield',{size:16})+'Private by default</h3><p>Bookmarks, scores and preferences are stored locally in your own browser. There is no backend and nothing is ever sent anywhere.</p></div>'+
+      '<div class="about-item"><h3>'+icon('lock',{size:16})+'Private by default</h3><p>Bookmarks, scores and preferences are stored locally in your own browser. There is no backend and nothing is ever sent anywhere.</p></div>'+
     '</div>'+
     '<div class="about-stats">'+
       '<div><b>'+gameCount+'</b><span>Games</span></div>'+
@@ -574,7 +579,7 @@ function pageDetail(kind, id){
   var html = '<div class="detail">'+
     '<nav class="breadcrumb" aria-label="Breadcrumb"><a href="#/">Home</a><span>/</span><a href="#/'+item.kind+'">'+esc(meta.label)+'</a><span>/</span><span>'+esc(item.category)+'</span><span>/</span><span>'+esc(item.title)+'</span></nav>'+
     '<div class="detail-hero">'+
-      '<div><span class="type-code">['+esc(item.type.toUpperCase())+'] · '+esc(item.status)+'</span><h1>'+esc(item.title)+'</h1><p>'+esc(item.description)+'</p>'+
+      '<div><span class="type-code">'+esc(item.type)+' · '+esc(item.status)+'</span><h1>'+esc(item.title)+'</h1><p>'+esc(item.description)+'</p>'+
       '<div class="tag-row">'+tagsHtml+'</div><div class="detail-actions">'+actions+'</div></div>'+
       '<div class="hero-img">'+entryImageHtml(item)+'</div>'+
     '</div>'+
@@ -767,12 +772,16 @@ function pageSettings(){
 /* ---------- 404 ---------- */
 function page404(path){
   qs('#app').innerHTML =
-    '<div class="empty-state" style="padding-top:110px">'+
-      '<div style="font-size:90px;font-weight:200;opacity:.5">404</div>'+
-      '<hr style="border:none;border-top:1px solid var(--line);max-width:200px;margin:20px auto">'+
-      '<h2 style="margin:0 0 10px">Page Not Found</h2>'+
-      '<p style="margin:0 0 22px">No route matches "'+esc(path)+'".</p>'+
-      '<a class="primary-action" href="#/">← Go Home</a>'+
+    '<div class="nf">'+
+      '<p class="nf-code" aria-hidden="true">404</p>'+
+      '<h1>Nothing lives at this address</h1>'+
+      '<p>The route <b>'+esc(path)+'</b> doesn\'t match any page. It may have been renamed, or the link has a typo.</p>'+
+      '<div class="nf-links">'+
+        '<a class="primary-action" href="#/">'+icon('home',{size:15})+' Home</a>'+
+        '<a class="secondary-action" href="#/library">Library</a>'+
+        '<a class="secondary-action" href="#/tools">Tools</a>'+
+        '<a class="secondary-action" href="#/games">Games</a>'+
+      '</div>'+
     '</div>';
 }
 
@@ -831,3 +840,14 @@ document.addEventListener('DOMContentLoaded', function(){
   render();
   window.addEventListener('hashchange', render);
 });
+
+
+/* spotlight hover on cards — writes --mx/--my, CSS draws the glow */
+document.addEventListener('pointermove', function(e){
+  if(document.documentElement.dataset.motion === 'off') return;
+  var card = e.target.closest && e.target.closest('.data-card');
+  if(!card) return;
+  var r = card.getBoundingClientRect();
+  card.style.setProperty('--mx', (e.clientX - r.left) + 'px');
+  card.style.setProperty('--my', (e.clientY - r.top) + 'px');
+}, {passive:true});

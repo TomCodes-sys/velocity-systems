@@ -762,7 +762,7 @@ function mountHangman(container){
         '<div class="tool-row"><label style="font:11px monospace"><input type="checkbox" id="hm-show-hint" checked> Hints</label><label style="font:11px monospace"><input type="checkbox" id="hm-show-cat"> Category</label></div>'+
         '<canvas id="hm-canvas" width="140" height="140"></canvas>'+
         '<div id="hm-hint" class="tool-msg" style="min-height:16px"></div>'+
-        '<div id="hm-word" style="display:flex;gap:8px;font:20px ui-monospace,monospace;letter-spacing:2px"></div>'+
+        '<div id="hm-word" style="display:flex;gap:8px;font:20px var(--font-mono);letter-spacing:2px"></div>'+
         '<div id="hm-wrong" class="tool-msg">Wrong: 0/6</div>'+
         '<div id="hm-keyboard" style="display:flex;flex-wrap:wrap;gap:4px;max-width:420px;justify-content:center"></div>'+
         '<div id="hm-result" class="tool-msg"></div>'+
@@ -1287,7 +1287,7 @@ function mountWordle(container){
           '<input type="text" id="wd-custom" placeholder="Set a custom word (optional)" style="width:230px">'+
           '<button class="game-btn secondary" id="wd-setcustom">Use word</button>'+
         '</div>'+
-        '<div class="tool-row" style="justify-content:center;font:11px ui-monospace,monospace;color:var(--muted)">'+
+        '<div class="tool-row" style="justify-content:center;font:11px var(--font-mono);color:var(--muted)">'+
           '<span><i style="display:inline-block;width:11px;height:11px;background:#16a34a;vertical-align:-1px;margin-right:5px"></i>Right spot</span>'+
           '<span><i style="display:inline-block;width:11px;height:11px;background:#d97706;vertical-align:-1px;margin-right:5px"></i>Wrong spot</span>'+
           '<span><i style="display:inline-block;width:11px;height:11px;background:#4b5563;vertical-align:-1px;margin-right:5px"></i>Not in word</span>'+
