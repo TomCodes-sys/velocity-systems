@@ -1,19 +1,19 @@
 # Adding content to Velocity Systems
 
-This site has **one file that holds all content**: `data.js`. There is no
+This site has **one file that holds all content**: `assets/js/data.js`. There is no
 CMS, no database, no build step — you add a plain JavaScript object to an
 array, save the file, and reload the page (or re-upload to your host).
 
-**A copy-paste template lives in `item-template.js`** in this same folder —
+**A copy-paste template lives in `scripts/item-template.js`** —
 it has a filled-in example of every content type (library entry, playable
 game/tool, collection) plus a tiny `validateItem()` checker you can run in
-the browser console while developing. Hand `item-template.js` + `data.js`
+the browser console while developing. Hand `scripts/item-template.js` + `assets/js/data.js`
 to Claude or ChatGPT along with "add this to the site" and it has
 everything it needs to do it correctly on the first try — no need to
 reverse-engineer the schema from the rest of the codebase.
 
 This file is written so you can hand it to Claude or ChatGPT along with
-`data.js` and say **"add this to the site"** — the assistant just needs to
+`assets/js/data.js` and say **"add this to the site"** — the assistant just needs to
 edit the `items` array (and optionally `collections`).
 
 ## Adding a single catalog entry (software / game / tool / article)
@@ -72,56 +72,65 @@ Add an object to the `collections = [ ... ]` array:
 Collections automatically appear on the Home page and are browsable at
 `#/search?collection=my-collection-id`.
 
-## Adding a new interactive game or tool (something that runs in-browser)
+## Folder layout
 
-If you want a new item to actually be **playable/usable on its detail
-page** (like Snake or the JSON Formatter), two steps:
+```
+index.html  games.html  tools.html  library.html  articles.html  search.html  settings.html
+games/      <id>.html + <id>.js     one page and one script per game
+tools/      <id>.html + <id>.js     one page and one script per tool
+library/    <id>.html               one page per software entry
+articles/   <id>.html               one page per article
+assets/
+  css/styles.css                    the only stylesheet, shared by every page
+  js/app.js                         shell, pages, search, settings, notifications
+  js/play.js                        helpers shared by games and tools (embed frame, history, saved inputs)
+  js/data.js                        the catalogue (edit this to add content)
+  js/icons.js                       inline SVG icons
+  img/                              favicon, touch icon, link-preview images
+scripts/    build.js  item-template.js
+```
 
-1. Add the catalog entry in `data.js` as above, with `kind:'games'` or
-   `kind:'tools'`, and add a `playable: 'your-key'` field.
-2. In `games.js`, write a `mountYourKey(container)` function (see the
-   existing ones for the pattern — `mountSnake`, `mountMinesweeper`,
-   `mountJsonFormatter`, `mountUnitConverter`) and register it in the
-   `PLAYABLES` object at the top of the file:
-   ```js
-   var PLAYABLES = {
-     snake: mountSnake,
-     minesweeper: mountMinesweeper,
-     'json-formatter': mountJsonFormatter,
-     'unit-converter': mountUnitConverter,
-     'your-key': mountYourKey,   // ← add this line
-   };
-   ```
+The `.html` files are generated. Each one is only a `<head>` (title, description,
+link-embed tags) plus a few script tags; `app.js` draws the page itself.
 
-If you don't add a `playable` key, the item just behaves like a normal
-Library entry — showing description, tags, and (if set) `website`/`github`
-buttons instead of an embedded tool.
+## Adding a new interactive game or tool
 
-## Adding a whole new standalone page (not a catalog item)
+1. Add the catalogue entry in `data.js` with `kind:'games'` or `kind:'tools'`, a
+   `category` that matches a section in `sectionMeta` (bottom of `data.js`), and
+   `playable:'your-id'` (same as `id`).
+2. Create `tools/your-id.js` (or `games/your-id.js`). Copy a small existing one such
+   as `tools/uuid-generator.js`. It defines a mount function using `mountEmbed(...)` and
+   calls it on the last line: `mountYourTool(document.getElementById('embed-slot'));`
+3. Run `node scripts/build.js`. This writes `tools/your-id.html` with the right
+   title, description and link-embed tags, and updates `sitemap.xml`.
+4. Commit everything it changed.
 
-Everything above covers catalog content, which is 95% of what this site
-needs. If you occasionally want a genuinely custom page (e.g. a one-off
-"About" or "Changelog" page that isn't a card in a grid):
+Useful helpers from `play.js`: `mountEmbed`, `gameSettings`, `toolHistory`, `copyText`,
+`downloadText`, `lsGet` / `lsSet`, `notify`.
 
-1. In `app.js`, write a function like the existing page functions
-   (`pageHome`, `pageSettings`, etc.) that sets `qs('#app').innerHTML = …`.
-2. Add a branch for it in the `render()` function's router, e.g.:
-   ```js
-   else if(segs.length===1 && segs[0]==='about'){ pageAbout(); }
-   ```
-3. Optionally add a link to it somewhere (nav, footer, or a page body).
+**Saved automatically:** on tool pages every input, textarea and select with an `id` is
+remembered in the browser and restored on the next visit. Add `data-nopersist` to a field
+to opt out (the Hash Generator does this), or pass `{persist:false}` as the fourth
+argument to `mountEmbed`. **History:** `toolHistory('your-id')` gives you
+`.add(entry)` and `.mount(container, {format, onPick})` for a saved, clearable list.
 
-This keeps the "no build step" rule intact — it's still just editing plain
-JS files.
+## Link embeds (Discord, Slack, iMessage, X)
+
+Those apps read the page `<head>` without running JavaScript, which is why each page has its
+own file. `scripts/build.js` writes `og:*` and `twitter:*` tags, a theme colour, a canonical
+URL and JSON-LD. **Open `scripts/build.js` and set `SITE_URL` to your real address** (the
+default is a GitHub Pages guess), then re-run it. Preview images live in `assets/img/og/`
+(1200 x 630 PNG, one per section) and can be replaced with any images of that size.
 
 ## Quick checklist before publishing new content
 
 - [ ] `id` is unique and doesn't collide with an existing item
 - [ ] `kind` is one of `games`, `tools`, `library`, `articles`
-- [ ] Required fields (`title`, `description`, `category`, `type`,
-      `platform`, `tags`) are all present
-- [ ] If you added an `image`, it's a direct link to the image file (not a
-      webpage) and loads over HTTPS
-- [ ] Open `index.html` locally (just double-click it) and check the new
-      item shows up on its catalog page, in search, and its detail page
-      loads correctly
+- [ ] Required fields (`title`, `description`, `category`, `type`, `platform`, `tags`) are present
+- [ ] For games and tools: the `.js` file exists and `node scripts/build.js` reported no warnings
+- [ ] If you added an `image`, it's a direct HTTPS link to an image file
+- [ ] Open the new page through a local server (see below) and check it loads
+
+Pages open fine from a local server (`python -m http.server`, or VS Code's Live Server).
+Opening the files by double-click mostly works but browsers restrict some features on `file://`
+(clipboard, hashing, screen capture), so test through a server.
