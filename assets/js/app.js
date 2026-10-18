@@ -101,11 +101,8 @@ function toast(msg, type, opts){
 function dismissToast(rec){
   if(rec.leaving) return;
   rec.leaving = true;
-  rec.el.classList.add('leaving');
-  setTimeout(function(){
-    if(rec.el.parentNode) rec.el.remove();
-    var i = _toasts.indexOf(rec); if(i > -1) _toasts.splice(i, 1);
-  }, 170);
+  if(rec.el.parentNode) rec.el.remove();
+  var i = _toasts.indexOf(rec); if(i > -1) _toasts.splice(i, 1);
 }
 function toastTick(now){
   var running = false;
@@ -784,22 +781,26 @@ function pageDetail(kind, id){
   if(item.github) actions += '<a href="'+esc(item.github)+'" target="_blank" rel="noreferrer">'+icon('github',{size:15})+' GitHub</a>';
   actions += favoriteButtonHtml(item, 20).replace('icon-action','icon-action detail-fav');
 
-  var html = '<div class="detail">'+
-    '<nav class="breadcrumb" aria-label="Breadcrumb"><a href="'+pageUrl('home')+'">Home</a><span>/</span><a href="'+kindUrl(item.kind)+'">'+esc(meta.label)+'</a><span>/</span><span>'+esc(item.category)+'</span><span>/</span><span>'+esc(item.title)+'</span></nav>'+
-    '<div class="detail-hero">'+
-      '<div><span class="type-code">'+esc(item.type)+' · '+esc(item.status)+'</span><h1>'+esc(item.title)+'</h1><p>'+esc(item.description)+'</p>'+
-      '<div class="tag-row">'+tagsHtml+'</div><div class="detail-actions">'+actions+'</div></div>'+
-      '<div class="hero-img">'+entryImageHtml(item)+'</div>'+
-    '</div>'+
-    '<div class="detail-meta">'+
+  var playable = !!item.playable;
+  var metaHtml = '<div class="detail-meta">'+
       '<div><span>Category</span><b>'+esc(item.category)+'</b></div>'+
       '<div><span>Platform</span><b>'+esc(item.platform)+'</b></div>'+
       '<div><span>Access</span><b>'+(item.free?'Free':'Paid')+'</b></div>'+
       '<div><span>Source</span><b>'+(item.openSource?'Open source':'Proprietary')+'</b></div>'+
     '</div>';
+  // Games and tools get a compact header with the thing itself right underneath;
+  // the big placeholder artwork is only for library entries and articles.
+  var html = '<div class="detail">'+
+    '<nav class="breadcrumb" aria-label="Breadcrumb"><a href="'+pageUrl('home')+'">Home</a><span>/</span><a href="'+kindUrl(item.kind)+'">'+esc(meta.label)+'</a><span>/</span><span>'+esc(item.category)+'</span><span>/</span><span>'+esc(item.title)+'</span></nav>'+
+    '<div class="detail-hero'+(playable?' compact':'')+'">'+
+      '<div><span class="type-code">'+esc(item.type)+' · '+esc(item.status)+'</span><h1>'+esc(item.title)+'</h1><p>'+esc(item.description)+'</p>'+
+      '<div class="tag-row">'+tagsHtml+'</div><div class="detail-actions">'+actions+'</div></div>'+
+      (playable ? '' : '<div class="hero-img">'+entryImageHtml(item)+'</div>')+
+    '</div>';
 
-  // The game/tool itself is mounted by this page's own script (games/<id>.js or tools/<id>.js).
-  if(item.playable) html += '<div id="embed-slot"></div>';
+  // The game/tool itself is mounted by assets/js/games.js or tools.js into this slot.
+  if(playable) html += '<div id="embed-slot"></div>';
+  html += metaHtml;
 
   if(item.features) html += '<div class="detail-features"><h2>Features</h2><ul>'+item.features.map(function(f){return '<li>'+esc(f)+'</li>';}).join('')+'</ul></div>';
   if(item.body) html += '<div class="article-body">'+renderMarkdown(item.body)+'</div>';
@@ -1018,6 +1019,7 @@ function storeGroup(key){
   if(key==='system-favorites') return 'Bookmarks';
   if(key==='system-recent' || key==='vs-search-history' || key.indexOf('vs-catalog-')===0 || key.indexOf('vs-collapsed-')===0) return 'Browsing';
   if(key.indexOf('vs-hist-')===0) return 'Tool history';
+  if(key.indexOf('vs-http-')===0 || key==='vs-fx') return 'Cached data';
   if(key.indexOf('vs-state-')===0) return 'Tool inputs';
   return 'Games & other';
 }
@@ -1039,7 +1041,7 @@ function removeKeys(pred){
 }
 function dataPanelHtml(){
   var s = storageSummary();
-  var order = ['Preferences','Bookmarks','Browsing','Tool history','Tool inputs','Games & other'];
+  var order = ['Preferences','Bookmarks','Browsing','Tool history','Tool inputs','Cached data','Games & other'];
   var rows = order.filter(function(g){ return s.groups[g]; }).map(function(g){
     return '<div class="data-row"><span>'+g+'</span><span>'+s.groups[g].keys+' item'+(s.groups[g].keys===1?'':'s')+'</span><b>'+fmtBytes(s.groups[g].bytes)+'</b></div>';
   }).join('') || '<div class="data-row"><span>Nothing saved yet</span></div>';
@@ -1097,7 +1099,7 @@ function wireDataPanel(){
   });
   qs('#data-clear-history').addEventListener('click', function(){
     twoStep(this, 'Click again to confirm', function(){
-      removeKeys(function(k){ return storeGroup(k)==='Browsing' || storeGroup(k)==='Tool history'; });
+      removeKeys(function(k){ return storeGroup(k)==='Browsing' || storeGroup(k)==='Tool history' || storeGroup(k)==='Cached data'; });
       recent = []; searchHistory = [];
       toast('History cleared','ok'); refresh(); renderSidebarBookmarks();
     });

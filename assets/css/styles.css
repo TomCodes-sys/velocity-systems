@@ -670,3 +670,61 @@ input[type=color].big{width:100%;height:42px;padding:2px;background:var(--surfac
 
 /* snake canvas */
 .snake-wrap canvas{touch-action:none;width:min(400px,100%);height:auto;aspect-ratio:1}
+
+/* =====================================================================
+   SNAPPY — nothing fades, slides or pops in. Pages, cards, notifications,
+   banners and game tiles appear instantly. (The 2048 tile slide and the
+   short board shake on a lost Minesweeper/Wordle row are the only motion
+   left, because they carry information.)
+   ===================================================================== */
+body,.data-card,.nav-link,.sb-item,.game-btn,.filters button,.icon-action,.cat-title,.cat-chevron,.collection-card>svg,.sidebar,.switch i,.skip-link,
+.primary-action,.secondary-action,.detail-actions a,.detail-actions button,.intro-search button,.intro-quick a,.tag-row a,.back-link,.tag-filter-wrap button{transition:none!important}
+.result-banner.show,.toast,.g48-cell.vnew,.g48-cell.vmerge,.mine-cell.revealed,.mine-cell.flag,.mine-grid.win-glow,.wd-cell.reveal,.wd-cell.typed,.wd-cell.win{animation:none!important}
+@media(prefers-reduced-motion:no-preference){[data-motion="on"] .toast{animation:none}}
+
+/* =====================================================================
+   NEW TOOLS — game deals, file converter, to-do list, shared rows
+   ===================================================================== */
+.gd-h{font:600 11px var(--font-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:22px 0 10px}
+.gd-links{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:4px 0 14px}
+.gd-list{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--rad);background:var(--surface);margin:8px 0 12px}
+.gd-deal,.fv-row,.td-row{display:grid;align-items:center;gap:12px;padding:9px 12px;border-bottom:1px solid var(--line);color:inherit;text-decoration:none}
+.gd-list>:last-child{border-bottom:0}
+.gd-deal{grid-template-columns:72px minmax(0,1fr) auto auto 52px}
+.gd-deal:hover{background:var(--surface-1)}
+.gd-thumb{width:72px;height:34px;object-fit:cover;background:var(--surface-2);border-radius:2px}
+.gd-main{min-width:0}
+.gd-title{font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gd-sub{font:11px var(--font-mono);color:var(--muted);margin-top:2px;overflow-wrap:anywhere}
+.gd-was{font:12px var(--font-mono);color:var(--muted);text-decoration:line-through;text-align:right}
+.gd-now{font:600 15px var(--font-mono);text-align:right;min-width:72px}
+.gd-now.free{color:#36c979}
+.gd-off{font:600 11px var(--font-mono);color:var(--accent);text-align:right}
+.gd-stats{display:flex;gap:22px;flex-wrap:wrap;margin:6px 0 4px;font:12px var(--font-mono);color:var(--muted)}
+.gd-stats b{color:var(--text);font-size:15px;margin-right:4px}
+.gd-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin:8px 0}
+.gd-card{border:1px solid var(--line);border-radius:var(--rad);background:var(--surface);display:flex;flex-direction:column;overflow:hidden}
+.gd-card.claimed{opacity:.55}
+.gd-cimg{width:100%;aspect-ratio:16/9;object-fit:cover;background:var(--surface-2)}
+.gd-cbody{padding:12px;display:flex;flex-direction:column;gap:4px}
+.gd-card .gd-title{white-space:normal}
+.gd-badges{display:flex;gap:8px;align-items:center}
+.gd-end{font:10px var(--font-mono);color:#e9a93a;letter-spacing:.06em;text-transform:uppercase}
+.gd-worth{font:12px var(--font-mono);color:#36c979}
+.gd-worth s{color:var(--muted)}
+@media(max-width:640px){.gd-deal{grid-template-columns:56px minmax(0,1fr) auto}.gd-was,.gd-off{display:none}.gd-thumb{width:56px}}
+
+.fv-drop{display:flex;flex-direction:column;gap:6px;align-items:center;justify-content:center;padding:28px 16px;margin:0 0 14px;border:1px dashed var(--line);border-radius:var(--rad);background:var(--surface-1);cursor:pointer;text-align:center;font-size:14px}
+.fv-drop:hover,.fv-drop.over{border-color:var(--accent);background:var(--surface-2)}
+.fv-drop span{font:11px var(--font-mono);color:var(--muted)}
+.fv-row{grid-template-columns:minmax(0,1fr) auto auto}
+.fv-row b{color:var(--text)}
+.td-row{grid-template-columns:minmax(0,1fr) auto}
+.td-check{display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px;margin:0}
+.td-row.done .td-check span{text-decoration:line-through;color:var(--muted)}
+
+/* Tool and game pages: compact header, the tool itself comes straight after it */
+.detail-hero.compact{grid-template-columns:1fr;gap:0;margin-bottom:20px}
+.detail-hero.compact h1{font-size:clamp(30px,5vw,44px)}
+.detail-hero.compact p{max-width:760px}
+#embed-slot{margin-bottom:28px}

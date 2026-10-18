@@ -69,11 +69,8 @@ function page(o){
   var desc = clip(o.desc, 200);
   var ogType = o.ogType || 'website';
   var scripts = ['assets/js/data.js', 'assets/js/icons.js', 'assets/js/app.js'];
-  if(o.play) scripts.push('assets/js/play.js');
+  if(o.play){ scripts.push('assets/js/play.js'); scripts.push(o.bundle); }
   var scriptTags = scripts.map(function(s){ return '<script src="' + root + s + '?v=' + ver(s) + '"></script>'; });
-  if(o.itemScript){
-    scriptTags.push('<script src="' + path.basename(o.itemScript) + '?v=' + ver(o.itemScript) + '"></script>');
-  }
   var body = ['data-root="' + root + '"', 'data-page="' + o.page + '"', 'data-nav="' + o.nav + '"'];
   if(o.kind) body.push('data-kind="' + o.kind + '"');
   if(o.id) body.push('data-id="' + esc(o.id) + '"');
@@ -164,10 +161,13 @@ items.forEach(function(item){
   seenKinds[item.kind] = true;
   var file = item.kind + '/' + item.id + '.html';
   var play = !!item.playable;
-  var scriptRel = item.kind + '/' + item.id + '.js';
-  if(play && !fs.existsSync(path.join(ROOT_DIR, scriptRel))){
-    warnings.push(file + ': marked playable but ' + scriptRel + ' does not exist');
-    play = false;
+  var bundleRel = 'assets/js/' + item.kind + '.js';
+  if(play){
+    var bundle = fs.existsSync(path.join(ROOT_DIR, bundleRel)) ? read(bundleRel) : '';
+    if(bundle.indexOf("PLAYABLES['" + item.id + "']") < 0){
+      warnings.push(file + ': marked playable but ' + bundleRel + " has no PLAYABLES['" + item.id + "'] entry");
+      play = false;
+    }
   }
   var desc = item.description;
   if(item.kind === 'tools') desc += ' Free, runs in your browser — nothing is uploaded.';
@@ -194,7 +194,7 @@ items.forEach(function(item){
     ogTitle: item.title + ' · ' + SITE_NAME,
     desc: desc, image: k.og, ogType: item.kind === 'articles' ? 'article' : 'website',
     imageAlt: item.title + ' on ' + SITE_NAME,
-    heading: item.title, jsonld: ld, play: play, itemScript: play ? scriptRel : null,
+    heading: item.title, jsonld: ld, play: play, bundle: bundleRel,
   }));
 });
 

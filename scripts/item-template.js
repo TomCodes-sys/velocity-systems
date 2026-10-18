@@ -11,7 +11,7 @@
 //   assets/js/play.js  → helpers shared by games and tools (embed frame, history…).
 //   assets/js/icons.js → the small inline-SVG icon set.
 //   assets/css/styles.css → all styling and theme variables.
-//   games/<id>.js, tools/<id>.js → the code for one game or tool.
+//   assets/js/tools.js, games.js → every tool / every game, one section each.
 //   scripts/build.js   → generates every <id>.html (with link-embed tags) from data.js.
 //
 // Everything is additive and keyed by plain string ids, so two people (or
@@ -48,7 +48,7 @@ var TEMPLATE_LIBRARY_ITEM = {
 /* ---------- 2. An interactive game or tool ---------- */
 // Same fields as above, plus `playable` (same as `id`). Three steps:
 //   1. add this entry to data.js (category must exist in sectionMeta)
-//   2. create games/my-new-game.js (or tools/…) as shown below
+//   2. add a section to assets/js/games.js (or tools.js) as shown below
 //   3. run `node scripts/build.js` to generate the page and its link-embed tags
 var TEMPLATE_PLAYABLE_ITEM = {
   id: 'my-new-game', kind: 'games', title: 'My New Game',
@@ -56,7 +56,7 @@ var TEMPLATE_PLAYABLE_ITEM = {
   platform: 'Web', tags: ['Gaming', 'Free'], free: true, status: 'Active',
   playable: 'my-new-game',
 };
-// games/my-new-game.js — the whole file:
+// A section of assets/js/games.js:
 //
 //   function mountMyNewGame(container){
 //     mountEmbed(container, 'PLAY / MY NEW GAME', function(body){
@@ -65,7 +65,7 @@ var TEMPLATE_PLAYABLE_ITEM = {
 //       // document-level listeners or timers when the page is left.
 //     });
 //   }
-//   mountMyNewGame(document.getElementById('embed-slot'));
+//   PLAYABLES['my-new-game'] = mountMyNewGame;   // the page's own id picks which one runs
 //
 // Helpers available to every game/tool script (from assets/js/play.js):
 //   mountEmbed(container, label, bodyBuilder)  — standard panel with a fullscreen button.
