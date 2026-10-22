@@ -35,6 +35,7 @@
   <url><loc>https://tomcodes-sys.github.io/velocity-systems/tools/palette-generator.html</loc></url>
   <url><loc>https://tomcodes-sys.github.io/velocity-systems/tools/color-picker.html</loc></url>
   <url><loc>https://tomcodes-sys.github.io/velocity-systems/tools/qr-generator.html</loc></url>
+  <url><loc>https://tomcodes-sys.github.io/velocity-systems/tools/bulk-image-compressor.html</loc></url>
   <url><loc>https://tomcodes-sys.github.io/velocity-systems/tools/image-resizer.html</loc></url>
   <url><loc>https://tomcodes-sys.github.io/velocity-systems/tools/watermark-tool.html</loc></url>
   <url><loc>https://tomcodes-sys.github.io/velocity-systems/tools/image-converter.html</loc></url>
@@ -62,6 +63,10 @@
   <url><loc>https://tomcodes-sys.github.io/velocity-systems/tools/world-clock.html</loc></url>
   <url><loc>https://tomcodes-sys.github.io/velocity-systems/tools/color-converter.html</loc></url>
   <url><loc>https://tomcodes-sys.github.io/velocity-systems/tools/todo-list.html</loc></url>
+  <url><loc>https://tomcodes-sys.github.io/velocity-systems/tools/typing-test.html</loc></url>
+  <url><loc>https://tomcodes-sys.github.io/velocity-systems/tools/image-editor.html</loc></url>
+  <url><loc>https://tomcodes-sys.github.io/velocity-systems/library/spicetify.html</loc></url>
+  <url><loc>https://tomcodes-sys.github.io/velocity-systems/library/sonora.html</loc></url>
   <url><loc>https://tomcodes-sys.github.io/velocity-systems/library/powertoys.html</loc></url>
   <url><loc>https://tomcodes-sys.github.io/velocity-systems/library/sharex.html</loc></url>
   <url><loc>https://tomcodes-sys.github.io/velocity-systems/library/obs.html</loc></url>

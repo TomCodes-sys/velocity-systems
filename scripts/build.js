@@ -48,6 +48,13 @@ function ver(rel){
   return hashCache[rel];
 }
 
+/* ---------- theme pre-init ----------
+   Runs in <head> before first paint, so the saved theme is already applied when the page
+   appears. Without it every page load flashed the default (dark) colours until app.js ran. */
+var THEME_INIT = "(function(){try{var s=JSON.parse(localStorage.getItem('system-settings'))||{},d=document.documentElement.dataset;" +
+  "d.theme=s.theme||'light';d.accent=s.accent||'blue';d.font=s.font||'sans';d.density=s.density||'compact';d.radius=s.radius||'sharp';" +
+  "d.motion=s.animations===false?'off':'on';d.effects=s.effects===false?'off':'on';d.icons=s.icons||'lucide';d.rail=localStorage.getItem('vs-rail')==='collapsed'?'collapsed':'open';}catch(e){}})();";
+
 /* ---------- page copy ---------- */
 var KIND = {
   games:    {label:'Games',    noun:'Browser game',    og:'assets/img/og/games.png',    desc:'Focused browser games that load quickly and respect your time. No accounts, no ads.'},
@@ -78,7 +85,8 @@ function page(o){
   var ld = o.jsonld ? '<script type="application/ld+json">' + JSON.stringify(o.jsonld).replace(/</g, '\\u003c') + '</script>\n' : '';
   return '<!DOCTYPE html>\n<html lang="en">\n<head>\n' +
 '<meta charset="UTF-8">\n' +
-'<meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
+'<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n' +
+'<script>' + THEME_INIT + '</script>\n' +
 '<title>' + esc(o.title) + '</title>\n' +
 '<meta name="description" content="' + esc(desc) + '">\n' +
 '<link rel="canonical" href="' + url + '">\n' +
@@ -139,7 +147,7 @@ emit('index.html', page({
 });
 ['library', 'articles'].forEach(function(k){
   emit(k + '.html', page({
-    file: k + '.html', root: '', page: 'catalog', nav: k, kind: k,
+    file: k + '.html', root: '', page: 'sectioned', nav: k, kind: k,
     title: KIND[k].label + ' · ' + SITE_NAME, desc: KIND[k].desc, image: KIND[k].og,
     heading: KIND[k].label,
   }));

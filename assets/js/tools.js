@@ -183,6 +183,44 @@ function makeZip(files){
 }
 
 
+/* ---------- searchable currency picker (used wherever a currency can be chosen) ---------- */
+var CUR_ALIASES = {USD:'usa us america united states dollar', GBP:'uk britain england scotland pound sterling', EUR:'europe euro germany france spain italy ireland', JPY:'japan yen', CAD:'canada', AUD:'australia aussie',
+  NZD:'new zealand kiwi', CNY:'china yuan renminbi', KRW:'korea won', INR:'india rupee', CHF:'switzerland swiss franc', SEK:'sweden krona', NOK:'norway krone', DKK:'denmark krone', BRL:'brazil real', MXN:'mexico peso', ZAR:'south africa rand', SGD:'singapore', HKD:'hong kong', TRY:'turkey lira', PLN:'poland zloty'};
+function currencyPicker(host, cfg){
+  var rates = cfg.rates || null, value = cfg.value, open = false, active = 0, shown = [];
+  host.innerHTML = '<div class="cur-pick"><button type="button" class="cur-btn" aria-haspopup="listbox"><span></span>'+icon('chevronDown',{size:14})+'</button>'+
+    '<div class="cur-pop" hidden><input type="text" placeholder="Search by code, name or country…" aria-label="Search currencies" autocomplete="off"><div class="cur-list" role="listbox"></div></div></div>';
+  var root = host.firstChild, btn = root.querySelector('.cur-btn'), pop = root.querySelector('.cur-pop'), input = pop.querySelector('input'), list = pop.querySelector('.cur-list');
+  function codes(){ var all = rates ? Object.keys(rates) : POPULAR_CUR.slice(); var pop2 = POPULAR_CUR.filter(function(c){ return all.indexOf(c) > -1; }); return pop2.concat(all.filter(function(c){ return pop2.indexOf(c) < 0; }).sort()); }
+  function label(){ btn.firstChild.textContent = value + ' — ' + curName(value); }
+  function draw(){
+    var q = input.value.trim().toLowerCase();
+    shown = codes().filter(function(c){ return !q || (c + ' ' + curName(c) + ' ' + (CUR_ALIASES[c] || '')).toLowerCase().indexOf(q) > -1; });
+    active = Math.max(0, Math.min(active, shown.length - 1));
+    list.innerHTML = shown.length ? shown.map(function(c, i){
+      return '<button type="button" role="option" class="cur-item'+(i === active ? ' on' : '')+(c === value ? ' sel' : '')+'" data-c="'+c+'"><b>'+c+'</b><small>'+esc(curName(c))+'</small></button>';
+    }).join('') : '<div class="cur-empty">No currency matches “'+esc(input.value)+'”.</div>';
+    var on = list.querySelector('.on'); if(on && on.scrollIntoView) on.scrollIntoView({block: 'nearest'});
+  }
+  function show(on){
+    open = on; pop.hidden = !on; root.classList.toggle('open', on);
+    if(on){ input.value = ''; active = Math.max(0, codes().indexOf(value)); draw(); input.focus(); }
+  }
+  function pick(c){ value = c; label(); show(false); if(cfg.onChange) cfg.onChange(c); }
+  btn.addEventListener('click', function(){ show(!open); });
+  input.addEventListener('input', function(){ active = 0; draw(); });
+  input.addEventListener('keydown', function(e){
+    if(e.key === 'ArrowDown'){ e.preventDefault(); active = Math.min(shown.length - 1, active + 1); draw(); }
+    else if(e.key === 'ArrowUp'){ e.preventDefault(); active = Math.max(0, active - 1); draw(); }
+    else if(e.key === 'Enter'){ e.preventDefault(); if(shown[active]) pick(shown[active]); }
+    else if(e.key === 'Escape'){ e.preventDefault(); show(false); btn.focus(); }
+  });
+  list.addEventListener('click', function(e){ var b = e.target.closest('[data-c]'); if(b) pick(b.getAttribute('data-c')); });
+  document.addEventListener('click', function(e){ if(open && !root.contains(e.target)) show(false); });
+  label();
+  return {get: function(){ return value; }, set: function(c){ value = c; label(); }, setRates: function(r){ rates = r; if(open) draw(); }};
+}
+
 /* ==================================================================
    tools / base-converter
    ================================================================== */
@@ -233,10 +271,10 @@ PLAYABLES['base-converter'] = mountBaseConverter;
 function mountCalculator(container){
   mountEmbed(container, 'TOOL / CALCULATOR', function(body){
     body.innerHTML =
-      '<div style="max-width:280px">'+
-        '<div class="tool-output" id="calc-expr" style="min-height:16px;text-align:right;color:var(--muted)"></div>'+
-        '<div class="tool-output" id="calc-val" style="text-align:right;font-size:22px;font-weight:bold">0</div>'+
-        '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:8px">'+
+      '<div class="calc-pad">'+
+        '<div class="tool-output calc-expr" id="calc-expr" style="text-align:right;color:var(--muted)"></div>'+
+        '<div class="tool-output calc-val" id="calc-val" style="text-align:right;font-weight:bold">0</div>'+
+        '<div class="calc-keys">'+
           ['AC','⌫','%','÷','7','8','9','×','4','5','6','−','1','2','3','+','0','.','='].map(function(k){
             var span = k==='0' ? 'grid-column:span 2' : '';
             return '<button class="game-btn'+(['÷','×','−','+','='].indexOf(k)>-1?'':' secondary')+'" data-key="'+k+'" style="'+span+'">'+k+'</button>';
@@ -377,9 +415,9 @@ PLAYABLES['color-converter'] = mountColorConverter;
 function mountColorPicker(container){
   mountEmbed(container, 'TOOL / COLOR PICKER', function(body){
     body.innerHTML =
-      '<input type="file" accept="image/*" id="cp-file" class="tool-row">'+
-      '<canvas id="cp-canvas" style="max-width:100%;cursor:crosshair;border:1px solid var(--line)"></canvas>'+
-      '<div class="tool-output" id="cp-out">Upload an image, then click it to sample a color.</div>';
+      '<div class="tl-split cp-split"><div class="tl-main"><input type="file" accept="image/*,.heic,.heif,.avif,.ico,.bmp,.tif,.tiff,.svg,.gif,.webp,.jfif" id="cp-file" class="tool-row">'+
+      '<canvas id="cp-canvas" style="max-width:100%;cursor:crosshair;border:1px solid var(--line)"></canvas></div>'+
+      '<div class="tl-side"><h3 class="tl-h">'+icon('pipette',{size:14})+' Sampled colour</h3><div class="tool-output" id="cp-out">Upload an image, then click it to sample a color.</div></div></div>';
     var canvas = body.querySelector('#cp-canvas'), ctx = canvas.getContext('2d');
     body.querySelector('#cp-file').addEventListener('change', function(e){
       var file = e.target.files[0]; if(!file) return;
@@ -397,7 +435,7 @@ function mountColorPicker(container){
       var y = Math.floor((e.clientY-rect.top) * (canvas.height/rect.height));
       var d = ctx.getImageData(x,y,1,1).data;
       var hex = '#'+[d[0],d[1],d[2]].map(function(v){return v.toString(16).padStart(2,'0');}).join('');
-      body.querySelector('#cp-out').innerHTML = '<span style="display:inline-block;width:16px;height:16px;background:'+hex+';vertical-align:middle;margin-right:8px"></span>'+hex+' — rgb('+d[0]+', '+d[1]+', '+d[2]+')';
+      body.querySelector('#cp-out').innerHTML = '<span class="cp-sw" style="background:'+hex+'"></span>'+hex+' — rgb('+d[0]+', '+d[1]+', '+d[2]+')';
     });
   });
 }
@@ -527,32 +565,33 @@ PLAYABLES['countdown-timer'] = mountCountdown;
 /* ==================================================================
    tools / currency-converter
    ================================================================== */
-// tools/currency-converter.js
+// tools/currency-converter
 function mountCurrencyConverter(container){
   mountEmbed(container, 'TOOL / CURRENCY CONVERTER', function(body){
     var cur = getCurrency(), fx = null;
     body.innerHTML =
-      '<div class="tool-grid"><div class="field"><label for="cv-amt">Amount</label><input id="cv-amt" inputmode="decimal" value="100" autocomplete="off"></div>'+
-      '<div class="field"><label for="cv-from">From</label><select id="cv-from" data-nopersist></select></div>'+
-      '<div class="field"><label for="cv-to">To</label><select id="cv-to" data-nopersist></select></div></div>'+
-      '<div class="tool-row"><button class="game-btn secondary" id="cv-swap">⇄ Swap</button><button class="game-btn secondary" id="cv-save">Save to history</button></div>'+
-      '<div class="err-text" id="cv-err" role="alert"></div>'+
-      '<div class="result-card"><div class="result-big" id="cv-out">—</div><div class="result-sub" id="cv-rate"></div></div>'+
-      '<div class="result-card"><div class="field-label" style="margin-bottom:8px">The same amount in other currencies</div><dl class="kv" id="cv-more"></dl></div>';
+      '<div class="cv-layout"><div>'+
+        '<div class="tool-grid"><div class="field"><label for="cv-amt">Amount</label><input id="cv-amt" inputmode="decimal" value="100" autocomplete="off"></div>'+
+        '<div class="field"><span class="field-label">From</span><div id="cv-from-w"></div></div>'+
+        '<div class="field"><span class="field-label">To</span><div id="cv-to-w"></div></div></div>'+
+        '<div class="tool-row"><button class="game-btn secondary" id="cv-swap">⇄ Swap</button><button class="game-btn secondary" id="cv-save">Save to history</button></div>'+
+        '<div class="err-text" id="cv-err" role="alert"></div>'+
+        '<div class="result-card"><div class="result-big" id="cv-out">—</div><div class="result-sub" id="cv-rate"></div></div>'+
+        '<div class="result-card"><div class="field-label" style="margin-bottom:8px">The same amount in other currencies</div><dl class="kv" id="cv-more"></dl></div>'+
+      '</div></div>';
     var $ = function(s){ return body.querySelector(s); };
     var hist = toolHistory('currency-converter', {same: function(a, b){ return a.text === b.text; }});
     var from = lsGet('vs-cv-from', 'USD'), to = lsGet('vs-cv-to', cur.code === 'USD' ? 'AUD' : cur.code);
+    var pf = currencyPicker($('#cv-from-w'), {value: from, onChange: function(c){ from = c; run(); }});
+    var pt = currencyPicker($('#cv-to-w'), {value: to, onChange: function(c){ to = c; run(); }});
 
-    function fill(){
-      var rates = fx && fx.rates;
-      $('#cv-from').innerHTML = currencyOptionsHtml(rates, from); $('#cv-to').innerHTML = currencyOptionsHtml(rates, to);
-    }
     function convert(amount, a, b){ return amount / fx.rates[a] * fx.rates[b]; }
+    function amount(){ return parseFloat(String($('#cv-amt').value).replace(/,/g, '')); }
     function run(){
-      if(!fx){ return; }
-      var amt = parseFloat(String($('#cv-amt').value).replace(/,/g, ''));
-      from = $('#cv-from').value; to = $('#cv-to').value;
       lsSet('vs-cv-from', from); lsSet('vs-cv-to', to);
+      if(!fx) return;
+      var amt = amount();
+      if(!fx.rates[from] || !fx.rates[to]){ $('#cv-out').textContent = '—'; $('#cv-rate').textContent = 'No rate available for that pair.'; return; }
       if(isNaN(amt)){ $('#cv-out').textContent = '—'; $('#cv-more').innerHTML = ''; return; }
       var r = convert(1, from, to);
       $('#cv-out').textContent = fmtMoney(convert(amt, from, to), to);
@@ -562,17 +601,17 @@ function mountCurrencyConverter(container){
         .map(function(c){ return '<dt>' + c + '</dt><dd>' + esc(fmtMoney(convert(amt, from, c), c)) + '</dd>'; }).join('');
     }
     function save(){
-      var amt = parseFloat(String($('#cv-amt').value).replace(/,/g, ''));
-      if(!fx || isNaN(amt)) return;
+      var amt = amount();
+      if(!fx || isNaN(amt) || !fx.rates[from] || !fx.rates[to]) return;
       hist.add({text: amt + ' ' + from + ' → ' + to, result: fmtMoney(convert(amt, from, to), to)});
       notify('Saved to history', 'ok');
     }
-    body.addEventListener('input', run); body.addEventListener('change', function(e){ if(e.target.id === 'cv-amt') save(); run(); });
-    $('#cv-swap').addEventListener('click', function(){ var t = from; from = to; to = t; fill(); run(); });
+    $('#cv-amt').addEventListener('input', run);
+    $('#cv-amt').addEventListener('change', function(){ save(); run(); });
+    $('#cv-swap').addEventListener('click', function(){ var t = from; from = to; to = t; pf.set(from); pt.set(to); run(); });
     $('#cv-save').addEventListener('click', save);
     hist.mount(body, {title: 'History', format: function(e){ return {main: e.text, sub: e.result}; }});
-    fxLoad().then(function(c){ fx = c; fill(); run(); }).catch(function(e){ $('#cv-err').textContent = 'Exchange rates couldn’t be loaded. Check your connection and reload.'; });
-    fill();
+    fxLoad().then(function(c){ fx = c; pf.setRates(c.rates); pt.setRates(c.rates); run(); }).catch(function(){ $('#cv-err').textContent = 'Exchange rates couldn’t be loaded. Check your connection and reload.'; });
   });
 }
 PLAYABLES['currency-converter'] = mountCurrencyConverter;
@@ -655,9 +694,9 @@ function mountDeviceInfo(container){
       ['Touch support', nav.maxTouchPoints>0 ? 'Yes ('+nav.maxTouchPoints+' pts)' : 'No'],
     ];
     function render(publicIp){
-      body.innerHTML = '<div style="font:11px monospace">'+
-        (publicIp ? '<div style="margin-bottom:8px"><b>Public IP:</b> '+esc(publicIp)+'</div>' : '<div class="tool-msg">Public IP unavailable (offline or blocked)</div>')+
-        rows.map(function(r){ return '<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--line)"><span style="color:var(--muted)">'+r[0]+'</span><b>'+esc(String(r[1]))+'</b></div>'; }).join('')+
+      body.innerHTML = '<div class="di-wrap">'+
+        (publicIp ? '<div class="di-ip"><b>Public IP:</b> '+esc(publicIp)+'</div>' : '<div class="tool-msg">Public IP unavailable (offline or blocked)</div>')+
+        '<div class="di-grid">'+rows.map(function(r){ return '<div class="di-row"><span>'+r[0]+'</span><b>'+esc(String(r[1]))+'</b></div>'; }).join('')+'</div>'+
       '</div>';
     }
     fetch('https://api.ipify.org?format=json').then(function(r){ return r.json(); }).then(function(d){ render(d.ip); }).catch(function(){ render(null); });
@@ -760,15 +799,16 @@ PLAYABLES['diff-checker'] = mountDiffChecker;
 //   Text    → PDF
 // Results can be saved one by one or together as a ZIP.
 
-function mountFileConverter(container){
-  mountEmbed(container, 'TOOL / FILE CONVERTER', function(body){
+function mountFileConverter(container, cfg){
+  cfg = cfg || {};
+  mountEmbed(container, cfg.label || 'TOOL / FILE CONVERTER', function(body){
     var MODES = {
-      img: {label: 'Images', accept: 'image/*,.heic,.avif', hint: 'PNG, JPG, WebP, GIF, BMP, SVG, AVIF and ICO can be read. HEIC only works in Safari.'},
+      img: {label: 'Images', accept: 'image/*,.heic,.heif,.avif,.ico,.bmp,.tif,.tiff,.svg,.gif,.webp,.jfif', hint: 'PNG, JPG, WebP, GIF, BMP, SVG, AVIF, ICO and more can be read. HEIC/TIFF only open in Safari.'},
       aud: {label: 'Audio → WAV', accept: 'audio/*,video/*', hint: 'Any audio file, or the soundtrack of a video, that your browser can play.'},
       txt: {label: 'Text → PDF', accept: '.txt,.md,.csv,.json,.log,.xml,.html,.js,.css,.py,text/*', hint: 'Plain text files. Output uses a fixed-width font and Latin characters.'},
     };
     body.innerHTML =
-      '<div class="tool-row"><span class="seg" id="fv-seg">' + Object.keys(MODES).map(function(k, i){ return '<button type="button" data-m="' + k + '"' + (i ? '' : ' class="on"') + '>' + MODES[k].label + '</button>'; }).join('') + '</span>'+
+      '<div class="tool-row"' + (cfg.only ? ' hidden' : '') + '><span class="seg" id="fv-seg">' + Object.keys(MODES).map(function(k, i){ return '<button type="button" data-m="' + k + '"' + (i ? '' : ' class="on"') + '>' + MODES[k].label + '</button>'; }).join('') + '</span>'+
         '<select id="fv-mode" style="display:none">' + Object.keys(MODES).map(function(k){ return '<option value="' + k + '">' + k + '</option>'; }).join('') + '</select></div>'+
       '<label class="fv-drop" id="fv-drop" for="fv-file"><b>Drop files here</b> or click to choose<span id="fv-hint"></span></label>'+
       '<input type="file" id="fv-file" multiple hidden data-nopersist>'+
@@ -777,11 +817,12 @@ function mountFileConverter(container){
       '<div class="gd-list" id="fv-list" hidden></div>';
     var $ = function(s){ return body.querySelector(s); };
     var items = [], busy = false, seq = 0;
+    function canEncode(t){ try { return document.createElement('canvas').toDataURL(t).indexOf('data:' + t) === 0; } catch(e){ return false; } }
 
     /* ---------- options per mode ---------- */
     function optsHtml(mode){
       if(mode === 'img') return '<div class="tool-grid">'+
-        '<div class="field"><label for="fv-fmt">Convert to</label><select id="fv-fmt"><option value="png">PNG</option><option value="jpeg">JPEG</option><option value="webp">WebP</option><option value="bmp">BMP</option><option value="ico">ICO (icon)</option><option value="pdf">PDF</option></select></div>'+
+        '<div class="field"><label for="fv-fmt">Convert to</label><select id="fv-fmt"><option value="png">PNG</option><option value="jpeg">JPEG</option><option value="webp">WebP</option>' + (canEncode('image/avif') ? '<option value="avif">AVIF</option>' : '') + '<option value="bmp">BMP</option><option value="ico">ICO (icon)</option><option value="pdf">PDF</option></select></div>'+
         '<div class="field" id="fv-qf"><label for="fv-q">Quality <span id="fv-qv">90</span>%</label><input id="fv-q" type="range" min="10" max="100" value="90"></div>'+
         '<div class="field"><label for="fv-w">Max width (px)</label><input id="fv-w" inputmode="numeric" placeholder="Original"></div>'+
         '<div class="field"><label for="fv-h">Max height (px)</label><input id="fv-h" inputmode="numeric" placeholder="Original"></div>'+
@@ -803,7 +844,7 @@ function mountFileConverter(container){
     function fmtUi(){
       var f = $('#fv-fmt'); if(!f) return;
       var v = f.value;
-      $('#fv-qf').hidden = ['jpeg', 'webp', 'pdf'].indexOf(v) < 0;
+      $('#fv-qf').hidden = ['jpeg', 'webp', 'avif', 'pdf'].indexOf(v) < 0;
       $('#fv-bgf').hidden = ['jpeg', 'bmp', 'pdf'].indexOf(v) < 0;
       $('#fv-icorow').hidden = v !== 'ico'; $('#fv-mergerow').hidden = v !== 'pdf';
       $('#fv-qv').textContent = $('#fv-q').value;
@@ -949,7 +990,7 @@ function mountFileConverter(container){
           it.page = {w: c.width, h: c.height, jpeg: new Uint8Array(ab)};
           return o.merge ? [] : [{blob: buildImagePdf([it.page]), name: baseName(it.file.name) + '.pdf'}];
         });
-        var type = f === 'jpeg' ? 'image/jpeg' : f === 'webp' ? 'image/webp' : 'image/png';
+        var type = f === 'jpeg' ? 'image/jpeg' : f === 'webp' ? 'image/webp' : f === 'avif' ? 'image/avif' : 'image/png';
         return toBlob(c, type, o.q).then(function(b){ return done(b && b.type === type ? b : null, f === 'jpeg' ? 'jpg' : f); });
       });
     }
@@ -1042,6 +1083,7 @@ function mountFileConverter(container){
       $('#fv-mode').value = b.getAttribute('data-m'); $('#fv-mode').dispatchEvent(new Event('change', {bubbles: true}));
     });
     $('#fv-mode').addEventListener('change', setMode);
+    if(cfg.mode) $('#fv-mode').value = cfg.mode;
     setMode();
   });
 }
@@ -1185,46 +1227,44 @@ PLAYABLES['fraction-calculator'] = mountFractionCalc;
 /* ==================================================================
    tools / game-deals
    ================================================================== */
-// tools/game-deals.js
-// Game Deals & Freebies. Prices come from CheapShark (USD) and giveaways from GamerPower;
-// both are read straight from your browser. Prices are converted from USD with a daily
-// exchange rate, so treat them as estimates: stores can charge differently in your region.
-
+// tools/game-deals
+// Game Deals & Freebies. Prices come from CheapShark (USD) and giveaways from GamerPower; both are
+// read straight from your browser. Prices are converted from USD with a daily exchange rate, so they
+// are estimates: stores can charge differently in your region.
 function mountGameDeals(container){
   mountEmbed(container, 'TOOL / GAME DEALS & FREEBIES', function(body){
-    var CS = 'https://www.cheapshark.com/api/1.0', GP = 'https://www.gamerpower.com/api';
+    var CS = 'https://www.cheapshark.com/api/1.0', GP = 'https://www.gamerpower.com/api', PAGE = 24, GPAGE = 18;
     var PLATFORMS = [['', 'All platforms'], ['pc', 'PC'], ['steam', 'Steam'], ['epic-games-store', 'Epic Games'], ['gog', 'GOG'], ['ubisoft', 'Ubisoft'], ['itchio', 'itch.io'], ['battlenet', 'Battle.net'],
       ['ps5', 'PlayStation 5'], ['ps4', 'PlayStation 4'], ['xbox-series-xs', 'Xbox Series X|S'], ['xbox-one', 'Xbox One'], ['switch', 'Nintendo Switch'], ['android', 'Android'], ['ios', 'iOS'], ['vr', 'VR']];
-    var fx = null, stores = null, cur = getCurrency(), page = 0, freeLoaded = false;
+    var fx = null, stores = null, cur = getCurrency(), freeLoaded = false, picker = null;
 
     body.innerHTML =
-      '<div class="tool-row"><span class="seg" id="gd-seg"><button type="button" data-t="deals" class="on">Deals</button><button type="button" data-t="free">Free stuff</button></span>'+
-        '<select id="gd-tab" style="display:none"><option value="deals">deals</option><option value="free">free</option></select>'+
-        '<div class="field" style="width:260px"><label for="gd-cur">Show prices in</label><select id="gd-cur" data-nopersist>'+currencyOptionsHtml(null, cur.code)+'</select></div></div>'+
+      '<div class="gd-top"><span class="seg" id="gd-seg"><button type="button" data-t="deals" class="on">'+icon('tag',{size:14})+' Deals</button><button type="button" data-t="free">'+icon('gift',{size:14})+' Free stuff</button><button type="button" data-t="wish">'+icon('heart',{size:14})+' Wishlist <span id="gd-wcount"></span></button></span>'+
+        '<select id="gd-tab" style="display:none"><option value="deals">deals</option><option value="free">free</option><option value="wish">wish</option></select>'+
+        '<div class="gd-cur"><span class="field-label">Prices in</span><div id="gd-cur-w"></div></div></div>'+
       '<p class="hint" id="gd-fx">Loading exchange rates…</p>'+
 
-      '<div id="gd-deals">'+
-        '<div class="tool-grid">'+
-          '<div class="field"><label for="gd-q">Search a game</label><input id="gd-q" autocomplete="off" placeholder="Leave empty for the top deals right now"></div>'+
-          '<div class="field"><label for="gd-store">Store</label><select id="gd-store"><option value="">All stores</option></select></div>'+
+      '<div id="gd-deals" class="gd-layout">'+
+        '<aside class="gd-filters"><div class="field"><label for="gd-store">Store</label><select id="gd-store"><option value="">All stores</option></select></div>'+
           '<div class="field"><label for="gd-sort">Sort by</label><select id="gd-sort"><option value="Deal Rating">Best deal</option><option value="Price">Lowest price</option><option value="Savings">Biggest discount</option><option value="recent">Newest deals</option><option value="Reviews">Steam reviews</option><option value="Metacritic">Metacritic</option><option value="Title">Title A–Z</option></select></div>'+
           '<div class="field"><label for="gd-max">Max price (<span id="gd-maxc"></span>)</label><input id="gd-max" inputmode="decimal" autocomplete="off" placeholder="No limit"></div>'+
-        '</div>'+
-        '<div class="tool-row"><label><input type="checkbox" id="gd-sale" checked> On sale only</label><button class="game-btn" id="gd-go">Search</button></div>'+
-        '<div class="gd-links" id="gd-links"></div>'+
-        '<div id="gd-results"></div>'+
+          '<label><input type="checkbox" id="gd-sale" checked> On sale only</label></aside>'+
+        '<section class="gd-main"><div class="gd-searchbar">'+icon('search',{size:18})+'<input id="gd-q" type="search" autocomplete="off" placeholder="Search for a game, e.g. Hades or Elden Ring — leave empty for the top deals"><button class="game-btn" id="gd-go">Search</button></div>'+
+          '<div class="gd-links" id="gd-links"></div><div id="gd-results"></div></section>'+
       '</div>'+
 
+      '<div id="gd-wish" hidden><h3 class="gd-h">'+icon('heart',{size:14})+' Your wishlist</h3><p class="hint">Saved in this browser only. Use the heart on any deal to add a game; prices refresh whenever you open this tab.</p><div id="gw-list"></div></div>'+
+
       '<div id="gd-free" hidden>'+
-        '<div class="tool-grid">'+
+        '<div class="gd-searchbar">'+icon('search',{size:18})+'<input id="gf-q" type="search" autocomplete="off" placeholder="Search free games, giveaways and loot by name or platform"></div>'+
+        '<div class="tool-grid gd-fgrid">'+
           '<div class="field"><label for="gf-type">Type</label><select id="gf-type"><option value="">Everything</option><option value="game">Full games</option><option value="loot">In-game loot &amp; DLC</option><option value="beta">Beta access</option></select></div>'+
           '<div class="field"><label for="gf-plat">Platform</label><select id="gf-plat">'+PLATFORMS.map(function(p){ return '<option value="'+p[0]+'">'+p[1]+'</option>'; }).join('')+'</select></div>'+
           '<div class="field"><label for="gf-sort">Sort by</label><select id="gf-sort"><option value="date">Newest</option><option value="value">Highest value</option><option value="popularity">Most popular</option></select></div>'+
-          '<div class="field"><label for="gf-q">Filter by name</label><input id="gf-q" autocomplete="off" placeholder="Type to filter"></div>'+
+          '<div class="field"><span class="field-label">&nbsp;</span><div class="tool-row" style="margin:0"><label><input type="checkbox" id="gf-hide"> Hide claimed</label><button class="game-btn secondary" id="gf-refresh">Refresh</button></div></div>'+
         '</div>'+
-        '<div class="tool-row"><label><input type="checkbox" id="gf-hide"> Hide ones I’ve claimed</label><button class="game-btn secondary" id="gf-refresh">Refresh</button></div>'+
         '<div id="gf-stats" class="gd-stats"></div>'+
-        '<h3 class="gd-h">Giveaways &amp; freebies</h3><div id="gf-list"></div>'+
+        '<h3 class="gd-h">Giveaways &amp; freebies</h3><div id="gf-list"></div><div id="gf-pager"></div>'+
         '<h3 class="gd-h">Free right now on official stores</h3><div id="gf-zero"></div>'+
       '</div>';
 
@@ -1235,22 +1275,26 @@ function mountGameDeals(container){
     function code(){ return fx && fx.rates[cur.code] ? cur.code : 'USD'; }
     function money(usd){ return fmtMoney(usd * rate(), code()); }
     function renderCurrency(){
-      $('#gd-cur').innerHTML = currencyOptionsHtml(fx && fx.rates, cur.code);
       $('#gd-maxc').textContent = code();
-      var note = fx
+      $('#gd-fx').textContent = fx
         ? (cur.code === 'USD' ? 'Prices shown in US dollars (' + cur.why + ')' : 'Prices converted from USD to ' + cur.code + ' (' + curName(cur.code) + ') — from ' + cur.why + (fx.stale ? ' · rates may be out of date' : '') + ' · rates ' + (fx.date || 'today') + '. Stores may charge differently in your region.')
         : 'Exchange rates unavailable — showing US dollars.';
-      $('#gd-fx').textContent = note;
     }
-    $('#gd-cur').addEventListener('change', function(){
-      cur = {code: this.value, why: 'your saved choice'}; setCurrency(cur.code); renderCurrency(); redrawAll();
-    });
+    picker = currencyPicker($('#gd-cur-w'), {value: cur.code, onChange: function(c){ cur = {code: c, why: 'your saved choice'}; setCurrency(c); renderCurrency(); redrawAll(); }});
     $('#gd-maxc').textContent = cur.code;
-
     function msg(text, retry){ return '<div class="empty-state" style="margin:14px 0">' + esc(text) + (retry ? ' <button class="game-btn secondary" data-retry="' + retry + '">Try again</button>' : '') + '</div>'; }
 
+    /* ---- shared pager ---- */
+    function pagerHtml(page, hasNext, total, id){
+      var pages = total ? Math.max(1, total) : null;
+      return '<div class="gd-pager" data-pager="' + id + '"><button type="button" class="game-btn secondary" data-p="first"' + (page === 0 ? ' disabled' : '') + '>« First</button>'+
+        '<button type="button" class="game-btn secondary" data-p="prev"' + (page === 0 ? ' disabled' : '') + '>‹ Previous</button>'+
+        '<span class="gd-pg">Page <b>' + (page + 1) + '</b>' + (pages ? ' of ' + pages : '') + '</span>'+
+        '<button type="button" class="game-btn secondary" data-p="next"' + (hasNext ? '' : ' disabled') + '>Next ›</button></div>';
+    }
+
     /* ---- Deals tab ---- */
-    var lastDeals = [];
+    var dealsPage = 0, dealsTotal = null, pageData = [], dealsHeading = '', dealsLoading = false, lastQ = '';
     function storeName(id){ return (stores && stores[id]) || 'Store ' + id; }
     function shopLinks(q){
       var enc = encodeURIComponent(q || '');
@@ -1258,19 +1302,78 @@ function mountGameDeals(container){
         ['Instant Gaming', 'https://www.instant-gaming.com/en/search/?query=' + enc], ['Eneba', 'https://www.eneba.com/store/all?text=' + enc], ['Kinguin', 'https://www.kinguin.net/listing?active=1&phrase=' + enc],
         ['G2A', 'https://www.g2a.com/search?query=' + enc], ['Gamivo', 'https://www.gamivo.com/catalogsearch/result/?q=' + enc], ['CDKeys', 'https://www.cdkeys.com/catalogsearch/result/?q=' + enc]];
       $('#gd-links').innerHTML = q
-        ? '<span class="field-label">Also search</span>' + L.map(function(l, i){ return '<a class="sec-chip" target="_blank" rel="noopener" href="' + l[1] + '">' + l[0] + (i > 2 ? '' : '') + ' ↗</a>'; }).join('') +
+        ? '<span class="field-label">Also search</span>' + L.map(function(l){ return '<a class="sec-chip" target="_blank" rel="noopener" href="' + l[1] + '">' + l[0] + ' ↗</a>'; }).join('') +
           '<span class="hint" style="width:100%;margin:6px 0 0">Steam, GOG and Epic are official stores. The others resell keys, so check seller ratings before buying.</span>'
         : '';
     }
+    /* dealIDs from the API are already URL-encoded; encoding them again broke the redirect and sent people to the wrong (or no) game. */
+    function dealHref(d){
+      if(String(d.storeID) === '1' && d.steamAppID && d.steamAppID !== 'null' && d.steamAppID !== '0') return 'https://store.steampowered.com/app/' + encodeURIComponent(d.steamAppID) + '/';
+      var id = String(d.dealID || ''); try { id = decodeURIComponent(id); } catch(e) {}
+      return 'https://www.cheapshark.com/redirect?dealID=' + encodeURIComponent(id);
+    }
+    /* ---- price history (CheapShark /games?ids= returns cheapestPriceEver) + wishlist ---- */
+    var hist = {}, wish = lsGet('vs-gd-wishlist', []);
+    if(!Array.isArray(wish)) wish = [];
+    function inWish(gid){ return wish.some(function(w){ return String(w.gameID) === String(gid); }); }
+    function saveWish(){ lsSet('vs-gd-wishlist', wish.slice(0, 200)); $('#gd-wcount').textContent = wish.length ? '(' + wish.length + ')' : ''; }
+    function fmtMonth(unix){ var d = new Date(Number(unix) * 1000); return isNaN(d) ? '' : d.toLocaleDateString(undefined, {month: 'short', year: 'numeric'}); }
+    function loadHistory(list){
+      var ids = []; list.forEach(function(d){ if(d.gameID && !hist[d.gameID] && ids.indexOf(d.gameID) < 0) ids.push(d.gameID); });
+      if(!ids.length) return;
+      fetchJson(CS + '/games?ids=' + ids.slice(0, 25).join(','), {ttl: 3600000}).then(function(o){
+        Object.keys(o || {}).forEach(function(k){ var c = o[k] && o[k].cheapestPriceEver; if(c) hist[k] = {price: parseFloat(c.price), date: c.date}; });
+        if(pageData.length) drawDeals();
+        if(!$('#gd-free').hidden) drawFree();
+      }).catch(function(){ /* badges are a bonus: the list works without them */ });
+    }
+    function histBits(gid, sale){
+      var h = hist[gid]; if(!h || isNaN(h.price)) return {badge: '', sub: ''};
+      if(sale <= h.price + 0.005) return {badge: '<span class="gd-badge low" title="The lowest price CheapShark has ever tracked for this game">' + icon('trendingDown', {size: 11}) + ' ALL-TIME LOW</span>', sub: ''};
+      return {badge: '', sub: ' · Lowest ever ' + money(h.price) + (h.date ? ' (' + fmtMonth(h.date) + ')' : '')};
+    }
+    function heartBtn(gid, on){
+      var label = on ? 'Remove from wishlist' : 'Add to wishlist';
+      return '<button type="button" class="gd-heart' + (on ? ' on' : '') + '" data-wish="' + esc(gid) + '" aria-pressed="' + on + '" aria-label="' + label + '" title="' + label + '">' + icon('heart', {size: 18, fill: on ? 'currentColor' : 'none'}) + '</button>';
+    }
     function dealRow(d){
       var sale = parseFloat(d.salePrice), normal = parseFloat(d.normalPrice), save = Math.round(parseFloat(d.savings));
-      return '<a class="gd-deal" target="_blank" rel="noopener" href="https://www.cheapshark.com/redirect?dealID=' + encodeURIComponent(d.dealID) + '">'+
-        (d.thumb ? '<img class="gd-thumb" src="' + esc(d.thumb) + '" alt="" loading="lazy">' : '<span class="gd-thumb"></span>')+
-        '<div class="gd-main"><div class="gd-title">' + esc(d.title) + '</div><div class="gd-sub">' + esc(storeName(d.storeID)) +
-          (d.steamRatingPercent && d.steamRatingPercent !== '0' ? ' · ' + esc(d.steamRatingPercent) + '% positive' : '') + (d.metacriticScore && d.metacriticScore !== '0' ? ' · Metacritic ' + esc(d.metacriticScore) : '') + '</div></div>'+
+      var hb = histBits(d.gameID, sale), href = esc(dealHref(d));
+      return '<div class="gd-deal" data-gid="' + esc(d.gameID) + '" data-title="' + esc(d.title) + '" data-thumb="' + esc(d.thumb || '') + '" data-steam="' + esc(d.steamAppID || '') + '">'+
+        '<a class="gd-thumbwrap" tabindex="-1" aria-hidden="true" target="_blank" rel="noopener" href="' + href + '">' + (d.thumb ? '<img class="gd-thumb" src="' + esc(d.thumb) + '" alt="" loading="lazy">' : '<span class="gd-thumb"></span>') + '</a>'+
+        '<div class="gd-main"><a class="gd-title gd-open" target="_blank" rel="noopener" href="' + href + '">' + esc(d.title) + '</a>' + hb.badge + '<div class="gd-sub">' + esc(storeName(d.storeID)) +
+          (d.steamRatingPercent && d.steamRatingPercent !== '0' ? ' · ' + esc(d.steamRatingPercent) + '% positive' : '') + (d.metacriticScore && d.metacriticScore !== '0' ? ' · Metacritic ' + esc(d.metacriticScore) : '') + hb.sub + '</div></div>'+
         '<div class="gd-was">' + (normal > sale ? money(normal) : '') + '</div>'+
         '<div class="gd-now' + (sale === 0 ? ' free' : '') + '">' + (sale === 0 ? 'FREE' : money(sale)) + '</div>'+
-        '<div class="gd-off">' + (save > 0 ? '−' + save + '%' : '') + '</div></a>';
+        '<div class="gd-off">' + (save > 0 ? '−' + save + '%' : '') + '</div>'+
+        heartBtn(d.gameID, inWish(d.gameID)) + '</div>';
+    }
+    /* ---- Wishlist tab: current best price per saved game ---- */
+    var wishData = null, wishBusy = false;
+    function drawWish(){
+      var box = $('#gw-list');
+      if(!wish.length){ box.innerHTML = msg('Your wishlist is empty. Search for a game on the Deals tab and tap the heart to save it.'); return; }
+      box.innerHTML = '<div class="gd-list">' + wish.map(function(w){
+        var info = wishData && wishData[w.gameID], deals = info && info.deals || [];
+        var best = deals.slice().sort(function(a, b){ return parseFloat(a.price) - parseFloat(b.price); })[0];
+        var h = info && info.cheapestPriceEver, hp = h ? parseFloat(h.price) : NaN;
+        var href = best ? esc(dealHref({storeID: best.storeID, dealID: best.dealID, steamAppID: info.info && info.info.steamAppID})) : (w.steamAppID ? 'https://store.steampowered.com/app/' + encodeURIComponent(w.steamAppID) + '/' : 'https://www.cheapshark.com/redirect?dealID=');
+        var sale = best ? parseFloat(best.price) : NaN, normal = best ? parseFloat(best.retailPrice) : NaN, save = best ? Math.round(parseFloat(best.savings)) : 0;
+        var low = best && !isNaN(hp) && sale <= hp + 0.005;
+        var sub = wishBusy && !wishData ? 'Checking prices…' : !best ? 'No current price found' : esc(storeName(best.storeID)) + (!low && !isNaN(hp) ? ' · Lowest ever ' + money(hp) + (h.date ? ' (' + fmtMonth(h.date) + ')' : '') : '');
+        return '<div class="gd-deal">'+
+          '<a class="gd-thumbwrap" tabindex="-1" aria-hidden="true" target="_blank" rel="noopener" href="' + href + '">' + (w.thumb ? '<img class="gd-thumb" src="' + esc(w.thumb) + '" alt="" loading="lazy">' : '<span class="gd-thumb"></span>') + '</a>'+
+          '<div class="gd-main"><a class="gd-title gd-open" target="_blank" rel="noopener" href="' + href + '">' + esc(w.title) + '</a>' + (low ? '<span class="gd-badge low">' + icon('trendingDown', {size: 11}) + ' ALL-TIME LOW</span>' : '') + '<div class="gd-sub">' + sub + '</div></div>'+
+          '<div class="gd-was">' + (best && normal > sale ? money(normal) : '') + '</div>'+
+          '<div class="gd-now' + (best && sale === 0 ? ' free' : '') + '">' + (best ? (sale === 0 ? 'FREE' : money(sale)) : '—') + '</div>'+
+          '<div class="gd-off">' + (save > 0 ? '−' + save + '%' : '') + '</div>' + heartBtn(w.gameID, true) + '</div>';
+      }).join('') + '</div>';
+    }
+    function loadWish(){
+      drawWish(); if(!wish.length) return;
+      wishBusy = true;
+      fetchJson(CS + '/games?ids=' + wish.slice(0, 25).map(function(w){ return w.gameID; }).join(','), {ttl: 600000}).then(function(o){ wishData = o || {}; wishBusy = false; drawWish(); })
+        .catch(function(){ wishBusy = false; if(!wishData) $('#gw-list').insertAdjacentHTML('afterbegin', msg('Couldn’t refresh prices from CheapShark. Your saved games are below.', 'wish')); });
     }
     function sortDeals(list, by){
       var n = function(x){ return parseFloat(x) || 0; };
@@ -1279,50 +1382,48 @@ function mountGameDeals(container){
         'recent': function(a, b){ return n(b.lastChange) - n(a.lastChange); }, 'Title': function(a, b){ return a.title.localeCompare(b.title); }}[by];
       return fn ? list.slice().sort(fn) : list;
     }
-    function drawDeals(heading){
-      var maxUsd = parseFloat($('#gd-max').value);
-      var list = lastDeals;
-      if(!isNaN(maxUsd)) list = list.filter(function(d){ return parseFloat(d.salePrice) * rate() <= maxUsd; });
+    /* The list stays on screen while the next page loads, so nothing jumps or blanks. */
+    function drawDeals(){
+      var maxLocal = parseFloat($('#gd-max').value), list = pageData;
+      if(!isNaN(maxLocal)) list = list.filter(function(d){ return parseFloat(d.salePrice) * rate() <= maxLocal; });
       list = sortDeals(list, $('#gd-sort').value);
-      $('#gd-results').innerHTML = (heading ? '<h3 class="gd-h">' + esc(heading) + '</h3>' : '') +
-        (list.length ? '<div class="gd-list">' + list.map(dealRow).join('') + '</div>' + (page >= 0 && lastDeals.length >= (page + 1) * 40 ? '<div class="tool-row"><button class="game-btn secondary" id="gd-more">Load more</button></div>' : '')
-                     : msg('Nothing matches. Try a shorter name, another store, or untick “On sale only”.'));
+      $('#gd-results').innerHTML = '<h3 class="gd-h">' + esc(dealsHeading) + (dealsLoading ? ' · loading…' : '') + '</h3>' +
+        (list.length ? '<div class="gd-list' + (dealsLoading ? ' busy' : '') + '">' + list.map(dealRow).join('') + '</div>' : msg('Nothing matches. Try a shorter name, another store, or untick “On sale only”.')) +
+        pagerHtml(dealsPage, pageData.length >= PAGE, dealsTotal, 'deals');
     }
-    var dealsHeading = '';
-    function searchDeals(more){
+    function searchDeals(page){
       var q = $('#gd-q').value.trim();
-      if(!more){ page = 0; lastDeals = []; }
-      else page++;
-      shopLinks(q);
-      $('#gd-results').innerHTML = '<div class="empty-state" style="margin:14px 0">Searching stores…</div>';
-      var url = CS + '/deals?pageSize=40&pageNumber=' + page + '&sortBy=' + encodeURIComponent($('#gd-sort').value === 'recent' ? 'recent' : $('#gd-sort').value);
+      dealsPage = page || 0; lastQ = q; shopLinks(q);
+      var url = CS + '/deals?pageSize=' + PAGE + '&pageNumber=' + dealsPage + '&sortBy=' + encodeURIComponent($('#gd-sort').value);
       if(['Savings', 'Reviews', 'Metacritic'].indexOf($('#gd-sort').value) > -1) url += '&desc=1';
       if(q) url += '&title=' + encodeURIComponent(q);
       if($('#gd-store').value) url += '&storeID=' + encodeURIComponent($('#gd-store').value);
       if($('#gd-sale').checked || !q) url += '&onSale=1';
       var maxLocal = parseFloat($('#gd-max').value);
       if(!isNaN(maxLocal)) url += '&upperPrice=' + Math.ceil(maxLocal / rate());
-      fetchJson(url, {ttl: 300000}).then(function(deals){
+      dealsLoading = true; dealsHeading = q ? 'Results for “' + q + '”' : 'Top deals right now';
+      if(pageData.length) drawDeals(); else $('#gd-results').innerHTML = '<div class="empty-state" style="margin:14px 0">Searching stores…</div>';
+      var ctl = typeof AbortController === 'function' ? new AbortController() : null, timer = setTimeout(function(){ if(ctl) ctl.abort(); }, 12000);
+      fetch(url, ctl ? {signal: ctl.signal} : undefined).then(function(r){
+        clearTimeout(timer); if(!r.ok) throw new Error('HTTP ' + r.status);
+        var t = parseInt(r.headers.get('X-Total-Page-Count'), 10); dealsTotal = isNaN(t) ? null : t;
+        return r.json();
+      }).then(function(deals){
         if(!Array.isArray(deals)) throw new Error('Unexpected reply');
-        lastDeals = more ? lastDeals.concat(deals) : deals;
-        dealsHeading = q ? 'Results for “' + q + '”' : 'Top deals right now';
-        drawDeals(dealsHeading);
+        pageData = deals; dealsLoading = false; drawDeals(); loadHistory(deals);
       }).catch(function(){
+        dealsLoading = false;
         $('#gd-results').innerHTML = msg('Couldn’t reach CheapShark. Check your connection, then try again.', 'deals');
       });
     }
-    $('#gd-go').addEventListener('click', function(){ searchDeals(false); });
-    $('#gd-q').addEventListener('keydown', function(e){ if(e.key === 'Enter') searchDeals(false); });
-    ['#gd-sort', '#gd-store', '#gd-sale'].forEach(function(s){ $(s).addEventListener('change', function(){ searchDeals(false); }); });
-    $('#gd-max').addEventListener('input', function(){ if(lastDeals.length) drawDeals(dealsHeading); });
-    $('#gd-max').addEventListener('change', function(){ searchDeals(false); });
-    $('#gd-results').addEventListener('click', function(e){
-      if(e.target.id === 'gd-more') searchDeals(true);
-      if(e.target.getAttribute('data-retry')) searchDeals(false);
-    });
+    $('#gd-go').addEventListener('click', function(){ pageData = []; searchDeals(0); });
+    $('#gd-q').addEventListener('keydown', function(e){ if(e.key === 'Enter'){ pageData = []; searchDeals(0); } });
+    ['#gd-sort', '#gd-store', '#gd-sale'].forEach(function(s){ $(s).addEventListener('change', function(){ searchDeals(0); }); });
+    $('#gd-max').addEventListener('input', function(){ if(pageData.length) drawDeals(); });
+    $('#gd-max').addEventListener('change', function(){ searchDeals(0); });
 
     /* ---- Free stuff tab ---- */
-    var claimed = lsGet('vs-gd-claimed', []), giveaways = [], zero = [];
+    var claimed = lsGet('vs-gd-claimed', []), giveaways = [], zero = [], gpage = 0;
     function endsIn(s){
       if(!s || s === 'N/A') return '';
       var t = Date.parse(String(s).replace(' ', 'T') + 'Z'); if(isNaN(t)) return '';
@@ -1344,21 +1445,25 @@ function mountGameDeals(container){
     }
     function drawFree(){
       var q = $('#gf-q').value.trim().toLowerCase(), hide = $('#gf-hide').checked;
-      var list = giveaways.filter(function(g){ return (!q || (g.title + ' ' + g.platforms).toLowerCase().indexOf(q) > -1) && !(hide && claimed.indexOf(g.id) > -1); });
+      var list = giveaways.filter(function(g){ return (!q || (g.title + ' ' + g.platforms + ' ' + (g.description || '')).toLowerCase().indexOf(q) > -1) && !(hide && claimed.indexOf(g.id) > -1); });
       var total = giveaways.reduce(function(s, g){ return s + worthUsd(g.worth); }, 0);
-      $('#gf-stats').innerHTML = giveaways.length ? '<span><b>' + giveaways.length + '</b> active</span><span><b>' + money(total) + '</b> total value</span><span><b>' + claimed.filter(function(id){ return giveaways.some(function(g){ return g.id === id; }); }).length + '</b> claimed by you</span>' : '';
-      $('#gf-list').innerHTML = list.length ? '<div class="gd-grid">' + list.map(giveawayCard).join('') + '</div>' : msg(giveaways.length ? 'Nothing matches that filter.' : 'No active giveaways match those filters right now.');
-      $('#gf-zero').innerHTML = zero.length ? '<div class="gd-list">' + sortDeals(zero, 'Title').filter(function(d){ return !q || d.title.toLowerCase().indexOf(q) > -1; }).map(dealRow).join('') + '</div>' : msg('Nothing is priced at zero on the tracked stores at the moment.');
+      $('#gf-stats').innerHTML = giveaways.length ? '<span><b>' + giveaways.length + '</b> active</span><span><b>' + money(total) + '</b> total value</span><span><b>' + claimed.filter(function(id){ return giveaways.some(function(g){ return g.id === id; }); }).length + '</b> claimed by you</span>' + (q ? '<span><b>' + list.length + '</b> match</span>' : '') : '';
+      var pages = Math.max(1, Math.ceil(list.length / GPAGE)); gpage = Math.min(gpage, pages - 1);
+      var slice = list.slice(gpage * GPAGE, gpage * GPAGE + GPAGE);
+      $('#gf-list').innerHTML = slice.length ? '<div class="gd-grid">' + slice.map(giveawayCard).join('') + '</div>' : msg(giveaways.length ? 'Nothing matches that search.' : 'No active giveaways match those filters right now.');
+      $('#gf-pager').innerHTML = list.length > GPAGE ? pagerHtml(gpage, gpage < pages - 1, pages, 'gf') : '';
+      var z = sortDeals(zero, 'Title').filter(function(d){ return !q || d.title.toLowerCase().indexOf(q) > -1; });
+      $('#gf-zero').innerHTML = z.length ? '<div class="gd-list">' + z.map(dealRow).join('') + '</div>' : msg(zero.length ? 'No store freebies match that search.' : 'Nothing is priced at zero on the tracked stores at the moment.');
     }
     function loadFree(){
-      freeLoaded = true;
-      $('#gf-list').innerHTML = '<div class="empty-state" style="margin:14px 0">Loading giveaways…</div>';
-      $('#gf-zero').innerHTML = '<div class="empty-state" style="margin:14px 0">Loading store freebies…</div>';
+      freeLoaded = true; gpage = 0;
+      if(!giveaways.length) $('#gf-list').innerHTML = '<div class="empty-state" style="margin:14px 0">Loading giveaways…</div>';
+      if(!zero.length) $('#gf-zero').innerHTML = '<div class="empty-state" style="margin:14px 0">Loading store freebies…</div>';
       var url = GP + '/giveaways?sort-by=' + encodeURIComponent($('#gf-sort').value);
       if($('#gf-type').value) url += '&type=' + encodeURIComponent($('#gf-type').value);
       if($('#gf-plat').value) url += '&platform=' + encodeURIComponent($('#gf-plat').value);
       var a = fetchJson(url, {ttl: 300000}).then(function(d){ giveaways = Array.isArray(d) ? d : []; return true; }).catch(function(){ giveaways = []; return false; });
-      var b = fetchJson(CS + '/deals?upperPrice=0&pageSize=40&sortBy=recent', {ttl: 300000}).then(function(d){ zero = Array.isArray(d) ? d : []; return true; }).catch(function(){ zero = []; return false; });
+      var b = fetchJson(CS + '/deals?upperPrice=0&pageSize=40&sortBy=recent', {ttl: 300000}).then(function(d){ zero = Array.isArray(d) ? d : []; loadHistory(zero); return true; }).catch(function(){ zero = []; return false; });
       Promise.all([a, b]).then(function(ok){
         drawFree();
         if(!ok[0]) $('#gf-list').innerHTML = msg('Couldn’t reach GamerPower. Try again in a moment.', 'free');
@@ -1367,24 +1472,45 @@ function mountGameDeals(container){
     }
     ['#gf-type', '#gf-plat', '#gf-sort'].forEach(function(s){ $(s).addEventListener('change', loadFree); });
     $('#gf-refresh').addEventListener('click', loadFree);
-    $('#gf-q').addEventListener('input', drawFree);
-    $('#gf-hide').addEventListener('change', drawFree);
-    $('#gd-free').addEventListener('click', function(e){
+    $('#gf-q').addEventListener('input', function(){ gpage = 0; drawFree(); });
+    $('#gf-hide').addEventListener('change', function(){ gpage = 0; drawFree(); });
+
+    /* ---- clicks: pager, claim, retry ---- */
+    body.addEventListener('click', function(e){
+      var pg = e.target.closest('[data-p]');
+      if(pg){
+        var id = pg.closest('[data-pager]').getAttribute('data-pager'), a = pg.getAttribute('data-p');
+        if(id === 'deals'){ var np = a === 'first' ? 0 : a === 'prev' ? dealsPage - 1 : dealsPage + 1; searchDeals(Math.max(0, np)); $('#gd-results').scrollIntoView({block: 'start'}); }
+        else { gpage = Math.max(0, a === 'first' ? 0 : a === 'prev' ? gpage - 1 : gpage + 1); drawFree(); $('#gf-list').scrollIntoView({block: 'start'}); }
+        return;
+      }
+      var hw = e.target.closest('[data-wish]');
+      if(hw){
+        var gid = hw.getAttribute('data-wish'), row = hw.closest('.gd-deal'), idx = -1;
+        wish.forEach(function(w, i){ if(String(w.gameID) === gid) idx = i; });
+        if(idx > -1) wish.splice(idx, 1);
+        else if(row && row.getAttribute('data-title')) wish.unshift({gameID: gid, title: row.getAttribute('data-title'), thumb: row.getAttribute('data-thumb'), steamAppID: row.getAttribute('data-steam')});
+        saveWish();
+        if(!$('#gd-wish').hidden) drawWish(); else { if(pageData.length) drawDeals(); if(giveaways.length || zero.length) drawFree(); }
+        return;
+      }
       var c = e.target.closest('[data-claim]');
       if(c){
-        var id = Number(c.getAttribute('data-claim')), i = claimed.indexOf(id);
-        if(i > -1) claimed.splice(i, 1); else claimed.push(id);
+        var gid = Number(c.getAttribute('data-claim')), i = claimed.indexOf(gid);
+        if(i > -1) claimed.splice(i, 1); else claimed.push(gid);
         lsSet('vs-gd-claimed', claimed.slice(-300)); drawFree(); return;
       }
-      if(e.target.getAttribute('data-retry')) loadFree();
+      var r = e.target.getAttribute && e.target.getAttribute('data-retry');
+      if(r === 'deals') searchDeals(dealsPage); else if(r === 'free') loadFree(); else if(r === 'wish') loadWish();
     });
 
     /* ---- tabs, images, startup ---- */
     function showTab(){
       var t = $('#gd-tab').value;
-      $('#gd-deals').hidden = t !== 'deals'; $('#gd-free').hidden = t !== 'free';
+      $('#gd-deals').hidden = t !== 'deals'; $('#gd-free').hidden = t !== 'free'; $('#gd-wish').hidden = t !== 'wish';
       Array.prototype.forEach.call(body.querySelectorAll('#gd-seg button'), function(b){ b.classList.toggle('on', b.getAttribute('data-t') === t); });
       if(t === 'free' && !freeLoaded) loadFree();
+      if(t === 'wish') loadWish();
     }
     $('#gd-seg').addEventListener('click', function(e){
       var b = e.target.closest('[data-t]'); if(!b) return;
@@ -1392,18 +1518,18 @@ function mountGameDeals(container){
     });
     $('#gd-tab').addEventListener('change', showTab);
     body.addEventListener('error', function(e){ if(e.target.tagName === 'IMG') e.target.style.visibility = 'hidden'; }, true);
-    function redrawAll(){ if(lastDeals.length) drawDeals(dealsHeading); if(giveaways.length || zero.length) drawFree(); }
+    function redrawAll(){ if(pageData.length) drawDeals(); if(giveaways.length || zero.length) drawFree(); if(!$('#gd-wish').hidden) drawWish(); }
 
-    fxLoad().then(function(c){ fx = c; renderCurrency(); redrawAll(); }).catch(function(){ fx = null; renderCurrency(); });
-    renderCurrency();
+    fxLoad().then(function(c){ fx = c; picker.setRates(c.rates); renderCurrency(); redrawAll(); }).catch(function(){ fx = null; renderCurrency(); });
+    renderCurrency(); saveWish();
     fetchJson(CS + '/stores', {ttl: 86400000}).then(function(list){
       stores = {}; var opts = '';
       list.forEach(function(s){ if(String(s.isActive) === '1'){ stores[s.storeID] = s.storeName; opts += '<option value="' + esc(s.storeID) + '">' + esc(s.storeName) + '</option>'; } });
       var keep = $('#gd-store').value;
       $('#gd-store').innerHTML = '<option value="">All stores</option>' + opts; $('#gd-store').value = keep;
-      if(lastDeals.length) drawDeals(dealsHeading);
+      if(pageData.length) drawDeals();
     }).catch(function(){});
-    setTimeout(function(){ showTab(); searchDeals(false); }, 30);
+    setTimeout(function(){ showTab(); searchDeals(0); }, 30);
   });
 }
 PLAYABLES['game-deals'] = mountGameDeals;
@@ -1415,12 +1541,12 @@ PLAYABLES['game-deals'] = mountGameDeals;
 function mountGradientGenerator(container){
   mountEmbed(container, 'TOOL / CSS GRADIENT', function(body){
     body.innerHTML =
-      '<div id="grad-preview" style="height:120px;border:1px solid var(--line);margin-bottom:12px"></div>'+
-      '<div class="tool-row">'+
-        '<input type="color" id="grad-c1" value="#3b82f6"><input type="color" id="grad-c2" value="#9b7bff">'+
-        '<label style="font:11px monospace">Angle <input type="range" id="grad-angle" min="0" max="360" value="135"></label>'+
+      '<div class="tl-split"><div class="tl-main"><div id="grad-preview" class="grad-preview"></div></div>'+
+      '<div class="tl-side"><h3 class="tl-h">'+icon('palette',{size:14})+' Colours</h3><div class="tool-row grad-controls">'+
+        '<input type="color" id="grad-c1" value="#3b82f6" aria-label="First colour"><input type="color" id="grad-c2" value="#9b7bff" aria-label="Second colour">'+
+        '<label class="grad-angle">Angle <input type="range" id="grad-angle" min="0" max="360" value="135"></label>'+
       '</div>'+
-      '<div class="tool-output" id="grad-out" style="cursor:pointer"></div>';
+      '<div class="tool-output" id="grad-out" style="cursor:pointer"></div></div></div>';
     function update(){
       var c1=body.querySelector('#grad-c1').value, c2=body.querySelector('#grad-c2').value, ang=body.querySelector('#grad-angle').value;
       var css = 'linear-gradient('+ang+'deg, '+c1+', '+c2+')';
@@ -1472,33 +1598,8 @@ PLAYABLES['hash-generator'] = mountHashGenerator;
 /* ==================================================================
    tools / image-converter
    ================================================================== */
-/* ---------------- Image Format Converter ---------------- */
-function mountImageConverter(container){
-  mountEmbed(container, 'TOOL / IMAGE CONVERTER', function(body){
-    body.innerHTML =
-      '<input type="file" accept="image/*" id="ic-file" class="tool-row">'+
-      '<div class="tool-row"><select id="ic-fmt"><option value="image/png">PNG</option><option value="image/jpeg">JPEG</option><option value="image/webp">WebP</option></select></div>'+
-      '<canvas id="ic-canvas" style="max-width:100%;border:1px solid var(--line)"></canvas>'+
-      '<div class="tool-row"><button class="game-btn" id="ic-download">Download</button></div>';
-    var canvas = body.querySelector('#ic-canvas'), ctx = canvas.getContext('2d'), img=null;
-    body.querySelector('#ic-file').addEventListener('change', function(e){
-      var file = e.target.files[0]; if(!file) return;
-      var reader = new FileReader();
-      reader.onload = function(ev){
-        img = new Image();
-        img.onload = function(){ canvas.width=img.width; canvas.height=img.height; ctx.drawImage(img,0,0); };
-        img.src = ev.target.result;
-      };
-      reader.readAsDataURL(file);
-    });
-    body.querySelector('#ic-download').addEventListener('click', function(){
-      if(!img) return;
-      var fmt = body.querySelector('#ic-fmt').value;
-      var ext = fmt==='image/png'?'png':fmt==='image/jpeg'?'jpg':'webp';
-      var a = document.createElement('a'); a.download='converted.'+ext; a.href = canvas.toDataURL(fmt, 0.92); a.click();
-    });
-  });
-}
+// The Image Converter is the File Converter's image mode on its own page.
+function mountImageConverter(container){ mountFileConverter(container, {mode: 'img', only: true, label: 'TOOL / IMAGE CONVERTER'}); }
 PLAYABLES['image-converter'] = mountImageConverter;
 
 /* ==================================================================
@@ -1508,7 +1609,7 @@ PLAYABLES['image-converter'] = mountImageConverter;
 function mountImageResizer(container){
   mountEmbed(container, 'TOOL / IMAGE RESIZER', function(body){
     body.innerHTML =
-      '<input type="file" accept="image/*" id="rz-file" class="tool-row">'+
+      '<input type="file" accept="image/*,.heic,.heif,.avif,.ico,.bmp,.tif,.tiff,.svg,.gif,.webp,.jfif" id="rz-file" class="tool-row">'+
       '<div class="tool-row"><label style="font:11px monospace">Width <input type="number" id="rz-w" value="800" style="width:80px"></label>'+
       '<label style="font:11px monospace">Height <input type="number" id="rz-h" value="600" style="width:80px"></label></div>'+
       '<canvas id="rz-canvas" style="max-width:100%;border:1px solid var(--line)"></canvas>'+
@@ -1543,6 +1644,74 @@ function mountImageResizer(container){
   });
 }
 PLAYABLES['image-resizer'] = mountImageResizer;
+
+/* =====================================================================
+   tools / bulk-image-compressor
+   Compress many images at once in the browser (canvas re-encode to JPEG or WebP). Nothing is uploaded.
+   ===================================================================== */
+function mountBulkCompressor(container){
+  mountEmbed(container, 'TOOL / BULK IMAGE COMPRESSOR', function(body){
+    body.innerHTML =
+      '<div class="tl-split"><div class="tl-main">'+
+        '<label class="drop-zone" for="bc-file">'+icon('upload',{size:18})+' <span>Choose images, or drop them here</span></label>'+
+        '<input type="file" id="bc-file" multiple accept="image/*" style="position:absolute;opacity:0;width:1px;height:1px">'+
+        '<div id="bc-list" class="bc-list"></div></div>'+
+      '<div class="tl-side"><h3 class="tl-h">'+icon('settings',{size:14})+' Settings</h3>'+
+        '<div class="field"><label for="bc-format">Output format</label><select id="bc-format"><option value="image/jpeg">JPEG</option><option value="image/webp">WebP</option></select></div>'+
+        '<div class="field"><label for="bc-q">Quality: <span id="bc-qv">75</span>%</label><input type="range" id="bc-q" min="30" max="95" value="75"></div>'+
+        '<div class="field"><label for="bc-max">Longest side (px, 0 = keep size)</label><input type="number" id="bc-max" min="0" max="12000" value="2000"></div>'+
+        '<div class="tool-row tl-btns"><button class="game-btn" id="bc-run" disabled>'+icon('zap',{size:14})+' Compress</button><button class="game-btn secondary" id="bc-clear" disabled>Clear</button></div>'+
+        '<div class="tool-msg" id="bc-msg">Add some images to begin.</div></div></div>';
+    var files = [], results = [];
+    var list = body.querySelector('#bc-list'), msg = body.querySelector('#bc-msg');
+    function draw(){
+      list.innerHTML = files.map(function(f, i){
+        var r = results[i];
+        return '<div class="bc-row"><span class="bc-name">'+esc(f.name)+'</span><span class="bc-size">'+fmtBytes(f.size)+
+          (r ? ' → <b>'+fmtBytes(r.blob.size)+'</b> <i>'+(r.blob.size < f.size ? '−'+Math.round(100-r.blob.size/f.size*100)+'%' : 'no gain')+'</i>' : '')+'</span>'+
+          (r ? '<a class="game-btn secondary" download="'+esc(r.name)+'" href="'+r.url+'">Save</a>' : '')+'</div>';
+      }).join('');
+      body.querySelector('#bc-run').disabled = !files.length; body.querySelector('#bc-clear').disabled = !files.length;
+    }
+    function add(fl){
+      Array.prototype.forEach.call(fl, function(f){ if(/^image\//.test(f.type)) files.push(f); });
+      results = []; msg.textContent = files.length + ' image' + (files.length === 1 ? '' : 's') + ' ready.'; draw();
+    }
+    body.querySelector('#bc-file').addEventListener('change', function(e){ add(e.target.files); this.value = ''; });
+    var dz = body.querySelector('.drop-zone');
+    ['dragover','dragenter'].forEach(function(ev){ dz.addEventListener(ev, function(e){ e.preventDefault(); dz.classList.add('over'); }); });
+    ['dragleave','drop'].forEach(function(ev){ dz.addEventListener(ev, function(e){ e.preventDefault(); dz.classList.remove('over'); }); });
+    dz.addEventListener('drop', function(e){ if(e.dataTransfer) add(e.dataTransfer.files); });
+    body.querySelector('#bc-q').addEventListener('input', function(){ body.querySelector('#bc-qv').textContent = this.value; });
+    body.querySelector('#bc-clear').addEventListener('click', function(){ results.forEach(function(r){ URL.revokeObjectURL(r.url); }); files = []; results = []; msg.textContent = 'Add some images to begin.'; draw(); });
+    function one(f, fmt, q, max){
+      return new Promise(function(res, rej){
+        var url = URL.createObjectURL(f), im = new Image();
+        im.onerror = function(){ URL.revokeObjectURL(url); rej(new Error('Could not read ' + f.name)); };
+        im.onload = function(){
+          var w = im.naturalWidth, h = im.naturalHeight, k = max > 0 ? Math.min(1, max / Math.max(w, h)) : 1;
+          var c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
+          var x = c.getContext('2d'); if(fmt === 'image/jpeg'){ x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); }
+          x.drawImage(im, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+          c.toBlob(function(b){ if(!b) return rej(new Error('Your browser cannot encode ' + fmt)); res({blob:b, url:URL.createObjectURL(b), name:f.name.replace(/\.[^.]+$/, '') + '-compressed.' + (fmt === 'image/webp' ? 'webp' : 'jpg')}); }, fmt, q);
+        };
+        im.src = url;
+      });
+    }
+    body.querySelector('#bc-run').addEventListener('click', function(){
+      var fmt = body.querySelector('#bc-format').value, q = parseInt(body.querySelector('#bc-q').value, 10) / 100, max = parseInt(body.querySelector('#bc-max').value, 10) || 0;
+      msg.textContent = 'Compressing…'; results = [];
+      var chain = Promise.resolve(), failed = 0;
+      files.forEach(function(f, i){ chain = chain.then(function(){ return one(f, fmt, q, max).then(function(r){ results[i] = r; }).catch(function(){ failed++; }); }).then(function(){ draw(); }); });
+      chain.then(function(){
+        var before = 0, after = 0; results.forEach(function(r, i){ if(r){ before += files[i].size; after += r.blob.size; } });
+        msg.textContent = before ? 'Saved ' + fmtBytes(Math.max(0, before - after)) + ' in total (' + fmtBytes(before) + ' → ' + fmtBytes(after) + ').' + (failed ? ' ' + failed + ' file(s) could not be read.' : '') : 'None of those files could be read as images.';
+      });
+    });
+  });
+}
+PLAYABLES['bulk-image-compressor'] = mountBulkCompressor;
+
 
 /* ==================================================================
    tools / json-csv
@@ -1630,9 +1799,9 @@ PLAYABLES['json-csv'] = mountJsonCsv;
 function mountJsonExplorer(container){
   mountEmbed(container, 'TOOL / JSON EXPLORER', function(body){
     body.innerHTML =
-      '<textarea class="tool-textarea" id="jx-in">{"name":"Velocity Systems","tools":["Snake","Wordle","Tetris"],"stats":{"games":10,"tools":22}}</textarea>'+
-      '<div class="tool-row"><button class="game-btn" id="jx-parse">Parse</button></div>'+
-      '<div class="tool-output" id="jx-tree" style="font-family:monospace"></div>';
+      '<div class="tl-split"><div class="tl-main"><textarea class="tool-textarea" id="jx-in">{"name":"Velocity Systems","tools":["Snake","Wordle","Tetris"],"stats":{"games":10,"tools":22}}</textarea>'+
+      '<div class="tool-row tl-btns" style="justify-content:flex-start"><button class="game-btn" id="jx-parse">'+icon('play',{size:14})+' Parse</button></div></div>'+
+      '<div class="tl-side"><h3 class="tl-h">'+icon('code',{size:14})+' Tree</h3><div class="tool-output jx-tree" id="jx-tree" style="font-family:monospace;margin-top:0"></div></div></div>';
     function node(val, key, indent){
       var pad = '<span style="display:inline-block;width:'+(indent*16)+'px"></span>';
       if(val===null) return '<div>'+pad+'<b>'+key+'</b>: <span style="color:var(--muted)">null</span></div>';
@@ -1663,10 +1832,10 @@ PLAYABLES['json-explorer'] = mountJsonExplorer;
 function mountJsonFormatter(container){
   mountEmbed(container, 'TOOL / JSON FORMATTER', function(body){
     body.innerHTML =
-      '<textarea class="tool-textarea" id="json-in" placeholder=\'Paste JSON here, e.g. {"a":1,"b":[1,2,3]}\'></textarea>'+
-      '<div class="tool-row"><button class="game-btn" id="json-format">Format</button><button class="game-btn secondary" id="json-minify">Minify</button></div>'+
+      '<div class="tl-split"><div class="tl-main"><textarea class="tool-textarea" id="json-in" spellcheck="false" placeholder=\'Paste JSON here, e.g. {"a":1,"b":[1,2,3]}\'></textarea></div>'+
+      '<div class="tl-side"><h3 class="tl-h">'+icon('code',{size:14})+' Actions</h3><div class="tool-row tl-btns" style="margin-top:0"><button class="game-btn" id="json-format">Format</button><button class="game-btn secondary" id="json-minify">Minify</button></div>'+
       '<div class="tool-msg" id="json-msg"></div>'+
-      '<div class="tool-output" id="json-out" style="display:none"></div>';
+      '<div class="tool-output" id="json-out" style="display:none"></div></div></div>';
     var input = body.querySelector('#json-in');
     var msg = body.querySelector('#json-msg');
     var out = body.querySelector('#json-out');
@@ -1904,9 +2073,9 @@ PLAYABLES['notepad'] = mountNotepad;
 function mountPaletteGenerator(container){
   mountEmbed(container, 'TOOL / COLOR PALETTE', function(body){
     body.innerHTML =
-      '<div id="pal-swatches" style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-bottom:12px"></div>'+
-      '<div class="tool-row"><button class="game-btn" id="pal-gen">Generate</button></div>'+
-      '<div class="tool-output" id="pal-out"></div>';
+      '<div class="tl-split pal-split"><div class="tl-main"><div id="pal-swatches" class="pal-swatches"></div></div>'+
+      '<div class="tl-side"><h3 class="tl-h">'+icon('palette',{size:14})+' Palette</h3><div class="tool-row tl-btns"><button class="game-btn" id="pal-gen">'+icon('refresh',{size:14})+' Generate</button></div>'+
+      '<div class="tool-output" id="pal-out"></div></div></div>';
     var colors = [];
     function rand(min,max){ return min+Math.random()*(max-min); }
     function hslToHex(h,s,l){
@@ -1919,7 +2088,7 @@ function mountPaletteGenerator(container){
     function generate(){
       colors = [];
       for(var i=0;i<5;i++) colors.push(hslToHex(rand(0,360), rand(40,80), rand(30,65)));
-      body.querySelector('#pal-swatches').innerHTML = colors.map(function(c){ return '<div style="aspect-ratio:1;background:'+c+';cursor:pointer" data-c="'+c+'"></div>'; }).join('');
+      body.querySelector('#pal-swatches').innerHTML = colors.map(function(c){ return '<div class="pal-sw" style="background:'+c+'" data-c="'+c+'" title="'+c+'"></div>'; }).join('');
       Array.prototype.slice.call(body.querySelectorAll('[data-c]')).forEach(function(el){ el.addEventListener('click', function(){ navigator.clipboard.writeText(el.getAttribute('data-c')); }); });
       body.querySelector('#pal-out').textContent = colors.join('  ');
     }
@@ -1936,18 +2105,17 @@ PLAYABLES['palette-generator'] = mountPaletteGenerator;
 function mountPasswordGenerator(container){
   mountEmbed(container, 'TOOL / PASSWORD GENERATOR', function(body){
     body.innerHTML =
-      '<div class="tool-output" id="pw-out" style="cursor:pointer;font-size:15px;letter-spacing:1px">Click Generate</div>'+
-      '<div class="tool-row">'+
-        '<label style="font:11px monospace">Length <span id="pw-len-val">20</span> <input type="range" id="pw-len" min="6" max="64" value="20"></label>'+
-      '</div>'+
-      '<div class="tool-row">'+
-        '<label style="font:11px monospace"><input type="checkbox" id="pw-upper" checked> Uppercase</label>'+
-        '<label style="font:11px monospace"><input type="checkbox" id="pw-lower" checked> Lowercase</label>'+
-        '<label style="font:11px monospace"><input type="checkbox" id="pw-num" checked> Numbers</label>'+
-        '<label style="font:11px monospace"><input type="checkbox" id="pw-sym" checked> Symbols</label>'+
-      '</div>'+
-      '<div class="tool-row"><button class="game-btn" id="pw-gen">Generate</button><button class="game-btn secondary" id="pw-copy">Copy</button></div>'+
-      '<div class="tool-msg" id="pw-strength"></div>';
+      '<div class="tl-split"><div class="tl-main"><div class="tool-output pw-out" id="pw-out" style="cursor:pointer">Click Generate</div>'+
+      '<div class="tool-row tl-btns"><button class="game-btn" id="pw-gen">Generate</button><button class="game-btn secondary" id="pw-copy">Copy</button></div>'+
+      '<div class="tool-msg" id="pw-strength"></div></div>'+
+      '<div class="tl-side"><h3 class="tl-h">'+icon('settings',{size:14})+' Options</h3>'+
+      '<div class="field"><label for="pw-len">Length: <span id="pw-len-val">20</span></label><input type="range" id="pw-len" min="6" max="64" value="20"></div>'+
+      '<div class="opt-grid">'+
+        '<label class="opt"><input type="checkbox" id="pw-upper" checked> Uppercase</label>'+
+        '<label class="opt"><input type="checkbox" id="pw-lower" checked> Lowercase</label>'+
+        '<label class="opt"><input type="checkbox" id="pw-num" checked> Numbers</label>'+
+        '<label class="opt"><input type="checkbox" id="pw-sym" checked> Symbols</label>'+
+      '</div></div></div>';
     var UPPER='ABCDEFGHIJKLMNOPQRSTUVWXYZ', LOWER='abcdefghijklmnopqrstuvwxyz', NUMS='0123456789', SYMS='!@#$%^&*()-_=+[]{}|;:,.<>?';
     function generate(){
       var len = parseInt(body.querySelector('#pw-len').value,10);
@@ -2034,22 +2202,32 @@ PLAYABLES['percentage-calculator'] = mountPercentCalc;
 function mountPomodoro(container){
   mountEmbed(container, 'TOOL / POMODORO', function(body){
     body.innerHTML =
-      '<div class="tool-output" id="pom-display" style="text-align:center;font-size:36px;font-weight:bold">25:00</div>'+
-      '<div class="tool-msg" id="pom-phase" style="text-align:center">Focus</div>'+
-      '<div class="tool-row" style="justify-content:center"><button class="game-btn" id="pom-toggle">Start</button><button class="game-btn secondary" id="pom-reset">Reset</button></div>'+
-      '<div class="tool-row"><label style="font:11px monospace">Focus min <input type="number" id="pom-focus" value="25" min="1" max="90" style="width:50px"></label>'+
-      '<label style="font:11px monospace">Break min <input type="number" id="pom-break" value="5" min="1" max="30" style="width:50px"></label></div>';
+      '<div class="tl-split"><div class="tl-main"><div class="tool-output big-readout" id="pom-display">25:00</div>'+
+      '<div class="tool-msg tl-phase" id="pom-phase">Focus</div>'+
+      '<div class="tool-row tl-btns" style="justify-content:center"><button class="game-btn" id="pom-toggle">Start</button><button class="game-btn secondary" id="pom-reset">Reset</button></div></div>'+
+      '<div class="tl-side"><h3 class="tl-h">'+icon('settings',{size:14})+' Session lengths</h3><div class="tool-grid">'+
+      '<div class="field"><label for="pom-focus">Focus (minutes)</label><input type="number" id="pom-focus" value="25" min="1" max="90"></div>'+
+      '<div class="field"><label for="pom-break">Break (minutes)</label><input type="number" id="pom-break" value="5" min="1" max="30"></div></div></div></div>';
     var seconds=25*60, timer=null, running=false, phase='focus';
     function update(){
       var m=Math.floor(seconds/60), s=seconds%60;
       body.querySelector('#pom-display').textContent = m+':'+String(s).padStart(2,'0');
     }
+    function lengthFor(ph){
+      var el = body.querySelector(ph==='focus' ? '#pom-focus' : '#pom-break'), v = parseInt(el.value,10);
+      return v>0 ? Math.min(v, ph==='focus' ? 90 : 30) : (ph==='focus' ? 25 : 5);
+    }
+    /* Changing a length while the timer is idle (or paused at the start of that phase) updates the clock straight away. */
+    ['#pom-focus','#pom-break'].forEach(function(sel){
+      body.querySelector(sel).addEventListener('input', function(){
+        if(!running && (sel==='#pom-focus') === (phase==='focus')){ seconds = lengthFor(phase)*60; update(); }
+      });
+    });
     function tick(){
       seconds--;
       if(seconds<=0){
         phase = phase==='focus' ? 'break' : 'focus';
-        var mins = phase==='focus' ? parseInt(body.querySelector('#pom-focus').value,10) : parseInt(body.querySelector('#pom-break').value,10);
-        seconds = mins*60;
+        seconds = lengthFor(phase)*60;
         body.querySelector('#pom-phase').textContent = phase==='focus' ? 'Focus' : 'Break';
       }
       update();
@@ -2060,7 +2238,7 @@ function mountPomodoro(container){
     });
     body.querySelector('#pom-reset').addEventListener('click', function(){
       running=false; clearInterval(timer); phase='focus';
-      seconds = (parseInt(body.querySelector('#pom-focus').value,10)||25)*60;
+      seconds = lengthFor('focus')*60;
       body.querySelector('#pom-phase').textContent='Focus';
       body.querySelector('#pom-toggle').textContent='Start';
       update();
@@ -2073,32 +2251,190 @@ PLAYABLES['pomodoro'] = mountPomodoro;
 /* ==================================================================
    tools / qr-generator
    ================================================================== */
-/* ---------------- QR Generator (lazy-loads a small external encoder) ---------------- */
+/* ---------------- QR Code Generator ----------------
+   QR encoding: "qrcode-generator" by Kazuhiko Arase (MIT licence), minified below.
+   Everything else (styles, shapes, logo, SVG/PNG export) is this site's own code.
+   "QR Code" is a registered trademark of DENSO WAVE INCORPORATED. */
+var QR = (function(){ var module = {exports: {}}, exports = module.exports, define;
+var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],f={},c=function(t,r){o=function(t){for(var r=new Array(t),e=0;e<t;e+=1){r[e]=new Array(t);for(var n=0;n<t;n+=1)r[e][n]=null}return r}(i=4*e+17),l(0,0),l(i-7,0),l(0,i-7),s(),h(),d(t,r),e>=7&&v(t),null==a&&(a=p(e,n,u)),w(a,r)},l=function(t,r){for(var e=-1;e<=7;e+=1)if(!(t+e<=-1||i<=t+e))for(var n=-1;n<=7;n+=1)r+n<=-1||i<=r+n||(o[t+e][r+n]=0<=e&&e<=6&&(0==n||6==n)||0<=n&&n<=6&&(0==e||6==e)||2<=e&&e<=4&&2<=n&&n<=4)},h=function(){for(var t=8;t<i-8;t+=1)null==o[t][6]&&(o[t][6]=t%2==0);for(var r=8;r<i-8;r+=1)null==o[6][r]&&(o[6][r]=r%2==0)},s=function(){for(var t=B.getPatternPosition(e),r=0;r<t.length;r+=1)for(var n=0;n<t.length;n+=1){var i=t[r],a=t[n];if(null==o[i][a])for(var u=-2;u<=2;u+=1)for(var f=-2;f<=2;f+=1)o[i+u][a+f]=-2==u||2==u||-2==f||2==f||0==u&&0==f}},v=function(t){for(var r=B.getBCHTypeNumber(e),n=0;n<18;n+=1){var a=!t&&1==(r>>n&1);o[Math.floor(n/3)][n%3+i-8-3]=a}for(n=0;n<18;n+=1){a=!t&&1==(r>>n&1);o[n%3+i-8-3][Math.floor(n/3)]=a}},d=function(t,r){for(var e=n<<3|r,a=B.getBCHTypeInfo(e),u=0;u<15;u+=1){var f=!t&&1==(a>>u&1);u<6?o[u][8]=f:u<8?o[u+1][8]=f:o[i-15+u][8]=f}for(u=0;u<15;u+=1){f=!t&&1==(a>>u&1);u<8?o[8][i-u-1]=f:u<9?o[8][15-u-1+1]=f:o[8][15-u-1]=f}o[i-8][8]=!t},w=function(t,r){for(var e=-1,n=i-1,a=7,u=0,f=B.getMaskFunction(r),c=i-1;c>0;c-=2)for(6==c&&(c-=1);;){for(var g=0;g<2;g+=1)if(null==o[n][c-g]){var l=!1;u<t.length&&(l=1==(t[u]>>>a&1)),f(n,c-g)&&(l=!l),o[n][c-g]=l,-1==(a-=1)&&(u+=1,a=7)}if((n+=e)<0||i<=n){n-=e,e=-e;break}}},p=function(t,r,e){for(var n=A.getRSBlocks(t,r),o=b(),i=0;i<e.length;i+=1){var a=e[i];o.put(a.getMode(),4),o.put(a.getLength(),B.getLengthInBits(a.getMode(),t)),a.write(o)}var u=0;for(i=0;i<n.length;i+=1)u+=n[i].dataCount;if(o.getLengthInBits()>8*u)throw"code length overflow. ("+o.getLengthInBits()+">"+8*u+")";for(o.getLengthInBits()+4<=8*u&&o.put(0,4);o.getLengthInBits()%8!=0;)o.putBit(!1);for(;!(o.getLengthInBits()>=8*u||(o.put(236,8),o.getLengthInBits()>=8*u));)o.put(17,8);return function(t,r){for(var e=0,n=0,o=0,i=new Array(r.length),a=new Array(r.length),u=0;u<r.length;u+=1){var f=r[u].dataCount,c=r[u].totalCount-f;n=Math.max(n,f),o=Math.max(o,c),i[u]=new Array(f);for(var g=0;g<i[u].length;g+=1)i[u][g]=255&t.getBuffer()[g+e];e+=f;var l=B.getErrorCorrectPolynomial(c),h=k(i[u],l.getLength()-1).mod(l);for(a[u]=new Array(l.getLength()-1),g=0;g<a[u].length;g+=1){var s=g+h.getLength()-a[u].length;a[u][g]=s>=0?h.getAt(s):0}}var v=0;for(g=0;g<r.length;g+=1)v+=r[g].totalCount;var d=new Array(v),w=0;for(g=0;g<n;g+=1)for(u=0;u<r.length;u+=1)g<i[u].length&&(d[w]=i[u][g],w+=1);for(g=0;g<o;g+=1)for(u=0;u<r.length;u+=1)g<a[u].length&&(d[w]=a[u][g],w+=1);return d}(o,n)};f.addData=function(t,r){var e=null;switch(r=r||"Byte"){case"Numeric":e=M(t);break;case"Alphanumeric":e=x(t);break;case"Byte":e=m(t);break;case"Kanji":e=L(t);break;default:throw"mode:"+r}u.push(e),a=null},f.isDark=function(t,r){if(t<0||i<=t||r<0||i<=r)throw t+","+r;return o[t][r]},f.getModuleCount=function(){return i},f.make=function(){if(e<1){for(var t=1;t<40;t++){for(var r=A.getRSBlocks(t,n),o=b(),i=0;i<u.length;i++){var a=u[i];o.put(a.getMode(),4),o.put(a.getLength(),B.getLengthInBits(a.getMode(),t)),a.write(o)}var g=0;for(i=0;i<r.length;i++)g+=r[i].dataCount;if(o.getLengthInBits()<=8*g)break}e=t}c(!1,function(){for(var t=0,r=0,e=0;e<8;e+=1){c(!0,e);var n=B.getLostPoint(f);(0==e||t>n)&&(t=n,r=e)}return r}())},f.createTableTag=function(t,r){t=t||2;var e="";e+='<table style="',e+=" border-width: 0px; border-style: none;",e+=" border-collapse: collapse;",e+=" padding: 0px; margin: "+(r=void 0===r?4*t:r)+"px;",e+='">',e+="<tbody>";for(var n=0;n<f.getModuleCount();n+=1){e+="<tr>";for(var o=0;o<f.getModuleCount();o+=1)e+='<td style="',e+=" border-width: 0px; border-style: none;",e+=" border-collapse: collapse;",e+=" padding: 0px; margin: 0px;",e+=" width: "+t+"px;",e+=" height: "+t+"px;",e+=" background-color: ",e+=f.isDark(n,o)?"#000000":"#ffffff",e+=";",e+='"/>';e+="</tr>"}return e+="</tbody>",e+="</table>"},f.createSvgTag=function(t,r,e,n){var o={};"object"==typeof arguments[0]&&(t=(o=arguments[0]).cellSize,r=o.margin,e=o.alt,n=o.title),t=t||2,r=void 0===r?4*t:r,(e="string"==typeof e?{text:e}:e||{}).text=e.text||null,e.id=e.text?e.id||"qrcode-description":null,(n="string"==typeof n?{text:n}:n||{}).text=n.text||null,n.id=n.text?n.id||"qrcode-title":null;var i,a,u,c,g=f.getModuleCount()*t+2*r,l="";for(c="l"+t+",0 0,"+t+" -"+t+",0 0,-"+t+"z ",l+='<svg version="1.1" xmlns="http://www.w3.org/2000/svg"',l+=o.scalable?"":' width="'+g+'px" height="'+g+'px"',l+=' viewBox="0 0 '+g+" "+g+'" ',l+=' preserveAspectRatio="xMinYMin meet"',l+=n.text||e.text?' role="img" aria-labelledby="'+y([n.id,e.id].join(" ").trim())+'"':"",l+=">",l+=n.text?'<title id="'+y(n.id)+'">'+y(n.text)+"</title>":"",l+=e.text?'<description id="'+y(e.id)+'">'+y(e.text)+"</description>":"",l+='<rect width="100%" height="100%" fill="white" cx="0" cy="0"/>',l+='<path d="',a=0;a<f.getModuleCount();a+=1)for(u=a*t+r,i=0;i<f.getModuleCount();i+=1)f.isDark(a,i)&&(l+="M"+(i*t+r)+","+u+c);return l+='" stroke="transparent" fill="black"/>',l+="</svg>"},f.createDataURL=function(t,r){t=t||2,r=void 0===r?4*t:r;var e=f.getModuleCount()*t+2*r,n=r,o=e-r;return I(e,e,function(r,e){if(n<=r&&r<o&&n<=e&&e<o){var i=Math.floor((r-n)/t),a=Math.floor((e-n)/t);return f.isDark(a,i)?0:1}return 1})},f.createImgTag=function(t,r,e){t=t||2,r=void 0===r?4*t:r;var n=f.getModuleCount()*t+2*r,o="";return o+="<img",o+=' src="',o+=f.createDataURL(t,r),o+='"',o+=' width="',o+=n,o+='"',o+=' height="',o+=n,o+='"',e&&(o+=' alt="',o+=y(e),o+='"'),o+="/>"};var y=function(t){for(var r="",e=0;e<t.length;e+=1){var n=t.charAt(e);switch(n){case"<":r+="&lt;";break;case">":r+="&gt;";break;case"&":r+="&amp;";break;case'"':r+="&quot;";break;default:r+=n}}return r};return f.createASCII=function(t,r){if((t=t||1)<2)return function(t){t=void 0===t?2:t;var r,e,n,o,i,a=1*f.getModuleCount()+2*t,u=t,c=a-t,g={"██":"█","█ ":"▀"," █":"▄","  ":" "},l={"██":"▀","█ ":"▀"," █":" ","  ":" "},h="";for(r=0;r<a;r+=2){for(n=Math.floor((r-u)/1),o=Math.floor((r+1-u)/1),e=0;e<a;e+=1)i="█",u<=e&&e<c&&u<=r&&r<c&&f.isDark(n,Math.floor((e-u)/1))&&(i=" "),u<=e&&e<c&&u<=r+1&&r+1<c&&f.isDark(o,Math.floor((e-u)/1))?i+=" ":i+="█",h+=t<1&&r+1>=c?l[i]:g[i];h+="\n"}return a%2&&t>0?h.substring(0,h.length-a-1)+Array(a+1).join("▀"):h.substring(0,h.length-1)}(r);t-=1,r=void 0===r?2*t:r;var e,n,o,i,a=f.getModuleCount()*t+2*r,u=r,c=a-r,g=Array(t+1).join("██"),l=Array(t+1).join("  "),h="",s="";for(e=0;e<a;e+=1){for(o=Math.floor((e-u)/t),s="",n=0;n<a;n+=1)i=1,u<=n&&n<c&&u<=e&&e<c&&f.isDark(o,Math.floor((n-u)/t))&&(i=0),s+=i?g:l;for(o=0;o<t;o+=1)h+=s+"\n"}return h.substring(0,h.length-1)},f.renderTo2dContext=function(t,r){r=r||2;for(var e=f.getModuleCount(),n=0;n<e;n++)for(var o=0;o<e;o++)t.fillStyle=f.isDark(n,o)?"black":"white",t.fillRect(o*r,n*r,r,r)},f};t.stringToBytes=(t.stringToBytesFuncs={default:function(t){for(var r=[],e=0;e<t.length;e+=1){var n=t.charCodeAt(e);r.push(255&n)}return r}}).default,t.createStringToBytes=function(t,r){var e=function(){for(var e=S(t),n=function(){var t=e.read();if(-1==t)throw"eof";return t},o=0,i={};;){var a=e.read();if(-1==a)break;var u=n(),f=n()<<8|n();i[String.fromCharCode(a<<8|u)]=f,o+=1}if(o!=r)throw o+" != "+r;return i}(),n="?".charCodeAt(0);return function(t){for(var r=[],o=0;o<t.length;o+=1){var i=t.charCodeAt(o);if(i<128)r.push(i);else{var a=e[t.charAt(o)];"number"==typeof a?(255&a)==a?r.push(a):(r.push(a>>>8),r.push(255&a)):r.push(n)}}return r}};var r,e,n,o,i,a=1,u=2,f=4,c=8,g={L:1,M:0,Q:3,H:2},l=0,h=1,s=2,v=3,d=4,w=5,p=6,y=7,B=(r=[[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50],[6,30,54],[6,32,58],[6,34,62],[6,26,46,66],[6,26,48,70],[6,26,50,74],[6,30,54,78],[6,30,56,82],[6,30,58,86],[6,34,62,90],[6,28,50,72,94],[6,26,50,74,98],[6,30,54,78,102],[6,28,54,80,106],[6,32,58,84,110],[6,30,58,86,114],[6,34,62,90,118],[6,26,50,74,98,122],[6,30,54,78,102,126],[6,26,52,78,104,130],[6,30,56,82,108,134],[6,34,60,86,112,138],[6,30,58,86,114,142],[6,34,62,90,118,146],[6,30,54,78,102,126,150],[6,24,50,76,102,128,154],[6,28,54,80,106,132,158],[6,32,58,84,110,136,162],[6,26,54,82,110,138,166],[6,30,58,86,114,142,170]],e=1335,n=7973,i=function(t){for(var r=0;0!=t;)r+=1,t>>>=1;return r},(o={}).getBCHTypeInfo=function(t){for(var r=t<<10;i(r)-i(e)>=0;)r^=e<<i(r)-i(e);return 21522^(t<<10|r)},o.getBCHTypeNumber=function(t){for(var r=t<<12;i(r)-i(n)>=0;)r^=n<<i(r)-i(n);return t<<12|r},o.getPatternPosition=function(t){return r[t-1]},o.getMaskFunction=function(t){switch(t){case l:return function(t,r){return(t+r)%2==0};case h:return function(t,r){return t%2==0};case s:return function(t,r){return r%3==0};case v:return function(t,r){return(t+r)%3==0};case d:return function(t,r){return(Math.floor(t/2)+Math.floor(r/3))%2==0};case w:return function(t,r){return t*r%2+t*r%3==0};case p:return function(t,r){return(t*r%2+t*r%3)%2==0};case y:return function(t,r){return(t*r%3+(t+r)%2)%2==0};default:throw"bad maskPattern:"+t}},o.getErrorCorrectPolynomial=function(t){for(var r=k([1],0),e=0;e<t;e+=1)r=r.multiply(k([1,C.gexp(e)],0));return r},o.getLengthInBits=function(t,r){if(1<=r&&r<10)switch(t){case a:return 10;case u:return 9;case f:case c:return 8;default:throw"mode:"+t}else if(r<27)switch(t){case a:return 12;case u:return 11;case f:return 16;case c:return 10;default:throw"mode:"+t}else{if(!(r<41))throw"type:"+r;switch(t){case a:return 14;case u:return 13;case f:return 16;case c:return 12;default:throw"mode:"+t}}},o.getLostPoint=function(t){for(var r=t.getModuleCount(),e=0,n=0;n<r;n+=1)for(var o=0;o<r;o+=1){for(var i=0,a=t.isDark(n,o),u=-1;u<=1;u+=1)if(!(n+u<0||r<=n+u))for(var f=-1;f<=1;f+=1)o+f<0||r<=o+f||0==u&&0==f||a==t.isDark(n+u,o+f)&&(i+=1);i>5&&(e+=3+i-5)}for(n=0;n<r-1;n+=1)for(o=0;o<r-1;o+=1){var c=0;t.isDark(n,o)&&(c+=1),t.isDark(n+1,o)&&(c+=1),t.isDark(n,o+1)&&(c+=1),t.isDark(n+1,o+1)&&(c+=1),0!=c&&4!=c||(e+=3)}for(n=0;n<r;n+=1)for(o=0;o<r-6;o+=1)t.isDark(n,o)&&!t.isDark(n,o+1)&&t.isDark(n,o+2)&&t.isDark(n,o+3)&&t.isDark(n,o+4)&&!t.isDark(n,o+5)&&t.isDark(n,o+6)&&(e+=40);for(o=0;o<r;o+=1)for(n=0;n<r-6;n+=1)t.isDark(n,o)&&!t.isDark(n+1,o)&&t.isDark(n+2,o)&&t.isDark(n+3,o)&&t.isDark(n+4,o)&&!t.isDark(n+5,o)&&t.isDark(n+6,o)&&(e+=40);var g=0;for(o=0;o<r;o+=1)for(n=0;n<r;n+=1)t.isDark(n,o)&&(g+=1);return e+=Math.abs(100*g/r/r-50)/5*10},o),C=function(){for(var t=new Array(256),r=new Array(256),e=0;e<8;e+=1)t[e]=1<<e;for(e=8;e<256;e+=1)t[e]=t[e-4]^t[e-5]^t[e-6]^t[e-8];for(e=0;e<255;e+=1)r[t[e]]=e;var n={glog:function(t){if(t<1)throw"glog("+t+")";return r[t]},gexp:function(r){for(;r<0;)r+=255;for(;r>=256;)r-=255;return t[r]}};return n}();function k(t,r){if(void 0===t.length)throw t.length+"/"+r;var e=function(){for(var e=0;e<t.length&&0==t[e];)e+=1;for(var n=new Array(t.length-e+r),o=0;o<t.length-e;o+=1)n[o]=t[o+e];return n}(),n={getAt:function(t){return e[t]},getLength:function(){return e.length},multiply:function(t){for(var r=new Array(n.getLength()+t.getLength()-1),e=0;e<n.getLength();e+=1)for(var o=0;o<t.getLength();o+=1)r[e+o]^=C.gexp(C.glog(n.getAt(e))+C.glog(t.getAt(o)));return k(r,0)},mod:function(t){if(n.getLength()-t.getLength()<0)return n;for(var r=C.glog(n.getAt(0))-C.glog(t.getAt(0)),e=new Array(n.getLength()),o=0;o<n.getLength();o+=1)e[o]=n.getAt(o);for(o=0;o<t.getLength();o+=1)e[o]^=C.gexp(C.glog(t.getAt(o))+r);return k(e,0).mod(t)}};return n}var A=function(){var t=[[1,26,19],[1,26,16],[1,26,13],[1,26,9],[1,44,34],[1,44,28],[1,44,22],[1,44,16],[1,70,55],[1,70,44],[2,35,17],[2,35,13],[1,100,80],[2,50,32],[2,50,24],[4,25,9],[1,134,108],[2,67,43],[2,33,15,2,34,16],[2,33,11,2,34,12],[2,86,68],[4,43,27],[4,43,19],[4,43,15],[2,98,78],[4,49,31],[2,32,14,4,33,15],[4,39,13,1,40,14],[2,121,97],[2,60,38,2,61,39],[4,40,18,2,41,19],[4,40,14,2,41,15],[2,146,116],[3,58,36,2,59,37],[4,36,16,4,37,17],[4,36,12,4,37,13],[2,86,68,2,87,69],[4,69,43,1,70,44],[6,43,19,2,44,20],[6,43,15,2,44,16],[4,101,81],[1,80,50,4,81,51],[4,50,22,4,51,23],[3,36,12,8,37,13],[2,116,92,2,117,93],[6,58,36,2,59,37],[4,46,20,6,47,21],[7,42,14,4,43,15],[4,133,107],[8,59,37,1,60,38],[8,44,20,4,45,21],[12,33,11,4,34,12],[3,145,115,1,146,116],[4,64,40,5,65,41],[11,36,16,5,37,17],[11,36,12,5,37,13],[5,109,87,1,110,88],[5,65,41,5,66,42],[5,54,24,7,55,25],[11,36,12,7,37,13],[5,122,98,1,123,99],[7,73,45,3,74,46],[15,43,19,2,44,20],[3,45,15,13,46,16],[1,135,107,5,136,108],[10,74,46,1,75,47],[1,50,22,15,51,23],[2,42,14,17,43,15],[5,150,120,1,151,121],[9,69,43,4,70,44],[17,50,22,1,51,23],[2,42,14,19,43,15],[3,141,113,4,142,114],[3,70,44,11,71,45],[17,47,21,4,48,22],[9,39,13,16,40,14],[3,135,107,5,136,108],[3,67,41,13,68,42],[15,54,24,5,55,25],[15,43,15,10,44,16],[4,144,116,4,145,117],[17,68,42],[17,50,22,6,51,23],[19,46,16,6,47,17],[2,139,111,7,140,112],[17,74,46],[7,54,24,16,55,25],[34,37,13],[4,151,121,5,152,122],[4,75,47,14,76,48],[11,54,24,14,55,25],[16,45,15,14,46,16],[6,147,117,4,148,118],[6,73,45,14,74,46],[11,54,24,16,55,25],[30,46,16,2,47,17],[8,132,106,4,133,107],[8,75,47,13,76,48],[7,54,24,22,55,25],[22,45,15,13,46,16],[10,142,114,2,143,115],[19,74,46,4,75,47],[28,50,22,6,51,23],[33,46,16,4,47,17],[8,152,122,4,153,123],[22,73,45,3,74,46],[8,53,23,26,54,24],[12,45,15,28,46,16],[3,147,117,10,148,118],[3,73,45,23,74,46],[4,54,24,31,55,25],[11,45,15,31,46,16],[7,146,116,7,147,117],[21,73,45,7,74,46],[1,53,23,37,54,24],[19,45,15,26,46,16],[5,145,115,10,146,116],[19,75,47,10,76,48],[15,54,24,25,55,25],[23,45,15,25,46,16],[13,145,115,3,146,116],[2,74,46,29,75,47],[42,54,24,1,55,25],[23,45,15,28,46,16],[17,145,115],[10,74,46,23,75,47],[10,54,24,35,55,25],[19,45,15,35,46,16],[17,145,115,1,146,116],[14,74,46,21,75,47],[29,54,24,19,55,25],[11,45,15,46,46,16],[13,145,115,6,146,116],[14,74,46,23,75,47],[44,54,24,7,55,25],[59,46,16,1,47,17],[12,151,121,7,152,122],[12,75,47,26,76,48],[39,54,24,14,55,25],[22,45,15,41,46,16],[6,151,121,14,152,122],[6,75,47,34,76,48],[46,54,24,10,55,25],[2,45,15,64,46,16],[17,152,122,4,153,123],[29,74,46,14,75,47],[49,54,24,10,55,25],[24,45,15,46,46,16],[4,152,122,18,153,123],[13,74,46,32,75,47],[48,54,24,14,55,25],[42,45,15,32,46,16],[20,147,117,4,148,118],[40,75,47,7,76,48],[43,54,24,22,55,25],[10,45,15,67,46,16],[19,148,118,6,149,119],[18,75,47,31,76,48],[34,54,24,34,55,25],[20,45,15,61,46,16]],r=function(t,r){var e={};return e.totalCount=t,e.dataCount=r,e},e={};return e.getRSBlocks=function(e,n){var o=function(r,e){switch(e){case g.L:return t[4*(r-1)+0];case g.M:return t[4*(r-1)+1];case g.Q:return t[4*(r-1)+2];case g.H:return t[4*(r-1)+3];default:return}}(e,n);if(void 0===o)throw"bad rs block @ typeNumber:"+e+"/errorCorrectionLevel:"+n;for(var i=o.length/3,a=[],u=0;u<i;u+=1)for(var f=o[3*u+0],c=o[3*u+1],l=o[3*u+2],h=0;h<f;h+=1)a.push(r(c,l));return a},e}(),b=function(){var t=[],r=0,e={getBuffer:function(){return t},getAt:function(r){var e=Math.floor(r/8);return 1==(t[e]>>>7-r%8&1)},put:function(t,r){for(var n=0;n<r;n+=1)e.putBit(1==(t>>>r-n-1&1))},getLengthInBits:function(){return r},putBit:function(e){var n=Math.floor(r/8);t.length<=n&&t.push(0),e&&(t[n]|=128>>>r%8),r+=1}};return e},M=function(t){var r=a,e=t,n={getMode:function(){return r},getLength:function(t){return e.length},write:function(t){for(var r=e,n=0;n+2<r.length;)t.put(o(r.substring(n,n+3)),10),n+=3;n<r.length&&(r.length-n==1?t.put(o(r.substring(n,n+1)),4):r.length-n==2&&t.put(o(r.substring(n,n+2)),7))}},o=function(t){for(var r=0,e=0;e<t.length;e+=1)r=10*r+i(t.charAt(e));return r},i=function(t){if("0"<=t&&t<="9")return t.charCodeAt(0)-"0".charCodeAt(0);throw"illegal char :"+t};return n},x=function(t){var r=u,e=t,n={getMode:function(){return r},getLength:function(t){return e.length},write:function(t){for(var r=e,n=0;n+1<r.length;)t.put(45*o(r.charAt(n))+o(r.charAt(n+1)),11),n+=2;n<r.length&&t.put(o(r.charAt(n)),6)}},o=function(t){if("0"<=t&&t<="9")return t.charCodeAt(0)-"0".charCodeAt(0);if("A"<=t&&t<="Z")return t.charCodeAt(0)-"A".charCodeAt(0)+10;switch(t){case" ":return 36;case"$":return 37;case"%":return 38;case"*":return 39;case"+":return 40;case"-":return 41;case".":return 42;case"/":return 43;case":":return 44;default:throw"illegal char :"+t}};return n},m=function(r){var e=f,n=t.stringToBytes(r),o={getMode:function(){return e},getLength:function(t){return n.length},write:function(t){for(var r=0;r<n.length;r+=1)t.put(n[r],8)}};return o},L=function(r){var e=c,n=t.stringToBytesFuncs.SJIS;if(!n)throw"sjis not supported.";!function(){var t=n("友");if(2!=t.length||38726!=(t[0]<<8|t[1]))throw"sjis not supported."}();var o=n(r),i={getMode:function(){return e},getLength:function(t){return~~(o.length/2)},write:function(t){for(var r=o,e=0;e+1<r.length;){var n=(255&r[e])<<8|255&r[e+1];if(33088<=n&&n<=40956)n-=33088;else{if(!(57408<=n&&n<=60351))throw"illegal char at "+(e+1)+"/"+n;n-=49472}n=192*(n>>>8&255)+(255&n),t.put(n,13),e+=2}if(e<r.length)throw"illegal char at "+(e+1)}};return i},D=function(){var t=[],r={writeByte:function(r){t.push(255&r)},writeShort:function(t){r.writeByte(t),r.writeByte(t>>>8)},writeBytes:function(t,e,n){e=e||0,n=n||t.length;for(var o=0;o<n;o+=1)r.writeByte(t[o+e])},writeString:function(t){for(var e=0;e<t.length;e+=1)r.writeByte(t.charCodeAt(e))},toByteArray:function(){return t},toString:function(){var r="";r+="[";for(var e=0;e<t.length;e+=1)e>0&&(r+=","),r+=t[e];return r+="]"}};return r},S=function(t){var r=t,e=0,n=0,o=0,i={read:function(){for(;o<8;){if(e>=r.length){if(0==o)return-1;throw"unexpected end of file./"+o}var t=r.charAt(e);if(e+=1,"="==t)return o=0,-1;t.match(/^\s$/)||(n=n<<6|a(t.charCodeAt(0)),o+=6)}var i=n>>>o-8&255;return o-=8,i}},a=function(t){if(65<=t&&t<=90)return t-65;if(97<=t&&t<=122)return t-97+26;if(48<=t&&t<=57)return t-48+52;if(43==t)return 62;if(47==t)return 63;throw"c:"+t};return i},I=function(t,r,e){for(var n=function(t,r){var e=t,n=r,o=new Array(t*r),i={setPixel:function(t,r,n){o[r*e+t]=n},write:function(t){t.writeString("GIF87a"),t.writeShort(e),t.writeShort(n),t.writeByte(128),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(255),t.writeByte(255),t.writeByte(255),t.writeString(","),t.writeShort(0),t.writeShort(0),t.writeShort(e),t.writeShort(n),t.writeByte(0);var r=a(2);t.writeByte(2);for(var o=0;r.length-o>255;)t.writeByte(255),t.writeBytes(r,o,255),o+=255;t.writeByte(r.length-o),t.writeBytes(r,o,r.length-o),t.writeByte(0),t.writeString(";")}},a=function(t){for(var r=1<<t,e=1+(1<<t),n=t+1,i=u(),a=0;a<r;a+=1)i.add(String.fromCharCode(a));i.add(String.fromCharCode(r)),i.add(String.fromCharCode(e));var f,c,g,l=D(),h=(f=l,c=0,g=0,{write:function(t,r){if(t>>>r!=0)throw"length over";for(;c+r>=8;)f.writeByte(255&(t<<c|g)),r-=8-c,t>>>=8-c,g=0,c=0;g|=t<<c,c+=r},flush:function(){c>0&&f.writeByte(g)}});h.write(r,n);var s=0,v=String.fromCharCode(o[s]);for(s+=1;s<o.length;){var d=String.fromCharCode(o[s]);s+=1,i.contains(v+d)?v+=d:(h.write(i.indexOf(v),n),i.size()<4095&&(i.size()==1<<n&&(n+=1),i.add(v+d)),v=d)}return h.write(i.indexOf(v),n),h.write(e,n),h.flush(),l.toByteArray()},u=function(){var t={},r=0,e={add:function(n){if(e.contains(n))throw"dup key:"+n;t[n]=r,r+=1},size:function(){return r},indexOf:function(r){return t[r]},contains:function(r){return void 0!==t[r]}};return e};return i}(t,r),o=0;o<r;o+=1)for(var i=0;i<t;i+=1)n.setPixel(i,o,e(i,o));var a=D();n.write(a);for(var u=function(){var t=0,r=0,e=0,n="",o={},i=function(t){n+=String.fromCharCode(a(63&t))},a=function(t){if(t<0);else{if(t<26)return 65+t;if(t<52)return t-26+97;if(t<62)return t-52+48;if(62==t)return 43;if(63==t)return 47}throw"n:"+t};return o.writeByte=function(n){for(t=t<<8|255&n,r+=8,e+=1;r>=6;)i(t>>>r-6),r-=6},o.flush=function(){if(r>0&&(i(t<<6-r),t=0,r=0),e%3!=0)for(var o=3-e%3,a=0;a<o;a+=1)n+="="},o.toString=function(){return n},o}(),f=a.toByteArray(),c=0;c<f.length;c+=1)u.writeByte(f[c]);return u.flush(),"data:image/gif;base64,"+u};return t}();qrcode.stringToBytesFuncs["UTF-8"]=function(t){return function(t){for(var r=[],e=0;e<t.length;e++){var n=t.charCodeAt(e);n<128?r.push(n):n<2048?r.push(192|n>>6,128|63&n):n<55296||n>=57344?r.push(224|n>>12,128|n>>6&63,128|63&n):(e++,n=65536+((1023&n)<<10|1023&t.charCodeAt(e)),r.push(240|n>>18,128|n>>12&63,128|n>>6&63,128|63&n))}return r}(t)},function(t){"function"==typeof define&&define.amd?define([],t):"object"==typeof exports&&(module.exports=t())}(function(){return qrcode});
+return module.exports; })();
+QR.stringToBytes = QR.stringToBytesFuncs['UTF-8'] || QR.stringToBytes;
+
 function mountQRGenerator(container){
-  mountEmbed(container, 'TOOL / QR GENERATOR', function(body){
+  mountEmbed(container, 'TOOL / QR CODE GENERATOR', function(body){
+    var TYPES = {text:'Text or link', wifi:'Wi-Fi network', email:'Email', sms:'SMS message', phone:'Phone number', vcard:'Contact card'};
     body.innerHTML =
-      '<textarea class="tool-textarea" id="qr-in" style="min-height:60px" placeholder="https://example.com"></textarea>'+
-      '<div class="tool-row"><button class="game-btn" id="qr-gen">Generate</button></div>'+
-      '<div id="qr-out"></div>'+
-      '<div class="tool-msg" id="qr-msg"></div>';
-    function ensureLib(cb){
-      if(window.QRCode){ cb(); return; }
-      var s = document.createElement('script');
-      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
-      s.onload = cb;
-      s.onerror = function(){ body.querySelector('#qr-msg').textContent = 'Could not load the QR library — check your internet connection.'; };
-      document.head.appendChild(s);
+      '<div class="qr-layout">'+
+        '<div class="qr-form">'+
+          '<div class="field"><label for="qr-type">What is it for?</label><select id="qr-type">'+Object.keys(TYPES).map(function(k){ return '<option value="'+k+'">'+TYPES[k]+'</option>'; }).join('')+'</select></div>'+
+          '<div id="qr-fields"></div>'+
+          '<div class="qr-opts">'+
+            '<div class="tool-grid two"><div class="field"><label for="qr-fg">Colour</label><input id="qr-fg" type="color" class="big" value="#111111"></div>'+
+              '<div class="field"><label for="qr-bg">Background</label><input id="qr-bg" type="color" class="big" value="#ffffff"></div></div>'+
+            '<div class="tool-row"><label><input type="checkbox" id="qr-grad"> Gradient to</label><input id="qr-fg2" type="color" value="#3b82f6" style="width:56px;height:34px"><label><input type="checkbox" id="qr-trans"> Transparent background</label></div>'+
+            '<div class="tool-grid two"><div class="field"><label for="qr-shape">Dots</label><select id="qr-shape"><option value="square">Square</option><option value="rounded">Rounded</option><option value="dots">Round dots</option><option value="diamond">Diamonds</option></select></div>'+
+              '<div class="field"><label for="qr-eye">Corner markers</label><select id="qr-eye"><option value="square">Square</option><option value="rounded">Rounded</option></select></div>'+
+              '<div class="field"><label for="qr-ecc">Error correction</label><select id="qr-ecc"><option value="L">Low (7%)</option><option value="M" selected>Medium (15%)</option><option value="Q">Quartile (25%)</option><option value="H">High (30%)</option></select></div>'+
+              '<div class="field"><label for="qr-margin">Margin <span id="qr-mv">3</span></label><input id="qr-margin" type="range" min="0" max="10" value="3"></div></div>'+
+            '<div class="field"><label for="qr-size">Download size <span id="qr-sv">768</span> px</label><input id="qr-size" type="range" min="256" max="2048" step="64" value="768"></div>'+
+            '<div class="field"><span class="field-label">Logo in the centre (optional)</span><input type="file" id="qr-logo" accept="image/*,.svg,.avif,.ico,.bmp" data-nopersist></div>'+
+            '<div class="tool-row" id="qr-logorow" hidden><div class="field" style="flex:1;min-width:180px"><label for="qr-logosz">Logo size <span id="qr-lv">22</span>%</label><input id="qr-logosz" type="range" min="10" max="30" value="22"></div><button class="game-btn secondary" id="qr-logoclear" type="button">Remove logo</button></div>'+
+          '</div>'+
+        '</div>'+
+        '<div class="qr-out"><div class="qr-preview" id="qr-preview"><canvas id="qr-canvas" aria-label="QR code preview"></canvas></div>'+
+          '<p class="err-text" id="qr-err" role="alert"></p><p class="hint" id="qr-info"></p>'+
+          '<div class="tool-row" style="justify-content:center"><button class="game-btn" id="qr-png">Download PNG</button><button class="game-btn secondary" id="qr-svg">Download SVG</button><button class="game-btn secondary" id="qr-copy">Copy image</button></div></div>'+
+      '</div>';
+    var $ = function(s){ return body.querySelector(s); };
+    var logo = null;
+
+    var FORMS = {
+      text: '<div class="field"><label for="qr-text">Text or web address</label><textarea id="qr-text" rows="4" placeholder="https://example.com">https://example.com</textarea></div>',
+      wifi: '<div class="tool-grid two"><div class="field"><label for="qr-ssid">Network name</label><input id="qr-ssid" autocomplete="off"></div><div class="field"><label for="qr-wpass">Password</label><input id="qr-wpass" autocomplete="off" data-nopersist></div>'+
+            '<div class="field"><label for="qr-wsec">Security</label><select id="qr-wsec"><option value="WPA">WPA / WPA2 / WPA3</option><option value="WEP">WEP</option><option value="nopass">None</option></select></div><div class="field"><span class="field-label">&nbsp;</span><label><input type="checkbox" id="qr-whid"> Hidden network</label></div></div>',
+      email:'<div class="field"><label for="qr-eto">To</label><input id="qr-eto" type="email" placeholder="name@example.com"></div><div class="field"><label for="qr-esub">Subject</label><input id="qr-esub"></div><div class="field"><label for="qr-ebody">Message</label><textarea id="qr-ebody" rows="3"></textarea></div>',
+      sms:  '<div class="field"><label for="qr-snum">Phone number</label><input id="qr-snum" inputmode="tel" placeholder="+61 400 000 000"></div><div class="field"><label for="qr-smsg">Message</label><textarea id="qr-smsg" rows="3"></textarea></div>',
+      phone:'<div class="field"><label for="qr-pnum">Phone number</label><input id="qr-pnum" inputmode="tel" placeholder="+61 400 000 000"></div>',
+      vcard:'<div class="tool-grid two"><div class="field"><label for="qr-vn">Full name</label><input id="qr-vn"></div><div class="field"><label for="qr-vo">Organisation</label><input id="qr-vo"></div>'+
+            '<div class="field"><label for="qr-vp">Phone</label><input id="qr-vp" inputmode="tel"></div><div class="field"><label for="qr-ve">Email</label><input id="qr-ve" type="email"></div></div><div class="field"><label for="qr-vu">Website</label><input id="qr-vu"></div>',
+    };
+    function v(id){ var e = $('#'+id); return e ? e.value.trim() : ''; }
+    function wifiEsc(s){ return s.replace(/([\\;,:"])/g, '\\$1'); }
+    function payload(){
+      switch($('#qr-type').value){
+        case 'wifi': return v('qr-ssid') ? 'WIFI:T:'+($('#qr-wsec') ? $('#qr-wsec').value : 'WPA')+';S:'+wifiEsc(v('qr-ssid'))+';P:'+wifiEsc($('#qr-wpass').value)+';H:'+($('#qr-whid').checked ? 'true' : 'false')+';;' : '';
+        case 'email': return v('qr-eto') ? 'mailto:'+v('qr-eto')+(v('qr-esub') || v('qr-ebody') ? '?subject='+encodeURIComponent(v('qr-esub'))+'&body='+encodeURIComponent($('#qr-ebody').value) : '') : '';
+        case 'sms': return v('qr-snum') ? 'SMSTO:'+v('qr-snum').replace(/\s/g, '')+':'+$('#qr-smsg').value : '';
+        case 'phone': return v('qr-pnum') ? 'tel:'+v('qr-pnum').replace(/\s/g, '') : '';
+        case 'vcard': return v('qr-vn') ? 'BEGIN:VCARD\nVERSION:3.0\nFN:'+v('qr-vn')+(v('qr-vo') ? '\nORG:'+v('qr-vo') : '')+(v('qr-vp') ? '\nTEL:'+v('qr-vp') : '')+(v('qr-ve') ? '\nEMAIL:'+v('qr-ve') : '')+(v('qr-vu') ? '\nURL:'+v('qr-vu') : '')+'\nEND:VCARD' : '';
+        default: var t = $('#qr-text'); return t ? t.value : '';
+      }
     }
-    body.querySelector('#qr-gen').addEventListener('click', function(){
-      var text = body.querySelector('#qr-in').value.trim();
-      if(!text) return;
-      ensureLib(function(){
-        var out = body.querySelector('#qr-out');
-        out.innerHTML = '';
-        new QRCode(out, {text:text, width:200, height:200});
-        body.querySelector('#qr-msg').textContent = '';
+
+    /* ---- the matrix and the drawing, shared by canvas and SVG ---- */
+    function matrix(text, ecc){
+      var q = QR(0, ecc); q.addData(text, 'Byte'); q.make();
+      var n = q.getModuleCount(), m = [];
+      for(var r = 0; r < n; r++){ m.push([]); for(var c = 0; c < n; c++) m[r].push(q.isDark(r, c)); }
+      return m;
+    }
+    function inEye(r, c, n){ return (r < 7 && c < 7) || (r < 7 && c >= n - 7) || (r >= n - 7 && c < 7); }
+    function opts(){
+      return {fg: $('#qr-fg').value, fg2: $('#qr-grad').checked ? $('#qr-fg2').value : null, bg: $('#qr-bg').value, trans: $('#qr-trans').checked,
+        shape: $('#qr-shape').value, eye: $('#qr-eye').value, margin: +$('#qr-margin').value, logoPct: +$('#qr-logosz').value / 100};
+    }
+    /* Calls shape callbacks in module units so canvas and SVG can share the layout. */
+    function layout(m, o, cb){
+      var n = m.length;
+      for(var r = 0; r < n; r++) for(var c = 0; c < n; c++){
+        if(!m[r][c] || inEye(r, c, n)) continue;
+        if(logo && centre(r, c, n, o)) continue;
+        cb.module(c + o.margin, r + o.margin, o.shape);
+      }
+      [[0, 0], [n - 7, 0], [0, n - 7]].forEach(function(p){ cb.eye(p[0] + o.margin, p[1] + o.margin, o.eye); });
+    }
+    function centre(r, c, n, o){
+      var half = n * o.logoPct * .5 + 1, mid = n / 2;
+      return Math.abs(c + .5 - mid) < half && Math.abs(r + .5 - mid) < half;
+    }
+    function rr(x, y, w, h, r){ var p = new Path2D(); p.roundRect ? p.roundRect(x, y, w, h, r) : p.rect(x, y, w, h); return p; }
+
+    function renderCanvas(cv, m, o, px){
+      var n = m.length, total = n + o.margin * 2, s = px / total, c = cv.getContext('2d');
+      cv.width = cv.height = px;
+      if(!o.trans){ c.fillStyle = o.bg; c.fillRect(0, 0, px, px); } else c.clearRect(0, 0, px, px);
+      var fill = o.fg; if(o.fg2){ var g = c.createLinearGradient(0, 0, px, px); g.addColorStop(0, o.fg); g.addColorStop(1, o.fg2); fill = g; }
+      c.fillStyle = fill;
+      layout(m, o, {
+        module: function(x, y, shape){
+          var X = x * s, Y = y * s;
+          if(shape === 'dots'){ c.beginPath(); c.arc(X + s / 2, Y + s / 2, s * .44, 0, Math.PI * 2); c.fill(); }
+          else if(shape === 'rounded'){ c.fill(rr(X + s * .04, Y + s * .04, s * .92, s * .92, s * .32)); }
+          else if(shape === 'diamond'){ c.beginPath(); c.moveTo(X + s / 2, Y); c.lineTo(X + s, Y + s / 2); c.lineTo(X + s / 2, Y + s); c.lineTo(X, Y + s / 2); c.closePath(); c.fill(); }
+          else c.fillRect(X, Y, s + .6, s + .6);
+        },
+        eye: function(x, y, style){
+          var X = x * s, Y = y * s, S = 7 * s, rad = style === 'soft' ? s * 2.2 : style === 'rounded' ? s * 1.6 : 0;
+          var ring = new Path2D(); ring.addPath(rr(X, Y, S, S, rad)); ring.addPath(rr(X + s, Y + s, S - 2 * s, S - 2 * s, Math.max(0, rad - s)));
+          c.fill(ring, 'evenodd');
+          c.fill(rr(X + 2 * s, Y + 2 * s, 3 * s, 3 * s, style === 'soft' ? s * 1.1 : style === 'rounded' ? s * .8 : 0));
+        }
       });
+      if(logo){
+        var L = n * s * o.logoPct, ratio = logo.width / logo.height, w = ratio >= 1 ? L : L * ratio, h = ratio >= 1 ? L / ratio : L, pad = s * .6, cx = px / 2, cy = px / 2;
+        c.fillStyle = o.trans ? '#ffffff' : o.bg; c.fill(rr(cx - L / 2 - pad, cy - L / 2 - pad, L + 2 * pad, L + 2 * pad, s));
+        c.drawImage(logo, cx - w / 2, cy - h / 2, w, h);
+      }
+    }
+    function renderSvg(m, o, px){
+      var n = m.length, total = n + o.margin * 2, d = '', defs = '', fill = o.fg;
+      if(o.fg2){ defs = '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="'+o.fg+'"/><stop offset="1" stop-color="'+o.fg2+'"/></linearGradient></defs>'; fill = 'url(#g)'; }
+      function rrp(x, y, w, h, r){ r = Math.min(r, w / 2, h / 2); return 'M'+(x + r)+' '+y+'h'+(w - 2 * r)+'a'+r+' '+r+' 0 0 1 '+r+' '+r+'v'+(h - 2 * r)+'a'+r+' '+r+' 0 0 1 -'+r+' '+r+'h-'+(w - 2 * r)+'a'+r+' '+r+' 0 0 1 -'+r+' -'+r+'v-'+(h - 2 * r)+'a'+r+' '+r+' 0 0 1 '+r+' -'+r+'z'; }
+      layout(m, o, {
+        module: function(x, y, shape){
+          if(shape === 'dots') d += 'M'+(x + .06)+' '+(y + .5)+'a.44 .44 0 1 0 .88 0a.44 .44 0 1 0 -.88 0z';
+          else if(shape === 'rounded') d += rrp(x + .04, y + .04, .92, .92, .32);
+          else if(shape === 'diamond') d += 'M'+(x + .5)+' '+y+'l.5 .5l-.5 .5l-.5 -.5z';
+          else d += 'M'+x+' '+y+'h1v1h-1z';
+        },
+        eye: function(x, y, style){
+          var rad = style === 'soft' ? 2.2 : style === 'rounded' ? 1.6 : 0;
+          d += rrp(x, y, 7, 7, rad) + rrp(x + 1, y + 1, 5, 5, Math.max(0, rad - 1)) + rrp(x + 2, y + 2, 3, 3, style === 'soft' ? 1.1 : style === 'rounded' ? .8 : 0);
+        }
+      });
+      var out = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+total+' '+total+'" width="'+px+'" height="'+px+'" shape-rendering="geometricPrecision">'+defs+
+        (o.trans ? '' : '<rect width="'+total+'" height="'+total+'" fill="'+o.bg+'"/>')+'<path fill="'+fill+'" fill-rule="evenodd" d="'+d+'"/>';
+      if(logo){
+        var L = n * o.logoPct, ratio = logo.width / logo.height, w = ratio >= 1 ? L : L * ratio, h = ratio >= 1 ? L / ratio : L, pad = .6, cv = document.createElement('canvas');
+        cv.width = logo.width; cv.height = logo.height; cv.getContext('2d').drawImage(logo, 0, 0);
+        out += '<rect x="'+(total / 2 - L / 2 - pad)+'" y="'+(total / 2 - L / 2 - pad)+'" width="'+(L + 2 * pad)+'" height="'+(L + 2 * pad)+'" rx="1" fill="'+(o.trans ? '#ffffff' : o.bg)+'"/>'+
+          '<image x="'+(total / 2 - w / 2)+'" y="'+(total / 2 - h / 2)+'" width="'+w+'" height="'+h+'" href="'+cv.toDataURL('image/png')+'"/>';
+      }
+      return out + '</svg>';
+    }
+
+    var cur = null;
+    function update(){
+      var text = payload(), err = $('#qr-err');
+      err.textContent = '';
+      $('#qr-mv').textContent = $('#qr-margin').value; $('#qr-sv').textContent = $('#qr-size').value; $('#qr-lv').textContent = $('#qr-logosz').value;
+      $('#qr-logorow').hidden = !logo;
+      var ecc = logo ? 'H' : $('#qr-ecc').value;
+      if(!text){ cur = null; var cv0 = $('#qr-canvas'); cv0.width = cv0.height = 8; cv0.getContext('2d').clearRect(0, 0, 8, 8); $('#qr-info').textContent = 'Fill in the details to see your code.'; return; }
+      try { cur = {m: matrix(text, ecc), o: opts()}; }
+      catch(e){ cur = null; err.textContent = 'That’s too much for one QR code. Shorten it or lower the error correction.'; return; }
+      var prev = $('#qr-canvas'), px = Math.min(520, Math.max(240, ($('#qr-preview').clientWidth || 360) - 24)) * Math.min(window.devicePixelRatio || 1, 2);
+      renderCanvas(prev, cur.m, cur.o, Math.round(px)); prev.style.width = Math.round(px / Math.min(window.devicePixelRatio || 1, 2)) + 'px';
+      var contrast = lumRatio(cur.o.fg, cur.o.trans ? '#ffffff' : cur.o.bg);
+      $('#qr-info').textContent = cur.m.length + ' × ' + cur.m.length + ' modules · error correction ' + ecc + (logo ? ' (forced by the logo)' : '') + (contrast < 3 ? ' · ⚠ low contrast, it may not scan' : '');
+    }
+    function lumRatio(a, b){
+      function L(h){ var c = [1, 3, 5].map(function(i){ var x = parseInt(h.substr(i, 2), 16) / 255; return x <= .03928 ? x / 12.92 : Math.pow((x + .055) / 1.055, 2.4); }); return .2126 * c[0] + .7152 * c[1] + .0722 * c[2]; }
+      var x = L(a), y = L(b); return (Math.max(x, y) + .05) / (Math.min(x, y) + .05);
+    }
+    function setType(){ $('#qr-fields').innerHTML = FORMS[$('#qr-type').value]; enhanceFileInputs($('#qr-fields')); update(); }
+
+    $('#qr-type').addEventListener('change', setType);
+    body.addEventListener('input', update); body.addEventListener('change', update);
+    $('#qr-logo').addEventListener('change', function(){
+      var f = this.files && this.files[0]; if(!f){ return; }
+      var url = URL.createObjectURL(f), im = new Image();
+      im.onload = function(){ logo = im; update(); };
+      im.onerror = function(){ notify('That image couldn’t be read', 'err'); URL.revokeObjectURL(url); };
+      im.src = url;
     });
+    $('#qr-logoclear').addEventListener('click', function(){ logo = null; $('#qr-logo').value = ''; var nm = body.querySelector('.file-name'); if(nm) nm.textContent = 'or drop a file here'; update(); });
+    function big(){ var cv = document.createElement('canvas'); renderCanvas(cv, cur.m, cur.o, +$('#qr-size').value); return cv; }
+    $('#qr-png').addEventListener('click', function(){ if(!cur) return; big().toBlob(function(b){ saveBlob('qr-code.png', b); }, 'image/png'); });
+    $('#qr-svg').addEventListener('click', function(){ if(!cur) return; saveBlob('qr-code.svg', new Blob([renderSvg(cur.m, cur.o, +$('#qr-size').value)], {type: 'image/svg+xml'})); });
+    $('#qr-copy').addEventListener('click', function(){
+      if(!cur) return;
+      if(!(navigator.clipboard && window.ClipboardItem)){ notify('Copying images isn’t supported here. Use Download PNG.', 'warn'); return; }
+      big().toBlob(function(b){ navigator.clipboard.write([new ClipboardItem({'image/png': b})]).then(function(){ notify('QR code copied', 'ok'); }, function(){ notify('Couldn’t copy. Use Download PNG.', 'err'); }); }, 'image/png');
+    });
+    window.addEventListener('resize', update);
+    setType();
+    setTimeout(update, 40);   // restored field values have landed by now
   });
 }
 PLAYABLES['qr-generator'] = mountQRGenerator;
@@ -2115,13 +2451,13 @@ function mountReactionTimer(container){
           '<span id="rt-last">LAST —</span><span id="rt-best">BEST —</span>'+
           '<span id="rt-avg">AVG —</span><span id="rt-count">ROUNDS 0</span>'+
         '</div>'+
-        '<div id="rt-target" role="button" tabindex="0" style="width:100%;max-width:520px;height:200px;display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;background:var(--surface-2);border:2px solid var(--line);border-radius:var(--rad);cursor:pointer;user-select:none;text-align:center;padding:16px">'+
-          '<div id="rt-msg" style="font:700 18px ui-sans-serif,system-ui,sans-serif">Click to begin</div>'+
+        '<div id="rt-target" class="rt-target" role="button" tabindex="0" style="background:var(--surface-2);border:2px solid var(--line);border-radius:var(--rad);cursor:pointer;user-select:none;text-align:center;padding:16px">'+
+          '<div id="rt-msg" class="rt-msg">Click to begin</div>'+
           '<div id="rt-sub" class="tool-msg">Wait for green, then click as fast as you can</div>'+
         '</div>'+
         '<div class="tool-row" style="justify-content:center">'+
-          '<label>Min delay <input type="number" id="rt-min" value="1.5" step="0.5" min="0.5" max="10" style="width:64px">s</label>'+
-          '<label>Max delay <input type="number" id="rt-max" value="4" step="0.5" min="1" max="15" style="width:64px">s</label>'+
+          '<label>Min delay <input type="number" id="rt-min" value="1.5" step="0.5" min="0.5" max="10">s</label>'+
+          '<label>Max delay <input type="number" id="rt-max" value="4" step="0.5" min="1" max="15">s</label>'+
           '<button class="game-btn secondary" id="rt-reset">Reset stats</button>'+
         '</div>'+
         '<div id="rt-hist" class="tool-output" style="width:100%;max-width:520px;display:none"></div>'+
@@ -2327,9 +2663,9 @@ PLAYABLES['split-bill'] = mountSplitBill;
 function mountStopwatch(container){
   mountEmbed(container, 'TOOL / STOPWATCH', function(body){
     body.innerHTML =
-      '<div class="tool-output" id="sw-time" style="text-align:center;font-size:32px;font-weight:bold">00:00.000</div>'+
-      '<div class="tool-row"><button class="game-btn" id="sw-toggle">Start</button><button class="game-btn secondary" id="sw-lap" disabled>Lap</button><button class="game-btn secondary" id="sw-reset">Reset</button></div>'+
-      '<div id="sw-laps" style="font:11px monospace"></div>';
+      '<div class="tl-split"><div class="tl-main"><div class="tool-output big-readout" id="sw-time">00:00.000</div>'+
+      '<div class="tool-row tl-btns"><button class="game-btn" id="sw-toggle">Start</button><button class="game-btn secondary" id="sw-lap" disabled>Lap</button><button class="game-btn secondary" id="sw-reset">Reset</button></div></div>'+
+      '<div class="tl-side"><h3 class="tl-h">'+icon('flag',{size:14})+' Laps</h3><div id="sw-laps" class="sw-laps"></div></div></div>';
     var running=false, startTime=0, offset=0, laps=[], raf;
     var timeEl = body.querySelector('#sw-time');
     function fmt(ms){
@@ -2406,10 +2742,11 @@ function mountTTS(container){
   mountEmbed(container, 'TOOL / TEXT TO SPEECH', function(body){
     if(!window.speechSynthesis){ body.innerHTML = '<div class="tool-msg err">Your browser does not support the Web Speech API.</div>'; return; }
     body.innerHTML =
-      '<textarea class="tool-textarea" id="tts-in">Welcome to Velocity Systems.</textarea>'+
-      '<div class="tool-row"><select id="tts-voice"></select></div>'+
-      '<div class="tool-row"><label style="font:11px monospace">Rate <input type="range" id="tts-rate" min="0.5" max="2" step="0.1" value="1"></label></div>'+
-      '<div class="tool-row"><button class="game-btn" id="tts-speak">Speak</button><button class="game-btn secondary" id="tts-stop">Stop</button></div>';
+      '<div class="tl-split"><div class="tl-main"><textarea class="tool-textarea" id="tts-in" aria-label="Text to read aloud">Welcome to Velocity Systems.</textarea></div>'+
+      '<div class="tl-side"><h3 class="tl-h">'+icon('volume',{size:14})+' Voice</h3>'+
+      '<div class="field"><label for="tts-voice">Voice</label><select id="tts-voice"></select></div>'+
+      '<div class="field"><label for="tts-rate">Speed</label><input type="range" id="tts-rate" min="0.5" max="2" step="0.1" value="1"></div>'+
+      '<div class="tool-row tl-btns"><button class="game-btn" id="tts-speak">'+icon('play',{size:14})+' Speak</button><button class="game-btn secondary" id="tts-stop">Stop</button></div></div></div>';
     var synth = window.speechSynthesis;
     function loadVoices(){
       var voices = synth.getVoices();
@@ -2549,7 +2886,7 @@ function mountAdvancedConverter(container){
     };
     body.innerHTML =
       '<div class="tool-row" id="conv-tabs"></div>'+
-      '<div id="conv-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px"></div>';
+      '<div id="conv-grid" class="conv-grid"></div>';
     var currentCat = lsGet('vs-converter-cat', 'Length');
     if(!CATS[currentCat]) currentCat = 'Length';
     var tabs = body.querySelector('#conv-tabs'), grid = body.querySelector('#conv-grid');
@@ -2561,7 +2898,7 @@ function mountAdvancedConverter(container){
     function buildGrid(){
       var cat = CATS[currentCat];
       grid.innerHTML = cat.units.map(function(u,i){
-        return '<div><div class="tool-msg">'+u+'</div><input type="number" class="tool-textarea" style="min-height:auto;padding:8px" data-idx="'+i+'" placeholder="0"></div>';
+        return '<div><div class="tool-msg">'+u+'</div><input type="number" class="tool-textarea conv-in" data-idx="'+i+'" placeholder="0"></div>';
       }).join('');
       Array.prototype.slice.call(grid.querySelectorAll('[data-idx]')).forEach(function(inp){
         inp.addEventListener('input', function(){ convertFrom(parseInt(this.getAttribute('data-idx'),10), this.value); });
@@ -2631,7 +2968,7 @@ PLAYABLES['uuid-generator'] = mountUuid;
 function mountWatermark(container){
   mountEmbed(container, 'TOOL / WATERMARK', function(body){
     body.innerHTML =
-      '<input type="file" accept="image/*" id="wm-file" class="tool-row">'+
+      '<input type="file" accept="image/*,.heic,.heif,.avif,.ico,.bmp,.tif,.tiff,.svg,.gif,.webp,.jfif" id="wm-file" class="tool-row">'+
       '<div class="tool-row"><input type="text" id="wm-text" value="© Velocity Systems" style="flex:1"><input type="color" id="wm-color" value="#ffffff"></div>'+
       '<canvas id="wm-canvas" style="max-width:100%;border:1px solid var(--line)"></canvas>'+
       '<div class="tool-row"><button class="game-btn" id="wm-download">Download</button></div>';
@@ -2670,59 +3007,91 @@ PLAYABLES['watermark-tool'] = mountWatermark;
 function mountSpinner(container){
   mountEmbed(container, 'TOOL / WHEEL SPINNER', function(body){
     body.innerHTML =
-      '<div class="snake-wrap">'+
-        '<canvas id="sp-canvas" width="280" height="280"></canvas>'+
-        '<div class="tool-output" id="sp-result" style="text-align:center">—</div>'+
-        '<button class="game-btn" id="sp-spin">Spin</button>'+
-        '<textarea class="tool-textarea" id="sp-options" style="min-height:60px;width:100%">Option 1\nOption 2\nOption 3\nOption 4</textarea>'+
-        '<button class="game-btn secondary" id="sp-update">Update options</button>'+
+      '<div class="sp-layout">'+
+        '<div class="sp-stage" id="sp-stage"><canvas id="sp-canvas" aria-label="Wheel"></canvas><div class="sp-pointer" aria-hidden="true"></div>'+
+          '<button type="button" class="sp-hub" id="sp-hub" aria-label="Spin the wheel"><span id="sp-result" class="sp-result">SPIN</span></button></div>'+
+        '<div class="sp-panel">'+
+          '<div class="field"><label for="sp-options">Options — one per line</label><textarea id="sp-options" spellcheck="false" rows="10">Pizza\nBurgers\nSushi\nTacos\nCurry\nPasta</textarea></div>'+
+          '<div class="tool-row"><button class="game-btn" id="sp-spin">Spin</button><button class="game-btn secondary" id="sp-shuffle">Shuffle</button></div>'+
+          '<label><input type="checkbox" id="sp-elim"> Remove the winner after each spin</label>'+
+          '<p class="hint" id="sp-count"></p>'+
+        '</div>'+
       '</div>';
-    var canvas = body.querySelector('#sp-canvas'), ctx = canvas.getContext('2d');
-    var colors = ['#3b82f6','#36c979','#ff535e','#fbbf24','#9b7bff','#22d3ee'];
-    var segments = ['Option 1','Option 2','Option 3','Option 4'];
-    var angle = 0, spinning=false;
+    var $ = function(s){ return body.querySelector(s); };
+    var canvas = $('#sp-canvas'), ctx = canvas.getContext('2d'), stage = $('#sp-stage'), resultEl = $('#sp-result'), hub = $('#sp-hub');
+    var COLORS = ['#3b82f6','#36c979','#ff535e','#fbbf24','#9b7bff','#22d3ee','#f97316','#ec4899','#84cc16','#14b8a6'];
+    var segs = [], angle = 0, spinning = false, size = 400, dpr = Math.min(window.devicePixelRatio || 1, 3), raf = null, winIdx = -1;
     var hist = toolHistory('wheel-spinner');
-    function draw(highlight){
-      var cx=140,cy=140,r=120;
-      ctx.clearRect(0,0,280,280);
-      var n = segments.length, arc = (2*Math.PI)/n;
-      segments.forEach(function(seg,i){
-        var start = angle + i*arc - Math.PI/2, end = start+arc;
-        ctx.beginPath(); ctx.moveTo(cx,cy); ctx.arc(cx,cy,r,start,end); ctx.closePath();
-        ctx.fillStyle = i===highlight ? '#fff' : colors[i%colors.length];
-        ctx.fill();
-        ctx.save(); ctx.translate(cx,cy); ctx.rotate(start+arc/2); ctx.textAlign='right'; ctx.fillStyle='#000'; ctx.font='bold 11px sans-serif';
-        ctx.fillText(seg, r-10, 4); ctx.restore();
-      });
+    function css(v, fb){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim() || fb; }
+
+    function readSegs(){
+      segs = $('#sp-options').value.split('\n').map(function(s){ return s.trim(); }).filter(Boolean).slice(0, 60);
+      if(segs.length < 2) segs = segs.length ? segs.concat(['—']) : ['Add options', '—'];
+      $('#sp-count').textContent = segs.length + ' options';
     }
+    function fit(){
+      size = Math.max(240, Math.min(stage.clientWidth || 400, 640));
+      canvas.width = size * dpr; canvas.height = size * dpr; canvas.style.width = canvas.style.height = size + 'px';
+      draw();
+    }
+    function fitText(el, text, maxPx){
+      el.textContent = text;
+      var fs = maxPx;
+      el.style.fontSize = fs + 'px';
+      var box = hub, max = box.clientWidth - 24, maxH = box.clientHeight - 16, guard = 0;
+      while((el.scrollWidth > max || el.scrollHeight > maxH) && fs > 11 && guard++ < 40){ fs -= 2; el.style.fontSize = fs + 'px'; }
+    }
+    function draw(){
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      var c = size / 2, r = c - 6, n = segs.length, arc = Math.PI * 2 / n;
+      ctx.clearRect(0, 0, size, size);
+      segs.forEach(function(seg, i){
+        var a0 = angle + i * arc - Math.PI / 2, a1 = a0 + arc;
+        ctx.beginPath(); ctx.moveTo(c, c); ctx.arc(c, c, r, a0, a1); ctx.closePath();
+        ctx.fillStyle = COLORS[i % COLORS.length]; ctx.fill();
+        if(i === winIdx && !spinning){ ctx.fillStyle = 'rgba(255,255,255,.38)'; ctx.fill(); }
+        ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.save(); ctx.translate(c, c); ctx.rotate(a0 + arc / 2); ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+        var fs = Math.max(11, Math.min(26, Math.floor(r * Math.sin(Math.min(arc / 2, 1.2)) * .8), Math.floor(r / 10)));
+        ctx.font = '700 ' + fs + 'px ' + css('--font-ui', 'sans-serif'); ctx.fillStyle = '#0b0c0f';
+        var label = seg, maxW = r * .62; while(label.length > 2 && ctx.measureText(label).width > maxW) label = label.slice(0, -2);
+        if(label !== seg) label += '…';
+        ctx.fillText(label, r - 14, 0); ctx.restore();
+      });
+      ctx.beginPath(); ctx.arc(c, c, r, 0, Math.PI * 2); ctx.strokeStyle = css('--text', '#fff'); ctx.lineWidth = 4; ctx.globalAlpha = .85; ctx.stroke(); ctx.globalAlpha = 1;
+    }
+    function under(a){ var arc = Math.PI * 2 / segs.length, x = ((-a) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2); return Math.floor(x / arc) % segs.length; }
     function spin(){
       if(spinning) return;
-      spinning = true;
-      var velocity = 0.3 + Math.random()*0.2;
-      function frame(){
-        angle += velocity; velocity *= 0.98;
-        draw(-1);
-        if(velocity>0.002) requestAnimationFrame(frame);
-        else {
-          spinning = false;
-          var n = segments.length, arc=(2*Math.PI)/n;
-          var a = ((-angle)%(2*Math.PI)+2*Math.PI)%(2*Math.PI);
-          var idx = Math.floor(a/arc)%n;
-          draw(idx);
-          body.querySelector('#sp-result').textContent = segments[idx];
-          hist.add({text:segments[idx]});
+      readSegs(); winIdx = -1; hub.classList.remove('win'); spinning = true;
+      var from = angle, turns = 5 + Math.random() * 3, to = from + turns * Math.PI * 2 + Math.random() * Math.PI * 2, dur = 3800 + Math.random() * 1600, t0 = performance.now(), shown = -1;
+      function frame(now){
+        var t = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - t, 3.2);
+        angle = from + (to - from) * e; draw();
+        var i = under(angle); if(i !== shown){ shown = i; fitText(resultEl, segs[i], 34); }
+        if(t < 1){ raf = requestAnimationFrame(frame); return; }
+        spinning = false; winIdx = under(angle); draw();
+        hub.classList.add('win'); fitText(resultEl, segs[winIdx], 44);
+        hist.add({text: segs[winIdx]});
+        if($('#sp-elim').checked && segs.length > 2){
+          var rest = $('#sp-options').value.split('\n').map(function(s){ return s.trim(); }).filter(Boolean), k = rest.indexOf(segs[winIdx]);
+          if(k > -1){ rest.splice(k, 1); setTimeout(function(){ $('#sp-options').value = rest.join('\n'); $('#sp-options').dispatchEvent(new Event('input', {bubbles: true})); }, 1200); }
         }
       }
-      requestAnimationFrame(frame);
+      raf = requestAnimationFrame(frame);
     }
-    body.querySelector('#sp-spin').addEventListener('click', spin);
-    hist.mount(body, {title:'Past results', format:function(e){ return {main:e.text}; }});
-    body.querySelector('#sp-update').addEventListener('click', function(){
-      segments = body.querySelector('#sp-options').value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
-      if(segments.length<2) segments=['Option 1','Option 2'];
-      draw(-1);
+    $('#sp-options').addEventListener('input', function(){ if(spinning) return; readSegs(); winIdx = -1; hub.classList.remove('win'); fitText(resultEl, 'SPIN', 34); draw(); });
+    $('#sp-spin').addEventListener('click', spin); hub.addEventListener('click', spin);
+    $('#sp-shuffle').addEventListener('click', function(){
+      var a = $('#sp-options').value.split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
+      for(var i = a.length - 1; i > 0; i--){ var j = Math.floor(Math.random() * (i + 1)), t = a[i]; a[i] = a[j]; a[j] = t; }
+      $('#sp-options').value = a.join('\n'); $('#sp-options').dispatchEvent(new Event('input', {bubbles: true}));
     });
-    draw(-1);
+    window.addEventListener('resize', fit);
+    onUnmount(canvas, function(){ if(raf) cancelAnimationFrame(raf); });
+    hist.mount($('.sp-panel'), {title: 'Past results', format: function(e){ return {main: e.text}; }});
+    readSegs(); fit(); fitText(resultEl, 'SPIN', 34);
+    setTimeout(function(){ readSegs(); draw(); }, 60);   // pick up options restored from the last visit
   });
 }
 PLAYABLES['wheel-spinner'] = mountSpinner;
@@ -2734,11 +3103,11 @@ PLAYABLES['wheel-spinner'] = mountSpinner;
 function mountWordCounter(container){
   mountEmbed(container, 'TOOL / WORD COUNTER', function(body){
     body.innerHTML =
-      '<textarea class="tool-textarea" id="wc-in" placeholder="Paste or type text..."></textarea>'+
-      '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px;font:11px monospace">'+
-        '<div>Words <b id="wc-words">0</b></div><div>Characters <b id="wc-chars">0</b></div><div>Sentences <b id="wc-sent">0</b></div>'+
-        '<div>Paragraphs <b id="wc-para">0</b></div><div>Reading time <b id="wc-read">0s</b></div><div>Avg word length <b id="wc-avg">—</b></div>'+
-      '</div>';
+      '<div class="tl-split wc-split"><div class="tl-main"><textarea class="tool-textarea" id="wc-in" placeholder="Paste or type text..."></textarea></div>'+
+      '<div class="tl-side"><h3 class="tl-h">'+icon('hash',{size:14})+' Stats</h3><div class="stat-cards">'+
+        '<div class="stat-card"><span>Words</span><b id="wc-words">0</b></div><div class="stat-card"><span>Characters</span><b id="wc-chars">0</b></div><div class="stat-card"><span>Sentences</span><b id="wc-sent">0</b></div>'+
+        '<div class="stat-card"><span>Paragraphs</span><b id="wc-para">0</b></div><div class="stat-card"><span>Reading time</span><b id="wc-read">0s</b></div><div class="stat-card"><span>Avg word length</span><b id="wc-avg">—</b></div>'+
+      '</div></div></div>';
     var input = body.querySelector('#wc-in');
     function analyze(){
       var text = input.value;
@@ -2846,6 +3215,168 @@ function mountWorldClock(container){
   });
 }
 PLAYABLES['world-clock'] = mountWorldClock;
+
+/* ==================================================================
+   tools / typing-test
+   ================================================================== */
+function mountTypingTest(container){
+  mountEmbed(container, 'TOOL / TYPING SPEED TEST', function(body){
+    var WORDS = ('the of and to in is you that it he was for on are as with his they at be this from I have or by one had not but what all were when we there can an your which their said if do will each about how up out them then she many some so these would other into has more her two like him see time could no make than first been its who now people my made over did down only way find use may water long little very after words called just where most know get through back much before go good new write our used me man too any day same right look think also around another came come work three word must because does part even place well such here take why things help put years different away again off went old number great tell men say small every found still between name should home big give air line set own under read last never us left end along while might next sound below saw something thought both few those always looked show large often together asked house don\'t world going want school important until form food keep children feet land side without boy once animals life enough took sometimes four head above kind began almost live page got earth need far hand high year mother light country father let night picture being study second soon story since white ever paper hard near sentence better best across during today however sure knew try told young sun thing whole hear example heard several change answer room sea against top turned learn point city play toward five using himself usually').replace(/don\\'t/g, 'don\'t').split(' ');
+    body.innerHTML =
+      '<div class="tool-row"><div class="field" style="width:150px"><label for="ty-time">Duration</label><select id="ty-time"><option value="15">15 seconds</option><option value="30" selected>30 seconds</option><option value="60">60 seconds</option><option value="120">2 minutes</option></select></div>'+
+        '<label><input type="checkbox" id="ty-punct"> Capitals &amp; punctuation</label><button class="game-btn secondary" id="ty-new">New text (Esc)</button></div>'+
+      '<div class="snake-hud"><span id="ty-wpm">WPM 0</span><span id="ty-acc">ACC 100%</span><span id="ty-left">30s</span><span id="ty-best">BEST 0</span></div>'+
+      '<div class="ty-box" id="ty-box" tabindex="-1"><div class="ty-text" id="ty-text" aria-label="Text to type"></div>'+
+        '<input id="ty-input" class="ty-input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-nopersist aria-label="Type here"></div>'+
+      '<p class="hint" id="ty-msg">Click the text and start typing. The clock starts on your first key.</p>'+
+      '<div class="result-card" id="ty-result" hidden></div>';
+    var $ = function(s){ return body.querySelector(s); };
+    var hist = toolHistory('typing-test');
+    var target = '', startT = 0, timer = null, secs = 30, done = false;
+    function rnd(n){ return Math.floor(Math.random() * n); }
+    function gen(n){
+      var out = [], punct = $('#ty-punct').checked;
+      for(var i = 0; i < n; i++){
+        var w = WORDS[rnd(WORDS.length)];
+        if(punct){ if(i === 0 || /[.!?]$/.test(out[i - 1])) w = w[0].toUpperCase() + w.slice(1); if(Math.random() < .12) w += [',', '.', '.', '?', '!'][rnd(5)]; }
+        out.push(w);
+      }
+      return out.join(' ');
+    }
+    function bestKey(){ return 'vs-typing-best-' + secs; }
+    function render(){
+      var typed = $('#ty-input').value, html = '';
+      for(var i = 0; i < target.length; i++){
+        var c = target[i], cls = i < typed.length ? (typed[i] === c ? 'ok' : 'bad') : (i === typed.length ? 'cur' : '');
+        html += '<span class="' + cls + '">' + (c === ' ' ? '&nbsp;' : esc(c)) + '</span>';
+      }
+      $('#ty-text').innerHTML = html;
+      var cur = $('#ty-text .cur'); if(cur){ var top = cur.offsetTop; $('#ty-text').scrollTop = Math.max(0, top - 40); }
+    }
+    function stats(){
+      var typed = $('#ty-input').value, ok = 0;
+      for(var i = 0; i < typed.length; i++) if(typed[i] === target[i]) ok++;
+      var mins = Math.max((Date.now() - startT) / 60000, .0001);
+      return {wpm: Math.round(ok / 5 / mins), raw: Math.round(typed.length / 5 / mins), acc: typed.length ? Math.round(ok / typed.length * 100) : 100, chars: typed.length, wrong: typed.length - ok};
+    }
+    function tick(){
+      var left = Math.max(0, secs - (Date.now() - startT) / 1000), s = stats();
+      $('#ty-left').textContent = Math.ceil(left) + 's'; $('#ty-wpm').textContent = 'WPM ' + s.wpm; $('#ty-acc').textContent = 'ACC ' + s.acc + '%';
+      if(left <= 0) finish();
+    }
+    function finish(){
+      if(done) return; done = true; clearInterval(timer); timer = null;
+      var s = stats(); $('#ty-input').disabled = true;
+      var best = lsGet(bestKey(), 0), newBest = s.wpm > best; if(newBest){ lsSet(bestKey(), s.wpm); $('#ty-best').textContent = 'BEST ' + s.wpm; }
+      $('#ty-result').hidden = false;
+      $('#ty-result').innerHTML = '<div class="result-big">' + s.wpm + ' WPM</div><div class="result-sub">' + s.acc + '% accuracy · ' + s.raw + ' raw WPM · ' + s.wrong + ' mistakes · ' + secs + ' seconds' + (newBest ? ' · new best!' : '') + '</div>'+
+        '<div class="tool-row"><button class="game-btn" id="ty-again">Try again</button></div>';
+      hist.add({wpm: s.wpm, acc: s.acc, secs: secs});
+    }
+    function reset(){
+      clearInterval(timer); timer = null; done = false; startT = 0; secs = +$('#ty-time').value;
+      target = gen(Math.max(60, secs * 3)); $('#ty-input').value = ''; $('#ty-input').disabled = false;
+      $('#ty-result').hidden = true; $('#ty-left').textContent = secs + 's'; $('#ty-wpm').textContent = 'WPM 0'; $('#ty-acc').textContent = 'ACC 100%';
+      $('#ty-best').textContent = 'BEST ' + lsGet(bestKey(), 0); $('#ty-msg').textContent = 'Click the text and start typing. The clock starts on your first key.';
+      render(); $('#ty-input').focus({preventScroll: true});
+    }
+    $('#ty-input').addEventListener('input', function(){
+      if(done) return;
+      if(!startT){ startT = Date.now(); timer = setInterval(tick, 100); $('#ty-msg').textContent = 'Go!'; }
+      if(this.value.length >= target.length - 20) target += ' ' + gen(40);
+      render(); tick();
+    });
+    $('#ty-input').addEventListener('keydown', function(e){ if(e.key === 'Escape'){ e.preventDefault(); reset(); } });
+    $('#ty-box').addEventListener('click', function(){ $('#ty-input').focus(); });
+    body.addEventListener('click', function(e){ if(e.target.id === 'ty-again') reset(); });
+    $('#ty-new').addEventListener('click', reset);
+    $('#ty-time').addEventListener('change', reset); $('#ty-punct').addEventListener('change', reset);
+    onUnmount(body, function(){ clearInterval(timer); });
+    hist.mount(body, {title: 'Past runs', format: function(e){ return {main: e.wpm + ' WPM · ' + e.acc + '%', sub: e.secs + ' seconds'}; }});
+    reset();
+  });
+}
+PLAYABLES['typing-test'] = mountTypingTest;
+
+/* ==================================================================
+   tools / image-editor
+   ================================================================== */
+function mountImageEditor(container){
+  mountEmbed(container, 'TOOL / IMAGE EDITOR', function(body){
+    body.innerHTML =
+      '<input type="file" id="ie-file" accept="image/*,.heic,.heif,.avif,.ico,.bmp,.tif,.tiff,.svg,.gif,.webp,.jfif">'+
+      '<div class="ie-layout"><div class="ie-stage"><canvas id="ie-canvas"></canvas><p class="hint" id="ie-info">Choose an image to start.</p></div>'+
+      '<div class="ie-panel">'+
+        '<div class="tool-row"><button class="game-btn secondary" data-op="rl">⟲ Rotate</button><button class="game-btn secondary" data-op="rr">⟳ Rotate</button><button class="game-btn secondary" data-op="fh">⇋ Flip</button><button class="game-btn secondary" data-op="fv">⇅ Flip</button></div>'+
+        ['brightness:Brightness:-100:100:0','contrast:Contrast:-100:100:0','saturation:Saturation:-100:100:0','blur:Blur:0:12:0'].map(function(a){ a = a.split(':'); return '<div class="field"><label for="ie-'+a[0]+'">'+a[1]+' <span id="ie-'+a[0]+'-v">'+a[4]+'</span></label><input id="ie-'+a[0]+'" type="range" min="'+a[2]+'" max="'+a[3]+'" value="'+a[4]+'"></div>'; }).join('')+
+        '<div class="tool-row"><label><input type="checkbox" id="ie-gray"> Greyscale</label><label><input type="checkbox" id="ie-sepia"> Sepia</label><label><input type="checkbox" id="ie-invert"> Invert</label></div>'+
+        '<div class="field"><span class="field-label">Crop (% removed from each side)</span><div class="tool-grid two">'+['top:Top','bottom:Bottom','left:Left','right:Right'].map(function(a){ a = a.split(':'); return '<div class="field"><label for="ie-c'+a[0]+'">'+a[1]+' <span id="ie-c'+a[0]+'-v">0</span></label><input id="ie-c'+a[0]+'" type="range" min="0" max="45" value="0"></div>'; }).join('')+'</div></div>'+
+        '<div class="tool-row"><select id="ie-fmt"><option value="image/png">PNG</option><option value="image/jpeg">JPEG</option><option value="image/webp">WebP</option></select>'+
+          '<button class="game-btn" id="ie-save" disabled>Download</button><button class="game-btn secondary" id="ie-reset">Reset edits</button></div>'+
+      '</div></div>';
+    var $ = function(s){ return body.querySelector(s); };
+    var im = null, name = 'image', rot = 0, fh = false, fv = false, canBlur = (function(){ try { return 'filter' in document.createElement('canvas').getContext('2d'); } catch(e){ return false; } })();
+    if(!canBlur) $('#ie-blur').closest('.field').hidden = true;
+    function val(id){ return +$('#ie-' + id).value; }
+    function render(cv, maxDim){
+      var cl = val('cleft') / 100, cr = val('cright') / 100, ct = val('ctop') / 100, cb = val('cbottom') / 100;
+      var sx = im.naturalWidth * cl, sy = im.naturalHeight * ct, sw = Math.max(2, im.naturalWidth * (1 - cl - cr)), sh = Math.max(2, im.naturalHeight * (1 - ct - cb));
+      var swap = rot % 2 === 1, ow = swap ? sh : sw, oh = swap ? sw : sh, k = maxDim ? Math.min(1, maxDim / Math.max(ow, oh)) : 1;
+      cv.width = Math.max(1, Math.round(ow * k)); cv.height = Math.max(1, Math.round(oh * k));
+      var c = cv.getContext('2d', {willReadFrequently: true});
+      c.save(); c.translate(cv.width / 2, cv.height / 2); c.rotate(rot * Math.PI / 2); c.scale(fh ? -1 : 1, fv ? -1 : 1);
+      if(canBlur && val('blur')) c.filter = 'blur(' + (val('blur') * k) + 'px)';
+      c.drawImage(im, sx, sy, sw, sh, -sw * k / 2, -sh * k / 2, sw * k, sh * k); c.restore();
+      var b = val('brightness') * 2.55, ct2 = val('contrast') / 100 * 255, f = 259 * (ct2 + 255) / (255 * (259 - ct2)), sat = 1 + val('saturation') / 100;
+      var gray = $('#ie-gray').checked, sepia = $('#ie-sepia').checked, inv = $('#ie-invert').checked;
+      if(b || ct2 || sat !== 1 || gray || sepia || inv){
+        var d = c.getImageData(0, 0, cv.width, cv.height), p = d.data;
+        for(var i = 0; i < p.length; i += 4){
+          var r = p[i], g = p[i + 1], bl = p[i + 2];
+          r = f * (r + b - 128) + 128; g = f * (g + b - 128) + 128; bl = f * (bl + b - 128) + 128;
+          var l = .299 * r + .587 * g + .114 * bl; r = l + (r - l) * sat; g = l + (g - l) * sat; bl = l + (bl - l) * sat;
+          if(gray){ r = g = bl = .299 * r + .587 * g + .114 * bl; }
+          if(sepia){ var tr = .393 * r + .769 * g + .189 * bl, tg = .349 * r + .686 * g + .168 * bl, tb = .272 * r + .534 * g + .131 * bl; r = tr; g = tg; bl = tb; }
+          if(inv){ r = 255 - r; g = 255 - g; bl = 255 - bl; }
+          p[i] = r < 0 ? 0 : r > 255 ? 255 : r; p[i + 1] = g < 0 ? 0 : g > 255 ? 255 : g; p[i + 2] = bl < 0 ? 0 : bl > 255 ? 255 : bl;
+        }
+        c.putImageData(d, 0, 0);
+      }
+    }
+    function update(){
+      ['brightness', 'contrast', 'saturation', 'blur', 'ctop', 'cbottom', 'cleft', 'cright'].forEach(function(k){ $('#ie-' + k + '-v').textContent = $('#ie-' + k).value; });
+      if(!im) return;
+      render($('#ie-canvas'), 1000);
+      var sw = Math.round(im.naturalWidth * (1 - val('cleft') / 100 - val('cright') / 100)), sh = Math.round(im.naturalHeight * (1 - val('ctop') / 100 - val('cbottom') / 100));
+      $('#ie-info').textContent = (rot % 2 ? sh + ' × ' + sw : sw + ' × ' + sh) + ' px output';
+    }
+    $('#ie-file').addEventListener('change', function(){
+      var f = this.files && this.files[0]; if(!f) return;
+      var url = URL.createObjectURL(f), img = new Image();
+      img.onload = function(){ im = img; name = f.name.replace(/\.[^.]+$/, ''); $('#ie-save').disabled = false; reset(); };
+      img.onerror = function(){ notify('This browser can’t read that image format', 'err'); URL.revokeObjectURL(url); };
+      img.src = url;
+    });
+    function reset(){
+      rot = 0; fh = fv = false;
+      body.querySelectorAll('.ie-panel input[type=range]').forEach(function(r){ r.value = r.id.indexOf('ie-c') === 0 ? 0 : 0; });
+      ['gray', 'sepia', 'invert'].forEach(function(k){ $('#ie-' + k).checked = false; });
+      update();
+    }
+    $('.ie-panel').addEventListener('input', update); $('.ie-panel').addEventListener('change', update);
+    $('.ie-panel').addEventListener('click', function(e){
+      var b = e.target.closest('[data-op]'); if(!b || !im) return;
+      var op = b.getAttribute('data-op'); if(op === 'rl') rot = (rot + 3) % 4; else if(op === 'rr') rot = (rot + 1) % 4; else if(op === 'fh') fh = !fh; else fv = !fv; update();
+    });
+    $('#ie-reset').addEventListener('click', reset);
+    $('#ie-save').addEventListener('click', function(){
+      if(!im) return; var cv = document.createElement('canvas'), t = $('#ie-fmt').value; render(cv, 0);
+      var ext = t === 'image/jpeg' ? 'jpg' : t === 'image/webp' ? 'webp' : 'png';
+      cv.toBlob(function(b){ saveBlob(name + '-edited.' + ext, b); }, t, .92);
+    });
+  });
+}
+PLAYABLES['image-editor'] = mountImageEditor;
 
 /* ---------- start the one this page is for ---------- */
 (function(){

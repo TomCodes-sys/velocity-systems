@@ -35,13 +35,15 @@ function mountEmbed(container, label, bodyBuilder, opts){
   var fsBtn = container.querySelector('.fs-btn');
   fsBtn.addEventListener('click', function(){ toggleFullscreen(block); });
   function syncFsLabel(){
-    var isFs = document.fullscreenElement === block || document.webkitFullscreenElement === block;
-    fsBtn.textContent = isFs ? '⛶ Exit fullscreen' : '⛶ Fullscreen';
+    fsBtn.textContent = isFullscreen(block) ? '⛶ Exit fullscreen' : '⛶ Fullscreen';
+    window.dispatchEvent(new Event('resize'));   // canvases that size themselves to the space re-measure
   }
+  block._syncFs = syncFsLabel;
   document.addEventListener('fullscreenchange', syncFsLabel);
   document.addEventListener('webkitfullscreenchange', syncFsLabel);
   var body = container.querySelector('.embed-body');
   bodyBuilder(body);
+  enhanceFileInputs(body);
 
   // Tools remember what you typed. Games manage their own settings and scores.
   var id = document.body.getAttribute('data-id');
@@ -49,15 +51,61 @@ function mountEmbed(container, label, bodyBuilder, opts){
     setTimeout(function(){ persistFields(body, id); }, 0);
   }
 }
+/* Fullscreen. Uses the real Fullscreen API where there is one (desktop, iPad); on iPhone, where
+   an element can't go fullscreen, the block is pinned over the whole page instead. */
+function isFullscreen(el){
+  return document.fullscreenElement === el || document.webkitFullscreenElement === el || el.classList.contains('pseudo-full');
+}
+function pseudoFullscreen(el, on){
+  el.classList.toggle('pseudo-full', on);
+  document.body.classList.toggle('fs-lock', on);
+  if(el._syncFs) el._syncFs();
+}
 function toggleFullscreen(el){
+  if(el.classList.contains('pseudo-full')){ pseudoFullscreen(el, false); return; }
   var current = document.fullscreenElement || document.webkitFullscreenElement;
   if(current){
-    if(document.exitFullscreen) document.exitFullscreen();
-    else if(document.webkitExitFullscreen) document.webkitExitFullscreen();
-  } else {
-    if(el.requestFullscreen) el.requestFullscreen();
-    else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    if(document.exitFullscreen) document.exitFullscreen(); else if(document.webkitExitFullscreen) document.webkitExitFullscreen();
+    return;
   }
+  var req = el.requestFullscreen || el.webkitRequestFullscreen;
+  if(!req){ pseudoFullscreen(el, true); return; }
+  try {
+    var r = req.call(el);
+    if(r && r.catch) r.catch(function(){ pseudoFullscreen(el, true); });
+  } catch(e){ pseudoFullscreen(el, true); }
+}
+document.addEventListener('keydown', function(e){
+  if(e.key !== 'Escape') return;
+  var p = document.querySelector('.embed-block.pseudo-full');
+  if(p) pseudoFullscreen(p, false);
+});
+
+/* Replaces the browser's plain "Choose file" control with a styled button that also accepts drag and drop. */
+function enhanceFileInputs(root){
+  qsa2(root, 'input[type=file]').forEach(function(inp){
+    if(inp.hidden || !inp.id || inp.closest('.file-pick') || inp.hasAttribute('data-plain')) return;
+    var wrap = document.createElement('div'); wrap.className = 'file-pick';
+    inp.parentNode.insertBefore(wrap, inp); wrap.appendChild(inp); inp.classList.remove('tool-row');
+    var noun = inp.multiple ? 'files' : 'file';
+    wrap.insertAdjacentHTML('beforeend', '<label class="file-btn" for="'+inp.id+'">'+(typeof icon === 'function' ? icon('upload', {size:15}) : '')+' Choose '+noun+'</label><span class="file-name">or drop '+(inp.multiple ? 'files' : 'a file')+' here</span>');
+    var nm = wrap.querySelector('.file-name');
+    function update(){
+      var n = inp.files ? inp.files.length : 0;
+      nm.textContent = n ? (n === 1 ? inp.files[0].name : n+' files selected') : 'or drop '+(inp.multiple ? 'files' : 'a file')+' here';
+    }
+    inp.addEventListener('change', update);
+    ['dragenter','dragover'].forEach(function(t){ wrap.addEventListener(t, function(e){ e.preventDefault(); wrap.classList.add('over'); }); });
+    ['dragleave','drop'].forEach(function(t){ wrap.addEventListener(t, function(e){ e.preventDefault(); wrap.classList.remove('over'); }); });
+    wrap.addEventListener('drop', function(e){
+      if(!e.dataTransfer || !e.dataTransfer.files.length) return;
+      try {
+        var dt = new DataTransfer();
+        Array.prototype.forEach.call(e.dataTransfer.files, function(f, i){ if(inp.multiple || i === 0) dt.items.add(f); });
+        inp.files = dt.files; inp.dispatchEvent(new Event('change', {bubbles:true}));
+      } catch(err){}
+    });
+  });
 }
 
 /* ---------- per-game persisted settings (difficulty, sizes, toggles…) ---------- */

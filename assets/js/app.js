@@ -2,7 +2,7 @@
 // Plain vanilla JS, no build step, works from file:// and any static host.
 
 /* ---------- persisted state ---------- */
-var DEFAULT_SETTINGS = {theme:'light',accent:'blue',font:'sans',density:'compact',radius:'sharp',animations:true,effects:true,notifications:true,pinnedNav:null,customAccent:'#3b82f6',customSurface:'#0a0a0c'};
+var DEFAULT_SETTINGS = {theme:'light',accent:'blue',font:'sans',density:'compact',radius:'sharp',animations:true,effects:true,icons:'lucide',notifications:true,pinnedNav:null,customAccent:'#3b82f6',customSurface:'#0a0a0c'};
 
 /* ---------- storage: localStorage with an automatic cookie fallback ----------
    Some browsers (Safari private mode, embedded webviews, iPad "Prevent
@@ -145,6 +145,8 @@ function applyTheme(){
   d.density = settings.density; d.radius = settings.radius;
   d.motion = settings.animations ? 'on' : 'off';
   d.effects = settings.effects ? 'on' : 'off';
+  d.icons = settings.icons || 'lucide';
+  ICON_SET = settings.icons || 'lucide';
   var root = document.documentElement.style;
   if(settings.theme === 'custom'){
     var acc = settings.customAccent || '#3b82f6';
@@ -313,7 +315,7 @@ function contentCardHtml(item){
     '<a href="'+itemUrl(item)+'" class="card-stretched-link" aria-label="Open '+esc(item.title)+'"></a>'+
     '<div class="card-body">'+
       '<div class="card-top">'+
-        '<span class="card-kind-icon">'+icon(kindMeta[item.kind].icon,{size:15})+'</span>'+
+        (item.emoji ? '<span class="card-emoji" aria-hidden="true">'+item.emoji+'</span>' : '<span class="card-kind-icon">'+icon(kindMeta[item.kind].icon,{size:15})+'</span>')+
         favoriteButtonHtml(item)+
       '</div>'+
       '<div class="type-code" style="margin:8px 0 4px">'+esc(item.type)+'</div>'+
@@ -372,9 +374,10 @@ function renderShellOnce(){
       '<aside class="sidebar" id="sidebar">'+
         '<a href="'+pageUrl('home')+'" class="brand"><span class="brand-mark">V</span><span>VELOCITY<br><b>SYSTEMS</b></span></a>'+
         '<nav id="nav" aria-label="Primary navigation">'+
-          NAV_LINKS.map(function(l){ return '<a href="'+pageUrl(l[0])+'" class="nav-link" data-route="'+l[0]+'">'+icon(l[2])+'<span>'+l[1]+'</span></a>'; }).join('')+
+          NAV_LINKS.map(function(l){ return '<a href="'+pageUrl(l[0])+'" class="nav-link" data-route="'+l[0]+'" title="'+l[1]+'">'+icon(l[2])+'<span>'+l[1]+'</span></a>'; }).join('')+
         '</nav>'+
         '<div class="sidebar-bookmarks" id="sidebar-bookmarks"></div>'+
+        '<button type="button" class="rail-toggle" id="rail-toggle" aria-controls="sidebar"><span class="rail-arrow">'+icon('chevronDown',{size:16})+'</span><span class="rail-label">Collapse</span></button>'+
         '<div class="rail-meta"><span>VELOCITY / 01</span><span>LOCAL MODE</span></div>'+
       '</aside>'+
       '<button class="scrim" id="scrim" aria-label="Close navigation" style="display:none"></button>'+
@@ -395,6 +398,28 @@ function renderShellOnce(){
   scrim.addEventListener('click', function(){ sidebar.classList.remove('is-open'); scrim.style.display='none'; });
   qsa('.nav-link', sidebar).forEach(function(a){ a.addEventListener('click', function(){ sidebar.classList.remove('is-open'); scrim.style.display='none'; }); });
   qs('#skip-link').addEventListener('click', function(e){ e.preventDefault(); qs('#app').focus(); });
+
+  // Sidebar: full (icons + text) or slim (icons only). Remembered; "[" toggles it from the keyboard.
+  var railBtn = qs('#rail-toggle'), root = document.documentElement;
+  function paintRail(){
+    var slim = root.dataset.rail === 'collapsed';
+    railBtn.setAttribute('aria-expanded', String(!slim));
+    railBtn.setAttribute('aria-label', slim ? 'Expand sidebar' : 'Collapse sidebar');
+    railBtn.title = slim ? 'Expand sidebar  [' : 'Collapse sidebar  [';
+    qs('.rail-label', railBtn).textContent = slim ? 'Expand' : 'Collapse';
+  }
+  function toggleRail(){
+    root.dataset.rail = root.dataset.rail === 'collapsed' ? 'open' : 'collapsed';
+    storeSet('vs-rail', root.dataset.rail === 'collapsed' ? 'collapsed' : 'open'); paintRail();
+  }
+  if(!root.dataset.rail) root.dataset.rail = 'open';
+  paintRail(); railBtn.addEventListener('click', toggleRail);
+  document.addEventListener('keydown', function(e){
+    if(e.key !== '[' || e.ctrlKey || e.metaKey || e.altKey) return;
+    var t = e.target, tag = t && t.tagName;
+    if(tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) return;
+    toggleRail();
+  });
 
   // The command-bar search is a real GET form, so it works without any routing.
   // Remember what was searched on the way past.
@@ -695,7 +720,7 @@ function pageSectioned(kind){
     }).filter(function(g){ return g.list.length; });
 
     qs('#sec-nav').innerHTML = groups.map(function(g){
-      return '<a href="#sec-'+slugify(g.def.category)+'" class="sec-chip" data-sec="'+slugify(g.def.category)+'">'+esc(g.def.title)+'<i>'+g.list.length+'</i></a>';
+      return '<a href="#sec-'+slugify(g.def.category)+'" class="sec-chip" data-sec="'+slugify(g.def.category)+'">'+(g.def.icon ? icon(g.def.icon,{size:14}) : '')+esc(g.def.title)+'<i>'+g.list.length+'</i></a>';
     }).join('');
 
     // Recently opened items of this kind, only when not searching.
@@ -709,7 +734,7 @@ function pageSectioned(kind){
       var isCollapsed = !q && collapsed.indexOf(id) > -1;
       return '<section class="cat-section'+(isCollapsed?' is-collapsed':'')+'" id="sec-'+id+'">'+
         '<header class="cat-head"><button type="button" class="cat-toggle" data-toggle="'+id+'" aria-expanded="'+(!isCollapsed)+'" aria-controls="grid-'+id+'">'+
-          '<span class="cat-title">'+esc(g.def.title)+'</span><span class="cat-count">'+pad2(g.list.length)+'</span>'+
+          (g.def.icon ? '<span class="cat-icon">'+icon(g.def.icon,{size:18})+'</span>' : '')+'<span class="cat-title">'+esc(g.def.title)+'</span><span class="cat-count">'+pad2(g.list.length)+'</span>'+
           (g.def.blurb ? '<span class="cat-blurb">'+esc(g.def.blurb)+'</span>' : '')+
           '<span class="cat-chevron">'+icon('chevronDown',{size:16})+'</span>'+
         '</button></header>'+
@@ -790,17 +815,17 @@ function pageDetail(kind, id){
     '</div>';
   // Games and tools get a compact header with the thing itself right underneath;
   // the big placeholder artwork is only for library entries and articles.
-  var html = '<div class="detail">'+
+  var html = '<div class="detail'+(playable?' wide':'')+'">'+
     '<nav class="breadcrumb" aria-label="Breadcrumb"><a href="'+pageUrl('home')+'">Home</a><span>/</span><a href="'+kindUrl(item.kind)+'">'+esc(meta.label)+'</a><span>/</span><span>'+esc(item.category)+'</span><span>/</span><span>'+esc(item.title)+'</span></nav>'+
     '<div class="detail-hero'+(playable?' compact':'')+'">'+
-      '<div><span class="type-code">'+esc(item.type)+' · '+esc(item.status)+'</span><h1>'+esc(item.title)+'</h1><p>'+esc(item.description)+'</p>'+
+      '<div><span class="type-code">'+esc(item.type)+' · '+esc(item.status)+'</span><h1>'+(item.emoji ? '<span class="title-emoji" aria-hidden="true">'+item.emoji+'</span> ' : '')+esc(item.title)+'</h1><p>'+esc(item.description)+'</p>'+
       '<div class="tag-row">'+tagsHtml+'</div><div class="detail-actions">'+actions+'</div></div>'+
       (playable ? '' : '<div class="hero-img">'+entryImageHtml(item)+'</div>')+
     '</div>';
 
   // The game/tool itself is mounted by assets/js/games.js or tools.js into this slot.
   if(playable) html += '<div id="embed-slot"></div>';
-  html += metaHtml;
+  if(!playable) html += metaHtml;   // the facts strip is only useful on library entries and articles
 
   if(item.features) html += '<div class="detail-features"><h2>Features</h2><ul>'+item.features.map(function(f){return '<li>'+esc(f)+'</li>';}).join('')+'</ul></div>';
   if(item.body) html += '<div class="article-body">'+renderMarkdown(item.body)+'</div>';
@@ -894,7 +919,7 @@ var THEME_LIST = [
   ['cyber','Cyberpunk'],['retro','Retro'],['terminal','Terminal'],['glass','Glass'],['future','Futuristic'],
   ['custom','Custom'],['ocean','Ocean'],['forest','Forest'],['rose','Rose'],['solar','Solar'],['grape','Grape'],
 ];
-var CHOICE_GROUPS = {accent:['blue','purple','red','green'], font:['sans','mono','serif'], density:['compact','comfortable','spacious'], radius:['sharp','soft','round']};
+var CHOICE_GROUPS = {accent:['blue','purple','red','green'], font:['sans','mono','serif'], density:['compact','comfortable','spacious'], radius:['sharp','soft','round'], icons:['lucide','solar','remix','emoji']};
 function pageSettings(){
   function themeButtons(){
     return THEME_LIST.map(function(t){
@@ -961,6 +986,7 @@ function pageSettings(){
     b.addEventListener('click', function(){
       var key=b.getAttribute('data-choice-key'), val=b.getAttribute('data-choice-val');
       settings[key]=val; saveSettings();
+      if(key==='icons'){ location.reload(); return; }   // icons are baked into the page, so redraw it
       qsa('[data-choice-key="'+key+'"]').forEach(function(x){
         x.classList.toggle('selected', x.getAttribute('data-choice-val')===val);
       });
