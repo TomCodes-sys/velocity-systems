@@ -877,6 +877,7 @@ function pageDetail(kind, id){
   var tagsHtml = item.tags.map(function(t){ return '<a href="'+searchUrl({tag:t})+'">#'+esc(t)+'</a>'; }).join('');
   var actions = '';
   if(item.website) actions += '<a href="'+esc(item.website)+'" target="_blank" rel="noreferrer">Official website '+icon('external',{size:15})+'</a>';
+  if(item.id === 'fxsound') actions += '<a class="primary-action" href="'+(kind==='library'?'../assets/downloads/MusicBoosted.fac':'assets/downloads/MusicBoosted.fac')+'" download="MusicBoosted.fac">Download MusicBoosted preset '+icon('download',{size:15})+'</a>';
   if(item.github) actions += '<a href="'+esc(item.github)+'" target="_blank" rel="noreferrer">'+icon('github',{size:15})+' GitHub</a>';
   actions += favoriteButtonHtml(item, 20).replace('icon-action','icon-action detail-fav');
 
@@ -901,6 +902,7 @@ function pageDetail(kind, id){
   if(playable) html += '<div id="embed-slot"></div>';
   if(!playable) html += metaHtml;   // the facts strip is only useful on library entries and articles
 
+  if(item.id === 'fxsound') html += '<section class="detail-features"><h2>MusicBoosted custom preset</h2><p>Download the MusicBoosted.fac preset and import it in FxSound. This is a custom music-focused 10-band EQ preset; sound preferences and results vary by headphones, speakers and listening volume.</p><p><a class="primary-action" href="../assets/downloads/MusicBoosted.fac" download="MusicBoosted.fac">Download MusicBoosted.fac '+icon('download',{size:15})+'</a></p></section>';
   if(item.features) html += '<div class="detail-features"><h2>Features</h2><ul>'+item.features.map(function(f){return '<li>'+esc(f)+'</li>';}).join('')+'</ul></div>';
   if(item.body) html += '<div class="article-body">'+renderMarkdown(item.body)+'</div>';
   if(related.length) html += '<section class="section-block"><div class="section-title"><span>'+relatedEyebrow+'</span><h2>'+esc(relatedTitle)+'</h2></div>'+cardGrid(related)+'</section>';
