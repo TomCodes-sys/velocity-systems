@@ -138,20 +138,3 @@ default is a GitHub Pages guess), then re-run it. Preview images live in `assets
 Pages open fine from a local server (`python -m http.server`, or VS Code's Live Server).
 Opening the files by double-click mostly works but browsers restrict some features on `file://`
 (clipboard, hashing, screen capture), so test through a server.
-
-
-## Instant Gaming prices (Cloudflare Pages)
-
-Game Deals can query the ParseForge Instant Gaming Scraper through `functions/api/instant-gaming.js`. The API token must stay server-side; never place it in `assets/js/` or commit it to Git.
-
-### Enable the integration
-
-1. Create an API token in your Apify account.
-2. In Cloudflare, open **Workers & Pages → velocity-systems → Settings → Variables and Secrets**.
-3. Add `APIFY_API_TOKEN` as a **secret** (not a public build-time variable).
-4. Redeploy the Pages project so the Function receives the secret.
-5. Open Game Deals, search for a specific game, then press **Check Instant Gaming**.
-
-The endpoint searches at most 10 in-stock results per request and caches identical searches for 15 minutes. The Actor may charge for each uncached run and result; check your current Apify pricing and configure usage limits before making the endpoint public. The browser UI does not call Apify directly, so the token is not exposed to visitors.
-
-This integration requires Cloudflare Pages Functions to be enabled for the deployment. If you are deploying only the static files without the `functions/` directory or if the Pages project is configured to publish a different output directory, `/api/instant-gaming` will return 404.
