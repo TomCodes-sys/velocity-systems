@@ -1391,3 +1391,15 @@ html[data-rail="collapsed"] .workspace{width:calc(100% - 64px)}
 .nav-pins{max-width:min(52vw,760px);min-width:0;flex-shrink:1;overflow:visible}
 @media(max-width:1100px){.nav-pins{max-width:44vw}}
 @keyframes vs-page-enter{from{opacity:.82}to{opacity:1}}
+
+
+/* ---- Instant Gaming comparison panel ---- */
+.gd-ig-panel{margin:26px 0 8px;padding:16px;border:1px solid var(--line);border-radius:var(--rad);background:var(--surface-1)}
+.gd-ig-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+.gd-ig-head .gd-h{margin:0 0 6px}
+.gd-ig-head .hint{margin:0;max-width:680px}
+.gd-ig-cost{margin:10px 0 4px;font:11px/1.5 var(--font-mono);color:var(--muted)}
+.gd-ig-deal .gd-now{color:var(--text);font-size:16px}
+.gd-ig-deal .gd-was{font-size:12px}
+.gd-ig-store{display:inline-grid;place-items:center;width:36px;height:30px;border:1px solid color-mix(in srgb,var(--accent) 40%,var(--line));border-radius:6px;background:color-mix(in srgb,var(--accent) 12%,var(--surface));font:800 10px var(--font-mono);color:var(--text)}
+@media(max-width:640px){.gd-ig-head{flex-direction:column;align-items:stretch}.gd-ig-head .game-btn{align-self:flex-start}.gd-ig-panel{padding:12px}.gd-ig-deal{grid-template-columns:56px minmax(0,1fr) auto 44px}.gd-ig-deal .gd-was,.gd-ig-deal .gd-off{display:none}.gd-ig-deal .gd-ig-store{display:none}}

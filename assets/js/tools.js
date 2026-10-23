@@ -1253,7 +1253,8 @@ function mountGameDeals(container){
           '<div class="field"><label for="gd-max">Max price (<span id="gd-maxc"></span>)</label><input id="gd-max" inputmode="decimal" autocomplete="off" placeholder="No limit"></div>'+
           '<label><input type="checkbox" id="gd-sale"> On sale only</label></aside>'+
         '<section class="gd-main"><div class="gd-searchbar">'+icon('search',{size:18})+'<input id="gd-q" type="search" autocomplete="off" placeholder="Search for a game, e.g. Hades or Elden Ring — leave empty for the top deals"><button class="game-btn" id="gd-go">Search</button></div>'+
-          '<div class="gd-links" id="gd-links"></div><div id="gd-results"></div></section>'+
+          '<div class="gd-links" id="gd-links"></div><div id="gd-results"></div>'+
+          '<section class="gd-ig-panel" id="gd-ig-panel"><div class="gd-ig-head"><div><h3 class="gd-h">Instant Gaming prices</h3><p class="hint">Search the Instant Gaming catalogue alongside your other results. Prices from this scraper are returned in EUR and converted when exchange rates are available.</p></div><button type="button" class="game-btn secondary" id="gd-ig-go">Check Instant Gaming</button></div><p class="gd-ig-cost">On-demand lookup via Apify. Each uncached search may incur scraper usage charges; identical searches are cached for 15 minutes.</p><div id="gd-ig-results" aria-live="polite"></div></section></section>'+
       '</div>'+
 
       '<div id="gd-wish" hidden><h3 class="gd-h">'+icon('heart',{size:14})+' Your wishlist</h3><p class="hint">Saved in this browser only. Use the heart on any deal to add a game; prices refresh whenever you open this tab.</p><div id="gw-list"></div></div>'+
@@ -1487,6 +1488,69 @@ function mountGameDeals(container){
         $('#gd-results').innerHTML=msg(location.protocol==='file:' ? 'This page is opened with file://, so the browser may block the live API. Open the hosted Game Deals page or run a local HTTP server, then retry.' : 'CheapShark did not respond in time or could not be reached. The search has stopped; check your connection and try again.','deals');
       });
     }
+    /* ---- Instant Gaming (Apify Actor via same-origin Cloudflare Pages Function) ---- */
+    var igRequest = 0, igLastQuery = '';
+    function igValue(obj, keys){
+      for(var i=0;i<keys.length;i++) if(obj && obj[keys[i]]!==undefined && obj[keys[i]]!==null && obj[keys[i]]!=='') return obj[keys[i]];
+      return '';
+    }
+    function igNumber(value){
+      if(typeof value==='number') return isFinite(value)?value:NaN;
+      var text=String(value||'').replace(/\s/g,'').replace(/[^\d,.-]/g,'');
+      if(!text) return NaN;
+      if(text.indexOf(',')>-1 && text.indexOf('.')>-1) text=text.lastIndexOf(',')>text.lastIndexOf('.')?text.replace(/\./g,'').replace(',','.'):text.replace(/,/g,'');
+      else if(text.indexOf(',')>-1) text=text.replace(',','.');
+      var n=parseFloat(text); return isFinite(n)?n:NaN;
+    }
+    function igPrice(eur){
+      if(!isFinite(eur)) return 'Price unavailable';
+      if(fx && fx.rates && fx.rates.EUR && fx.rates[cur.code]) return fmtMoney((eur/fx.rates.EUR)*fx.rates[cur.code],cur.code);
+      return '€'+eur.toFixed(2);
+    }
+    function igProductRow(item){
+      var title=String(igValue(item,['title','name','productName','product_name'])||'Untitled product');
+      var price=igNumber(igValue(item,['price','currentPrice','current_price','salePrice','sale_price','priceValue','price_value']));
+      var old=igNumber(igValue(item,['originalPrice','original_price','regularPrice','regular_price','oldPrice','old_price','priceBeforeDiscount','price_before_discount']));
+      var discount=igNumber(igValue(item,['discount','discountPercent','discount_percent','discountPercentage','discount_percentage']));
+      if(!isFinite(discount) && isFinite(old) && old>0 && isFinite(price)) discount=Math.round((old-price)/old*100);
+      var url=String(igValue(item,['url','productUrl','product_url','link','href'])||'https://www.instant-gaming.com/en/search/?query='+encodeURIComponent(title));
+      if(!/^https:\/\/www\.instant-gaming\.com\//i.test(url)) url='https://www.instant-gaming.com/en/search/?query='+encodeURIComponent(title);
+      var image=String(igValue(item,['image','imageUrl','image_url','thumbnail','thumbnailUrl','thumbnail_url'])||'');
+      if(!/^https:\/\//i.test(image)) image='';
+      var platform=String(igValue(item,['platform','platformType','platform_type','system'])||'');
+      var type=String(igValue(item,['productType','product_type','category','type'])||'');
+      var stock=igValue(item,['inStock','in_stock','available','stockStatus','stock_status']);
+      var sub=[platform,type,stock===false?'Out of stock':''].filter(Boolean).join(' · ');
+      return '<div class="gd-deal gd-ig-deal">'+
+        '<a class="gd-thumbwrap" target="_blank" rel="noopener" href="'+esc(url)+'" tabindex="-1" aria-hidden="true">'+(image?'<img class="gd-thumb" src="'+esc(image)+'" alt="" loading="lazy">':'<span class="gd-thumb"></span>')+'</a>'+ 
+        '<div class="gd-main"><div class="gd-title-line"><a class="gd-title gd-open" target="_blank" rel="noopener" href="'+esc(url)+'">'+esc(title)+'</a><span class="gd-kind-badge game">INSTANT GAMING</span></div><div class="gd-sub">'+esc(sub||'Instant Gaming · Price in EUR at source')+'</div></div>'+ 
+        '<div class="gd-was">'+(isFinite(old)&&old>price?igPrice(old):'')+'</div><div class="gd-now">'+igPrice(price)+'</div><div class="gd-off">'+(isFinite(discount)&&discount>0?'−'+Math.round(discount)+'%':'')+'</div><span class="gd-ig-store">IG</span></div>';
+    }
+    function searchInstantGaming(){
+      var q=$('#gd-q').value.trim(), request=++igRequest;
+      if(q.length<2){$('#gd-ig-results').innerHTML=msg('Enter a game title in the main search box first.');return;}
+      igLastQuery=q;
+      $('#gd-ig-results').innerHTML='<div class="empty-state" style="margin:12px 0">Searching Instant Gaming…</div>';
+      var ctl=typeof AbortController==='function'?new AbortController():null;
+      var timer=setTimeout(function(){if(ctl)ctl.abort();},35000);
+      fetch('/api/instant-gaming?q='+encodeURIComponent(q),ctl?{signal:ctl.signal}:undefined).then(function(r){
+        clearTimeout(timer);
+        return r.json().catch(function(){return {};}).then(function(data){if(!r.ok)throw new Error(data.error||('Request failed ('+r.status+')'));return data;});
+      }).then(function(data){
+        if(request!==igRequest)return;
+        var list=Array.isArray(data.items)?data.items:[];
+        if(!list.length){$('#gd-ig-results').innerHTML=msg('No Instant Gaming results found for “'+q+'”. Try a shorter or more exact title.');return;}
+        $('#gd-ig-results').innerHTML='<p class="hint">'+(data.cached?'Cached result · ':'')+list.length+' result'+(list.length===1?'':'s')+' from Instant Gaming. Prices may differ by region; check the final price at checkout.</p><div class="gd-list">'+list.map(igProductRow).join('')+'</div>';
+      }).catch(function(err){
+        clearTimeout(timer);if(request!==igRequest)return;
+        var text=err&&err.name==='AbortError'?'Instant Gaming took too long to respond. Try again shortly.':(err&&err.message)||'Instant Gaming lookup failed.';
+        if(text.indexOf('APIFY_API_TOKEN')>-1)text='Instant Gaming is not configured yet. Add APIFY_API_TOKEN as a Cloudflare Pages secret, then redeploy.';
+        $('#gd-ig-results').innerHTML=msg(text,'ig');
+      });
+    }
+    $('#gd-ig-go').addEventListener('click',searchInstantGaming);
+    $('#gd-q').addEventListener('keydown',function(e){if(e.key==='Enter'&&e.ctrlKey)searchInstantGaming();});
+
     $('#gd-results').addEventListener('click', function(e){ if(e.target.closest('[data-clear-deal-search]')){ $('#gd-store-all').checked=true; body.querySelectorAll('[data-gd-store]').forEach(function(x){x.checked=false;}); syncStorePicker('gd'); $('#gd-max').value=''; $('#gd-sale').checked=false; $('#gd-kind').value='all'; pageData=[]; searchDeals(0); } });
     $('#gd-go').addEventListener('click', function(){ pageData = []; searchDeals(0); });
     $('#gd-q').addEventListener('keydown', function(e){ if(e.key === 'Enter'){ pageData = []; searchDeals(0); } });
@@ -1608,7 +1672,7 @@ function mountGameDeals(container){
         lsSet('vs-gd-claimed', claimed.slice(-300)); drawFree(); return;
       }
       var r = e.target.getAttribute && e.target.getAttribute('data-retry');
-      if(r === 'deals') searchDeals(dealsPage); else if(r === 'free') loadFree(); else if(r === 'wish') loadWish();
+      if(r === 'deals') searchDeals(dealsPage); else if(r === 'free') loadFree(); else if(r === 'wish') loadWish(); else if(r === 'ig') searchInstantGaming();
     });
 
     /* ---- tabs, images, startup ---- */
