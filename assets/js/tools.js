@@ -1237,7 +1237,7 @@ function mountGameDeals(container){
     var CS = 'https://www.cheapshark.com/api/1.0', GP = 'https://www.gamerpower.com/api', PAGE = 40, GPAGE = 18;
     var PLATFORMS = [['', 'All platforms'], ['pc', 'PC'], ['steam', 'Steam'], ['epic-games-store', 'Epic Games'], ['gog', 'GOG'], ['ubisoft', 'Ubisoft'], ['itchio', 'itch.io'], ['battlenet', 'Battle.net'],
       ['ps5', 'PlayStation 5'], ['ps4', 'PlayStation 4'], ['xbox-series-xs', 'Xbox Series X|S'], ['xbox-one', 'Xbox One'], ['switch', 'Nintendo Switch'], ['android', 'Android'], ['ios', 'iOS'], ['vr', 'VR']];
-    var fx = null, stores = null, cur = getCurrency(), freeLoaded = false, picker = null, dealsRequest = 0;
+    var fx = null, stores = null, storeList = [], cur = getCurrency(), freeLoaded = false, picker = null, dealsRequest = 0;
 
     body.innerHTML =
       '<div class="gd-top"><span class="seg" id="gd-seg"><button type="button" data-t="deals" class="on">'+icon('tag',{size:14})+' Deals</button><button type="button" data-t="free">'+icon('gift',{size:14})+' Free stuff</button><button type="button" data-t="wish">'+icon('heart',{size:14})+' Wishlist <span id="gd-wcount"></span></button></span>'+
@@ -1247,7 +1247,7 @@ function mountGameDeals(container){
       '<div id="gd-local-warning" class="tool-msg gd-local-warning" role="status" hidden></div>'+
 
       '<div id="gd-deals" class="gd-layout">'+
-        '<aside class="gd-filters"><div class="field"><label for="gd-store">Store</label><select id="gd-store"><option value="">All stores</option></select></div>'+
+        '<aside class="gd-filters"><div class="field"><span class="field-label">Stores to search</span><details class="gd-check-picker" id="gd-store-wrap"><summary id="gd-store-summary">All stores</summary><div class="gd-check-options" id="gd-store-options"><label><input type="checkbox" id="gd-store-all" checked> All stores</label></div></details></div>'+
           '<div class="field"><label for="gd-kind">Content type</label><select id="gd-kind"><option value="all">Games &amp; DLC</option><option value="game">Games only</option><option value="dlc">DLC &amp; add-ons</option></select></div>'+
           '<div class="field"><label for="gd-sort">Sort by</label><select id="gd-sort"><option value="Deal Rating">Best deal</option><option value="Price">Lowest price</option><option value="Savings">Biggest discount</option><option value="recent">Newest deals</option><option value="Reviews">Steam reviews</option><option value="Metacritic">Metacritic</option><option value="Title">Title A–Z</option></select></div>'+
           '<div class="field"><label for="gd-max">Max price (<span id="gd-maxc"></span>)</label><input id="gd-max" inputmode="decimal" autocomplete="off" placeholder="No limit"></div>'+
@@ -1258,20 +1258,47 @@ function mountGameDeals(container){
 
       '<div id="gd-wish" hidden><h3 class="gd-h">'+icon('heart',{size:14})+' Your wishlist</h3><p class="hint">Saved in this browser only. Use the heart on any deal to add a game; prices refresh whenever you open this tab.</p><div id="gw-list"></div></div>'+
 
-      '<div id="gd-free" hidden>'+
-        '<div class="gd-searchbar">'+icon('search',{size:18})+'<input id="gf-q" type="search" autocomplete="off" placeholder="Search free games, giveaways and loot by name or platform"></div>'+
-        '<div class="tool-grid gd-fgrid">'+
-          '<div class="field"><label for="gf-type">Type</label><select id="gf-type"><option value="">Everything</option><option value="game">Full games</option><option value="loot">In-game loot &amp; DLC</option><option value="beta">Beta access</option></select></div>'+
-          '<div class="field"><span class="field-label">Platforms</span><details class="gd-platform-picker" id="gf-plat-wrap"><summary>All platforms</summary><div class="gd-platform-options"><label><input type="checkbox" id="gf-plat-all" checked> All platforms</label>'+PLATFORMS.filter(function(p){return p[0];}).map(function(p){return '<label><input type="checkbox" data-gf-platform="'+p[0]+'"> '+p[1]+'</label>';}).join('')+'</div></details></div>'+
+      '<div id="gd-free" class="gd-layout gd-free-layout" hidden>'+
+        '<aside class="gd-filters">'+
+          '<div class="field"><label for="gf-type">Giveaway type</label><select id="gf-type"><option value="">Everything</option><option value="game">Full games</option><option value="loot">In-game loot &amp; DLC</option><option value="beta">Beta access</option></select></div>'+
+          '<div class="field"><span class="field-label">Platforms</span><details class="gd-check-picker" id="gf-plat-wrap"><summary id="gf-plat-summary">All platforms</summary><div class="gd-check-options"><label><input type="checkbox" id="gf-plat-all" checked> All platforms</label>'+PLATFORMS.filter(function(p){return p[0];}).map(function(p){return '<label><input type="checkbox" data-gf-platform="'+p[0]+'"> '+p[1]+'</label>';}).join('')+'</div></details></div>'+
           '<div class="field"><label for="gf-sort">Sort by</label><select id="gf-sort"><option value="date">Newest</option><option value="value">Highest value</option><option value="popularity">Most popular</option></select></div>'+
-          '<div class="field"><span class="field-label">&nbsp;</span><div class="tool-row" style="margin:0"><label><input type="checkbox" id="gf-hide"> Hide claimed</label><button class="game-btn secondary" id="gf-refresh">Refresh</button></div></div>'+
-        '</div>'+
-        '<div id="gf-stats" class="gd-stats"></div>'+
-        '<h3 class="gd-h">Giveaways &amp; freebies</h3><div id="gf-list"></div><div id="gf-pager"></div>'+
-        '<h3 class="gd-h">Free right now on official stores</h3><div id="gf-zero"></div>'+
+          '<div class="field"><span class="field-label">Official store freebies</span><details class="gd-check-picker" id="gf-store-wrap"><summary id="gf-store-summary">All stores</summary><div class="gd-check-options" id="gf-store-options"><label><input type="checkbox" id="gf-store-all" checked> All stores</label></div></details></div>'+
+          '<label class="gd-check-inline"><input type="checkbox" id="gf-hide"> Hide claimed</label><button type="button" class="game-btn secondary" id="gf-refresh">Refresh results</button>'+
+        '</aside>'+
+        '<section class="gd-main"><div class="gd-searchbar">'+icon('search',{size:18})+'<input id="gf-q" type="search" autocomplete="off" placeholder="Search free games, giveaways and loot by name or platform"></div>'+
+          '<div id="gf-stats" class="gd-stats"></div>'+
+          '<h3 class="gd-h">Giveaways &amp; freebies</h3><div id="gf-list"></div><div id="gf-pager"></div>'+
+          '<h3 class="gd-h">Free right now on official stores</h3><div id="gf-zero"></div>'+
+        '</section>'+
       '</div>';
 
     var $ = function(s){ return body.querySelector(s); };
+
+    function selectedStoreIds(prefix){
+      return Array.prototype.slice.call(body.querySelectorAll('[data-'+prefix+'-store]:checked')).map(function(x){return x.getAttribute('data-'+prefix+'-store');});
+    }
+    function syncStorePicker(prefix){
+      var selected=selectedStoreIds(prefix), all=$('#'+prefix+'-store-all'), summary=$('#'+prefix+'-store-summary');
+      if(all) all.checked=selected.length===0;
+      if(summary) summary.textContent=selected.length ? selected.length+' store'+(selected.length===1?'':'s')+' selected' : 'All stores';
+    }
+    function populateStorePicker(prefix){
+      var options=$('#'+prefix+'-store-options'); if(!options)return;
+      options.innerHTML='<label><input type="checkbox" id="'+prefix+'-store-all" checked> All stores</label>'+storeList.map(function(st){return '<label><input type="checkbox" data-'+prefix+'-store="'+esc(st.storeID)+'"> '+esc(st.storeName)+'</label>';}).join('');
+      syncStorePicker(prefix);
+    }
+    function handleStorePicker(prefix){
+      var wrap=$('#'+prefix+'-store-wrap');
+      wrap.addEventListener('change',function(e){
+        if(e.target.id===prefix+'-store-all' && e.target.checked){wrap.querySelectorAll('[data-'+prefix+'-store]').forEach(function(x){x.checked=false;});}
+        else if(e.target.matches('[data-'+prefix+'-store]') && e.target.checked){$('#'+prefix+'-store-all').checked=false;}
+        if(!selectedStoreIds(prefix).length) $('#'+prefix+'-store-all').checked=true;
+        syncStorePicker(prefix);
+        if(prefix==='gd'){pageData=[];searchDeals(0);}else drawFree();
+      });
+    }
+    handleStorePicker('gd'); handleStorePicker('gf');
 
     /* ---- currency ---- */
     function rate(){ return fx && fx.rates[cur.code] ? fx.rates[cur.code] : 1; }
@@ -1412,7 +1439,8 @@ function mountGameDeals(container){
       var url = CS + '/deals?pageSize=' + PAGE + '&pageNumber=' + dealsPage + '&sortBy=' + encodeURIComponent(sort === 'recent' ? 'Recent' : sort);
       if(['Savings', 'Reviews', 'Metacritic'].indexOf(sort) > -1) url += '&desc=1';
       if(q) url += '&title=' + encodeURIComponent(q);
-      if($('#gd-store').value) url += '&storeID=' + encodeURIComponent($('#gd-store').value);
+      var chosenStores=selectedStoreIds('gd');
+      if(chosenStores.length) url += '&storeID=' + encodeURIComponent(chosenStores.join(','));
       if($('#gd-sale').checked || !q) url += '&onSale=1';
       var maxLocal = parseFloat($('#gd-max').value);
       if(!isNaN(maxLocal)) url += '&upperPrice=' + Math.ceil(maxLocal / rate());
@@ -1427,7 +1455,7 @@ function mountGameDeals(container){
       }).then(function(deals){
         if(requestId !== dealsRequest) return;
         if(!Array.isArray(deals)) throw new Error('Unexpected reply');
-        if(!deals.length && (q || $('#gd-store').value || !isNaN(maxLocal))){
+        if(!deals.length && (q || selectedStoreIds('gd').length || !isNaN(maxLocal))){
           /* CheapShark's sale-only and store/price filters can hide otherwise valid title matches.
              Retry the title without restrictive filters, then apply store/price locally. If the
              sale-only search was empty, deliberately drop onSale too (matching the older finder). */
@@ -1437,7 +1465,7 @@ function mountGameDeals(container){
           return fetchJson(fallback, {ttl:0, timeout:10000, stale:false}).then(function(retry){
             if(requestId !== dealsRequest) return;
             pageData = Array.isArray(retry) ? retry : [];
-            if($('#gd-store').value) pageData = pageData.filter(function(d){return String(d.storeID)===String($('#gd-store').value);});
+            var chosen=selectedStoreIds('gd'); if(chosen.length) pageData = pageData.filter(function(d){return chosen.indexOf(String(d.storeID))>-1;});
             if(!isNaN(maxLocal)) pageData = pageData.filter(function(d){return parseFloat(d.salePrice)*rate()<=maxLocal;});
             dealsLoading=false;
             if(!pageData.length && q){
@@ -1459,10 +1487,10 @@ function mountGameDeals(container){
         $('#gd-results').innerHTML=msg(location.protocol==='file:' ? 'This page is opened with file://, so the browser may block the live API. Open the hosted Game Deals page or run a local HTTP server, then retry.' : 'CheapShark did not respond in time or could not be reached. The search has stopped; check your connection and try again.','deals');
       });
     }
-    $('#gd-results').addEventListener('click', function(e){ if(e.target.closest('[data-clear-deal-search]')){ $('#gd-store').value=''; $('#gd-max').value=''; $('#gd-sale').checked=false; $('#gd-kind').value='all'; pageData=[]; searchDeals(0); } });
+    $('#gd-results').addEventListener('click', function(e){ if(e.target.closest('[data-clear-deal-search]')){ $('#gd-store-all').checked=true; body.querySelectorAll('[data-gd-store]').forEach(function(x){x.checked=false;}); syncStorePicker('gd'); $('#gd-max').value=''; $('#gd-sale').checked=false; $('#gd-kind').value='all'; pageData=[]; searchDeals(0); } });
     $('#gd-go').addEventListener('click', function(){ pageData = []; searchDeals(0); });
     $('#gd-q').addEventListener('keydown', function(e){ if(e.key === 'Enter'){ pageData = []; searchDeals(0); } });
-    ['#gd-sort', '#gd-store', '#gd-sale', '#gd-kind'].forEach(function(s){ $(s).addEventListener('change', function(){ searchDeals(0); }); });
+    ['#gd-sort', '#gd-sale', '#gd-kind'].forEach(function(s){ $(s).addEventListener('change', function(){ searchDeals(0); }); });
     $('#gd-max').addEventListener('input', function(){ if(pageData.length) drawDeals(); });
     $('#gd-max').addEventListener('change', function(){ searchDeals(0); });
 
@@ -1491,7 +1519,7 @@ function mountGameDeals(container){
     function syncPlatformPicker(){
       var selected=selectedPlatforms(), all=$('#gf-plat-all');
       all.checked=selected.length===0;
-      $('#gf-plat-wrap').querySelector('summary').textContent=selected.length?selected.length+' platform'+(selected.length===1?'':'s')+' selected':'All platforms';
+      $('#gf-plat-summary').textContent=selected.length?selected.length+' platform'+(selected.length===1?'':'s')+' selected':'All platforms';
     }
     $('#gf-plat-wrap').addEventListener('change',function(e){
       if(e.target.id==='gf-plat-all' && e.target.checked){body.querySelectorAll('[data-gf-platform]').forEach(function(x){x.checked=false;});}
@@ -1512,7 +1540,8 @@ function mountGameDeals(container){
       var slice = list.slice(gpage * GPAGE, gpage * GPAGE + GPAGE);
       $('#gf-list').innerHTML = slice.length ? '<div class="gd-grid">' + slice.map(giveawayCard).join('') + '</div>' : msg(giveaways.length ? 'Nothing matches that search.' : 'No active giveaways match those filters right now.');
       $('#gf-pager').innerHTML = list.length > GPAGE ? pagerHtml(gpage, gpage < pages - 1, pages, 'gf') : '';
-      var z = sortDeals(zero, 'Title').filter(function(d){ return !q || d.title.toLowerCase().indexOf(q) > -1; });
+      var chosenFreeStores=selectedStoreIds('gf');
+      var z = sortDeals(zero, 'Title').filter(function(d){ return (!chosenFreeStores.length || chosenFreeStores.indexOf(String(d.storeID))>-1) && (!q || d.title.toLowerCase().indexOf(q) > -1); });
       $('#gf-zero').innerHTML = z.length ? '<div class="gd-list">' + z.map(dealRow).join('') + '</div>' : msg(zero.length ? 'No store freebies match that search.' : 'Nothing is priced at zero on the tracked stores at the moment.');
     }
     function loadFree(){
@@ -1582,11 +1611,11 @@ function mountGameDeals(container){
     fxLoad().then(function(c){ fx = c; picker.setRates(c.rates); renderCurrency(); redrawAll(); }).catch(function(){ fx = null; renderCurrency(); });
     renderCurrency(); saveWish();
     fetchJson(CS + '/stores', {ttl: 86400000}).then(function(list){
-      stores = {}; var opts = '';
-      list.forEach(function(s){ if(String(s.isActive) === '1'){ stores[s.storeID] = s.storeName; opts += '<option value="' + esc(s.storeID) + '">' + esc(s.storeName) + '</option>'; } });
-      var keep = $('#gd-store').value;
-      $('#gd-store').innerHTML = '<option value="">All stores</option>' + opts; $('#gd-store').value = keep;
-      if(pageData.length) drawDeals();
+      stores = {}; storeList = [];
+      list.forEach(function(st){ if(String(st.isActive) === '1'){ stores[st.storeID] = st.storeName; storeList.push({storeID:String(st.storeID),storeName:st.storeName}); } });
+      storeList.sort(function(a,b){return a.storeName.localeCompare(b.storeName);});
+      populateStorePicker('gd'); populateStorePicker('gf');
+      if(pageData.length) drawDeals(); if(giveaways.length || zero.length) drawFree();
     }).catch(function(){});
     setTimeout(function(){ showTab(); searchDeals(0); }, 30);
   });
@@ -3685,6 +3714,32 @@ function mountNetworkDiagnostics(container){
   });
 }
 PLAYABLES['network-diagnostics'] = mountNetworkDiagnostics;
+
+/* ==================================================================
+   tools / IPv4 subnet calculator
+   ================================================================== */
+function mountSubnetCalculator(container){
+  mountEmbed(container, 'TOOL / IPV4 SUBNET CALCULATOR', function(body){
+    body.innerHTML='<div class="tool-row"><label class="field"><span class="field-label">IPv4 address / CIDR</span><input id="sc-cidr" value="192.168.1.10/24" placeholder="192.168.1.10/24" spellcheck="false" autocomplete="off"></label><button type="button" class="game-btn" id="sc-calc">Calculate subnet</button></div><div id="sc-output" class="tool-output" aria-live="polite">Enter an IPv4 address and prefix, for example 192.168.1.10/24.</div><p class="tool-msg">Calculates IPv4 subnet values locally in your browser. /31 subnets are treated as point-to-point links; /32 represents a single address.</p>';
+    var $=function(s){return body.querySelector(s);};
+    function ipNum(parts){return (((parts[0]<<24)>>>0)+(parts[1]<<16)+(parts[2]<<8)+parts[3])>>>0;}
+    function ipText(n){n=n>>>0;return [(n>>>24)&255,(n>>>16)&255,(n>>>8)&255,n&255].join('.');}
+    function calc(){
+      var raw=$('#sc-cidr').value.trim(),m=/^\s*(\d{1,3}(?:\.\d{1,3}){3})(?:\/(\d{1,2}))?\s*$/.exec(raw);
+      if(!m){$('#sc-output').textContent='Enter an IPv4 address such as 192.168.1.10/24.';return;}
+      var parts=m[1].split('.').map(Number),prefix=m[2]===undefined?24:Number(m[2]);
+      if(parts.some(function(x){return x<0||x>255;})||prefix<0||prefix>32){$('#sc-output').textContent='Invalid IPv4 address or prefix. Each octet must be 0–255 and the prefix must be /0 to /32.';return;}
+      var ip=ipNum(parts),mask=prefix===0?0:(0xffffffff << (32-prefix))>>>0,network=(ip&mask)>>>0,broadcast=(network|(~mask))>>>0,wildcard=(~mask)>>>0,total=Math.pow(2,32-prefix),first,last,usable;
+      if(prefix<=30){first=network+1;last=broadcast-1;usable=total-2;}
+      else if(prefix===31){first=network;last=broadcast;usable=2;}
+      else{first=network;last=network;usable=1;}
+      var rows=[['IP address',ipText(ip)],['CIDR prefix','/'+prefix],['Subnet mask',ipText(mask)],['Wildcard mask',ipText(wildcard)],['Network address',ipText(network)],['Broadcast address',ipText(broadcast)],['Usable address range',prefix===32?ipText(ip):ipText(first)+' – '+ipText(last)],['Total addresses',total.toLocaleString()],['Usable addresses',usable.toLocaleString()]];
+      $('#sc-output').innerHTML='<dl class="metadata-list">'+rows.map(function(r){return '<dt>'+esc(r[0])+'</dt><dd><code>'+esc(r[1])+'</code></dd>';}).join('')+'</dl>';
+    }
+    $('#sc-calc').addEventListener('click',calc);$('#sc-cidr').addEventListener('keydown',function(e){if(e.key==='Enter')calc();});calc();
+  });
+}
+PLAYABLES['subnet-calculator'] = mountSubnetCalculator;
 
 /* ---------- start the one this page is for ---------- */
 (function(){

@@ -1260,3 +1260,59 @@ select:focus-visible,.gd-platform-picker summary:focus-visible{box-shadow:0 0 0 
 @keyframes vs-dropdown-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
 @media(max-width:640px){.metadata-list{grid-template-columns:minmax(90px,.65fr) minmax(0,1.35fr)}.gd-kind-badge{margin-left:4px}.nd-result{padding:12px}}
 @media(prefers-reduced-motion:reduce){.gd-platform-picker[open] .gd-platform-options{animation:none}}
+
+
+/* ===== Game Deals: shared filters, predictable control sizing and responsive gutters ===== */
+.gd-layout,.gd-main,.gd-filters,.gd-free-layout,.gd-free-layout>section{min-width:0;max-width:100%;box-sizing:border-box}
+.gd-layout{width:100%;grid-template-columns:minmax(190px,230px) minmax(0,1fr);column-gap:clamp(14px,2vw,24px)}
+.gd-filters{width:100%;min-width:0;box-sizing:border-box;overflow:visible}
+.gd-filters>.field,.gd-filters>.field>*{min-width:0;max-width:100%;box-sizing:border-box}
+.gd-check-picker{position:relative;width:100%;min-width:0}
+.gd-check-picker summary{position:relative;display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-height:40px;box-sizing:border-box;padding:9px 34px 9px 11px;border:1px solid var(--line);border-radius:var(--rad);background:var(--surface-2);color:var(--text);font:12px var(--font-mono);cursor:pointer;list-style:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:border-color .16s,background-color .16s}
+.gd-check-picker summary::-webkit-details-marker{display:none}
+.gd-check-picker summary:after{content:"";position:absolute;right:13px;top:50%;width:7px;height:7px;border-right:1.5px solid var(--muted);border-bottom:1.5px solid var(--muted);transform:translateY(-65%) rotate(45deg);transition:transform .16s ease}
+.gd-check-picker[open] summary{border-color:var(--accent);border-bottom-left-radius:5px;border-bottom-right-radius:5px}
+.gd-check-picker[open] summary:after{transform:translateY(-25%) rotate(225deg)}
+.gd-check-options{position:absolute;z-index:30;top:calc(100% + 5px);left:0;right:0;width:100%;min-width:0;max-height:min(300px,55vh);overflow-y:auto;overscroll-behavior:contain;box-sizing:border-box;padding:6px;border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:0 14px 38px rgba(0,0,0,.22);display:grid;gap:2px;animation:gd-menu-in .14s ease-out both}
+.gd-check-options label{display:flex;align-items:center;gap:9px;width:100%;min-width:0;min-height:34px;box-sizing:border-box;padding:6px 8px;border-radius:6px;color:var(--text);font:12px/1.35 var(--font-sans,system-ui,sans-serif);cursor:pointer;white-space:normal}
+.gd-check-options label:hover{background:var(--surface-1)}
+.gd-check-options input[type=checkbox]{width:16px!important;height:16px!important;min-width:16px!important;min-height:16px!important;flex:0 0 16px;margin:0!important;border-radius:4px}
+.gd-check-options input[type=checkbox]::after{width:4px;height:7px}
+.gd-check-inline{display:flex;align-items:center;gap:8px;min-width:0;font-size:12px}
+.gd-check-inline input[type=checkbox]{flex:none}
+.gd-filters select,.gd-filters input:not([type=checkbox]){width:100%;max-width:100%;min-width:0;box-sizing:border-box}
+.gd-free-layout .gd-main{overflow:visible}
+.gd-free-layout .gd-grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr))}
+.gd-free-layout .gd-stats{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 18px}
+.gd-free-layout .gd-stats>span{padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--surface-1);font-size:11px;color:var(--muted)}
+.gd-free-layout .gd-stats b{color:var(--text)}
+@keyframes gd-menu-in{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:900px){.gd-layout{grid-template-columns:minmax(0,1fr)}.gd-filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));align-items:end;gap:12px}.gd-filters>.gd-check-inline,.gd-filters>button{align-self:end}}
+@media(max-width:520px){.gd-filters{grid-template-columns:minmax(0,1fr)}.gd-check-options{max-height:42vh}.gd-top{gap:12px}.gd-cur{width:100%;max-width:320px}.gd-searchbar{gap:7px;padding-left:10px}.gd-searchbar .game-btn{padding-inline:10px}}
+
+/* Consistent tool gutters: children never spill into the page edge or sidebar rail. */
+.detail.wide{width:100%;min-width:0;box-sizing:border-box;padding-inline:clamp(14px,2.4vw,36px)}
+.detail.wide>*{min-width:0;max-width:100%;box-sizing:border-box}
+.detail.wide .embed-block,.detail.wide .embed-body{min-width:0;max-width:100%;box-sizing:border-box}
+.detail.wide .embed-body>*{min-width:0;max-width:100%}
+.detail.wide .tool-grid,.detail.wide .tool-row,.detail.wide .tool-output,.detail.wide .tool-msg{min-width:0;max-width:100%;box-sizing:border-box}
+.detail.wide input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]),.detail.wide select,.detail.wide textarea{max-width:100%;min-width:0;box-sizing:border-box}
+
+/* Smooth rail resizing and page-to-page transitions without delaying interaction. */
+.sidebar{transition:width .24s cubic-bezier(.2,.75,.25,1),transform .24s cubic-bezier(.2,.75,.25,1)}
+.workspace{transition:margin-left .24s cubic-bezier(.2,.75,.25,1)}
+.rail-arrow{transition:transform .22s ease}
+html[data-rail="collapsed"] .sidebar nav{transition:padding .2s ease}
+#app{animation:vs-page-enter .2s cubic-bezier(.2,.75,.25,1) both;overflow-wrap:anywhere}
+@view-transition{navigation:auto}
+::view-transition-old(root){animation:vs-view-out .12s ease both}
+::view-transition-new(root){animation:vs-view-in .2s ease both}
+@keyframes vs-view-out{to{opacity:.88}}
+@keyframes vs-view-in{from{opacity:.88;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.sidebar,.workspace,.rail-arrow{transition:none!important}::view-transition-old(root),::view-transition-new(root){animation:none!important}}
+
+/* Native select controls share one height, arrow treatment and theme palette. */
+select,.tool-row select,.field select,.cat-sort-select,.gd-filters select{min-height:40px;max-width:100%;box-sizing:border-box;background-color:var(--surface-2);border:1px solid var(--line);color:var(--text);font:12px var(--font-mono);padding:9px 34px 9px 11px}
+select option{background:var(--surface);color:var(--text)}
+.gd-layout[hidden],.gd-free-layout[hidden]{display:none!important}
+[data-motion="off"]::view-transition-old(root),[data-motion="off"]::view-transition-new(root){animation:none!important}
