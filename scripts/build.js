@@ -63,7 +63,7 @@ var KIND = {
   articles: {label:'Articles', noun:'Article',          og:'assets/img/og/articles.png', desc:'Practical guides, informed recommendations and durable technical knowledge.'},
 };
 var DEFAULT_OG = 'assets/img/og/default.png';
-var SITE_DESC = 'A curated catalogue of Windows software, browser tools, games and guides. No accounts, no tracking.';
+var SITE_DESC = 'A curated directory of free software, open-source alternatives to parts of Adobe Creative Cloud and Microsoft Office, browser tools, games and practical guides.';
 
 function esc(s){ return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function clip(s, n){ s = String(s).replace(/\s+/g, ' ').trim(); return s.length <= n ? s : s.slice(0, n - 1).replace(/\s+\S*$/, '') + '…'; }

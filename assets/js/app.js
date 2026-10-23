@@ -372,7 +372,7 @@ function renderShellOnce(){
     '<a class="skip-link" href="#app" id="skip-link">Skip to content</a>'+
     '<div class="site-shell">'+
       '<aside class="sidebar" id="sidebar">'+
-        '<a href="'+pageUrl('home')+'" class="brand"><span class="brand-mark">V</span><span>VELOCITY<br><b>SYSTEMS</b></span></a>'+
+        '<a href="'+pageUrl('home')+'" class="brand"><img class="brand-mark brand-logo-img" src="assets/img/velocity-mark.png" alt="" width="32" height="32"><span>VELOCITY<br><b>SYSTEMS</b></span></a>'+
         '<nav id="nav" aria-label="Primary navigation">'+
           NAV_LINKS.map(function(l){ return '<a href="'+pageUrl(l[0])+'" class="nav-link" data-route="'+l[0]+'" title="'+l[1]+'">'+icon(l[2])+'<span>'+l[1]+'</span></a>'; }).join('')+
         '</nav>'+
@@ -561,7 +561,7 @@ function updateNavActive(){
 
 /* ---------- home page ---------- */
 function pageHome(){
-  var featured = ['powertoys','json-formatter','windows-toolkit','snake'].map(getItem).filter(Boolean);
+  var featured = ['game-deals','powertoys','json-formatter','windows-toolkit','snake'].map(getItem).filter(Boolean);
   var tools = ['fraction-calculator','json-formatter','password-generator','markdown-preview'].map(getItem).filter(Boolean);
   var software = items.filter(function(x){return x.kind==='library';}).slice(0,4);
   var articles = items.filter(function(x){return x.kind==='articles';}).slice(0,4);
@@ -572,7 +572,7 @@ function pageHome(){
   html += '<section class="intro">'+
     '<span class="section-code">VELOCITY SYSTEMS / INDEX</span>'+
     '<h1 class="intro-title">Velocity Systems</h1>'+
-    '<p class="tagline">Useful software, tools, games and guides — all in one place.</p>'+
+    '<p class="tagline">Free software, open-source alternatives, practical browser tools, games and guides — including alternatives to expensive creative and office suites.</p>'+
     '<form class="intro-search" id="intro-search" action="'+pageUrl('search')+'" method="get">'+icon('search',{size:18})+'<input name="q" placeholder="Search games, tools, software, guides…" aria-label="Search the archive" autocomplete="off"><button type="submit">Search</button></form>'+
     '<div class="intro-quick">'+
       '<a href="'+kindUrl('games')+'">Games</a><a href="'+kindUrl('tools')+'">Tools</a><a href="'+kindUrl('library')+'">Library</a><a href="'+kindUrl('articles')+'">Articles</a>'+
@@ -595,7 +595,7 @@ function pageHome(){
   var libCount = items.filter(function(x){return x.kind==='library';}).length;
   html += '<section class="about-block">'+
     '<span class="section-code">ABOUT / VELOCITY SYSTEMS</span>'+
-    '<p class="about-lead">Velocity Systems is a curated catalogue of software worth knowing about — plus a set of games and utilities that run entirely in your browser. No accounts, no tracking, no uploads: everything you do here stays on your device.</p>'+
+    '<p class="about-lead">Velocity Systems is a curated directory of useful software, free and open-source alternatives, browser-based tools, games and practical guides. Find capable alternatives to parts of the Adobe Creative Cloud and Microsoft Office ecosystems — from image editing, media and design tools to document, spreadsheet and productivity software — without assuming every app is a one-to-one replacement. Each listing includes useful details and official links so you can compare options before installing. Our browser tools run locally where possible; favourites and preferences are stored in your browser, and the site does not require an account.</p>'+
     '<div class="about-grid">'+
       '<div class="about-item"><h3>'+icon('package',{size:16})+'A curated library</h3><p>Hand-picked Windows software, open-source projects and useful websites, each with the links, platforms and licensing details you actually need before installing something.</p></div>'+
       '<div class="about-item"><h3>'+icon('zap',{size:16})+'Tools that just run</h3><p>Converters, generators, formatters and image utilities that work instantly in the browser. Nothing to install, and your files never leave the page.</p></div>'+
