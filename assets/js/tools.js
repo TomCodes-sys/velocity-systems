@@ -1261,15 +1261,15 @@ function mountGameDeals(container){
       '<div id="gd-free" class="gd-layout gd-free-layout" hidden>'+
         '<aside class="gd-filters">'+
           '<div class="field"><label for="gf-type">Giveaway type</label><select id="gf-type"><option value="">Everything</option><option value="game">Full games</option><option value="loot">In-game loot &amp; DLC</option><option value="beta">Beta access</option></select></div>'+
-          '<div class="field"><span class="field-label">Platforms</span><details class="gd-check-picker" id="gf-plat-wrap"><summary id="gf-plat-summary">All platforms</summary><div class="gd-check-options"><label><input type="checkbox" id="gf-plat-all" checked> All platforms</label>'+PLATFORMS.filter(function(p){return p[0];}).map(function(p){return '<label><input type="checkbox" data-gf-platform="'+p[0]+'"> '+p[1]+'</label>';}).join('')+'</div></details></div>'+
+          '<div class="field"><span class="field-label">Platforms</span><details class="gd-check-picker" id="gf-plat-wrap"><summary id="gf-plat-summary">All platforms</summary><div class="gd-check-options"><input type="search" class="gd-picker-search" id="gf-plat-search" placeholder="Search platforms…" aria-label="Search platforms"><label><input type="checkbox" id="gf-plat-all" checked> All platforms</label>'+PLATFORMS.filter(function(p){return p[0];}).map(function(p){return '<label data-platform-label="'+esc((p[0]+' '+p[1]).toLowerCase())+'"><input type="checkbox" data-gf-platform="'+p[0]+'"> '+p[1]+'</label>';}).join('')+'</div></details></div>'+
           '<div class="field"><label for="gf-sort">Sort by</label><select id="gf-sort"><option value="date">Newest</option><option value="value">Highest value</option><option value="popularity">Most popular</option></select></div>'+
           '<div class="field"><span class="field-label">Official store freebies</span><details class="gd-check-picker" id="gf-store-wrap"><summary id="gf-store-summary">All stores</summary><div class="gd-check-options" id="gf-store-options"><label><input type="checkbox" id="gf-store-all" checked> All stores</label></div></details></div>'+
-          '<label class="gd-check-inline"><input type="checkbox" id="gf-hide"> Hide claimed</label><button type="button" class="game-btn secondary" id="gf-refresh">Refresh results</button>'+
+          '<label class="gd-check-inline"><input type="checkbox" id="gf-hide"> Show claimed in active lists</label><button type="button" class="game-btn secondary" id="gf-refresh">Refresh results</button>'+
         '</aside>'+
         '<section class="gd-main"><div class="gd-searchbar">'+icon('search',{size:18})+'<input id="gf-q" type="search" autocomplete="off" placeholder="Search free games, giveaways and loot by name or platform"></div>'+
           '<div id="gf-stats" class="gd-stats"></div>'+
           '<h3 class="gd-h">Giveaways &amp; freebies</h3><div id="gf-list"></div><div id="gf-pager"></div>'+
-          '<h3 class="gd-h">Free right now on official stores</h3><div id="gf-zero"></div>'+
+          '<h3 class="gd-h">Free right now on official stores</h3><p class="hint">Claimed store freebies are hidden here. Mark a free deal as claimed to keep it in your claimed list.</p><div id="gf-zero"></div><details class="gd-claimed-panel" id="gf-claimed-panel"><summary>Claimed games <span id="gf-claimed-count">0</span></summary><div id="gf-claimed-list"></div></details>'+
         '</section>'+
       '</div>';
 
@@ -1375,12 +1375,12 @@ function mountGameDeals(container){
       var label = on ? 'Remove from wishlist' : 'Add to wishlist';
       return '<button type="button" class="gd-heart' + (on ? ' on' : '') + '" data-wish="' + esc(gid) + '" aria-pressed="' + on + '" aria-label="' + label + '" title="' + label + '">' + icon('heart', {size: 18, fill: on ? 'currentColor' : 'none'}) + '</button>';
     }
-    function dealRow(d){
+    function dealRow(d, showClaim){
       var sale = parseFloat(d.salePrice), normal = parseFloat(d.normalPrice), save = Math.round(parseFloat(d.savings));
       var hb = histBits(d.gameID, sale), href = esc(dealHref(d));
       return '<div class="gd-deal" data-gid="' + esc(d.gameID) + '" data-title="' + esc(d.title) + '" data-thumb="' + esc(d.thumb || '') + '" data-steam="' + esc(d.steamAppID || '') + '">'+
         '<a class="gd-thumbwrap" tabindex="-1" aria-hidden="true" target="_blank" rel="noopener" href="' + href + '">' + (d.thumb ? '<img class="gd-thumb" src="' + esc(d.thumb) + '" alt="" loading="lazy">' : '<span class="gd-thumb"></span>') + '</a>'+
-        '<div class="gd-main"><a class="gd-title gd-open" target="_blank" rel="noopener" href="' + href + '">' + esc(d.title) + '</a>' + kindBadge(d) + hb.badge + '<div class="gd-sub">' + esc(storeName(d.storeID)) +
+        '<div class="gd-main"><div class="gd-title-line"><a class="gd-title gd-open" target="_blank" rel="noopener" href="' + href + '">' + esc(d.title) + '</a>' + kindBadge(d) + hb.badge + '</div><div class="gd-sub"><span class="gd-store-name">' + esc(storeName(d.storeID)) + '</span>' + (showClaim && sale===0 ? ' <button type="button" class="gd-claim" data-claim="store-'+esc(d.gameID)+'" data-claim-title="'+esc(d.title)+'" data-claim-source="store" data-claim-detail="'+esc(storeName(d.storeID))+'">Mark claimed</button>' : '') +
           (d.steamRatingPercent && d.steamRatingPercent !== '0' ? ' · ' + esc(d.steamRatingPercent) + '% positive' : '') + (d.metacriticScore && d.metacriticScore !== '0' ? ' · Metacritic ' + esc(d.metacriticScore) : '') + hb.sub + '</div></div>'+
         '<div class="gd-was">' + (normal > sale ? money(normal) : '') + '</div>'+
         '<div class="gd-now' + (sale === 0 ? ' free' : '') + '">' + (sale === 0 ? 'FREE' : money(sale)) + '</div>'+
@@ -1495,7 +1495,8 @@ function mountGameDeals(container){
     $('#gd-max').addEventListener('change', function(){ searchDeals(0); });
 
     /* ---- Free stuff tab ---- */
-    var claimed = lsGet('vs-gd-claimed', []), giveaways = [], zero = [], gpage = 0;
+    var claimed = lsGet('vs-gd-claimed', []), claimedMeta = lsGet('vs-gd-claimed-meta', []), giveaways = [], zero = [], gpage = 0;
+    if(!Array.isArray(claimed)) claimed=[]; if(!Array.isArray(claimedMeta)) claimedMeta=[];
     function endsIn(s){
       if(!s || s === 'N/A') return '';
       var t = Date.parse(String(s).replace(' ', 'T') + 'Z'); if(isNaN(t)) return '';
@@ -1504,8 +1505,15 @@ function mountGameDeals(container){
       return 'Ends in ' + (d ? d + 'd ' : '') + h + 'h';
     }
     function worthUsd(w){ var m = /([\d.,]+)/.exec(w || ''); return m ? parseFloat(m[1].replace(/,/g, '')) || 0 : 0; }
+    function isGiveawayClaimed(g){return claimed.some(function(id){return String(id)===String(g.id);});}
+    function isStoreClaimed(d){return claimed.indexOf('store-'+String(d.gameID))>-1;}
+    function rememberClaim(id,title,source,detail){
+      claimedMeta=claimedMeta.filter(function(m){return String(m.id)!==String(id);});
+      claimedMeta.push({id:String(id),title:String(title||'Claimed game'),source:String(source||'giveaway'),detail:String(detail||'')});
+      claimedMeta=claimedMeta.slice(-300);lsSet('vs-gd-claimed-meta',claimedMeta);
+    }
     function giveawayCard(g){
-      var isClaimed = claimed.indexOf(g.id) > -1, w = worthUsd(g.worth), end = endsIn(g.end_date);
+      var isClaimed = isGiveawayClaimed(g), w = worthUsd(g.worth), end = endsIn(g.end_date);
       return '<div class="gd-card' + (isClaimed ? ' claimed' : '') + '">'+
         ((g.thumbnail || g.image) ? '<img class="gd-cimg" src="' + esc(g.thumbnail || g.image) + '" alt="" loading="lazy">' : '')+
         '<div class="gd-cbody"><div class="gd-badges"><span class="pass">' + esc((g.type || 'game').toUpperCase()) + '</span>' + (end ? '<span class="gd-end">' + esc(end) + '</span>' : '') + '</div>'+
@@ -1513,7 +1521,7 @@ function mountGameDeals(container){
           '<div class="gd-sub">' + esc(String(g.platforms || '').split(',').slice(0, 3).join(' · ')) + (g.users ? ' · ' + Number(g.users).toLocaleString() + ' claimed' : '') + '</div>'+
           (w ? '<div class="gd-worth"><s>' + money(w) + '</s> now free</div>' : '')+
           '<div class="tool-row" style="margin:10px 0 0"><a class="game-btn" target="_blank" rel="noopener" href="' + esc(g.open_giveaway_url || g.gamerpower_url || '#') + '">Get it ↗</a>'+
-          '<button type="button" class="game-btn secondary" data-claim="' + esc(g.id) + '">' + (isClaimed ? '✓ Claimed' : 'Mark claimed') + '</button></div></div></div>';
+          '<button type="button" class="game-btn secondary" data-claim="' + esc(g.id) + '" data-claim-title="'+esc(g.title)+'" data-claim-source="giveaway" data-claim-detail="'+esc(String(g.platforms||'Platform not listed'))+'">' + (isClaimed ? '✓ Claimed' : 'Mark claimed') + '</button></div></div></div>';
     }
     function selectedPlatforms(){ return Array.prototype.slice.call(body.querySelectorAll('[data-gf-platform]:checked')).map(function(x){return x.getAttribute('data-gf-platform');}); }
     function syncPlatformPicker(){
@@ -1526,6 +1534,10 @@ function mountGameDeals(container){
       else if(e.target.matches('[data-gf-platform]') && e.target.checked){$('#gf-plat-all').checked=false;}
       syncPlatformPicker();loadFree();
     });
+    $('#gf-plat-search').addEventListener('input',function(){
+      var q=this.value.trim().toLowerCase();
+      body.querySelectorAll('#gf-plat-wrap [data-platform-label]').forEach(function(label){label.hidden=!!q && label.getAttribute('data-platform-label').indexOf(q)<0;});
+    });
     function platformMatches(g){
       var selected=selectedPlatforms(); if(!selected.length)return true;
       var text=String(g.platforms||'').toLowerCase();
@@ -1533,16 +1545,22 @@ function mountGameDeals(container){
     }
     function drawFree(){
       var q = $('#gf-q').value.trim().toLowerCase(), hide = $('#gf-hide').checked;
-      var list = giveaways.filter(function(g){ return platformMatches(g) && (!q || (g.title + ' ' + g.platforms + ' ' + (g.description || '')).toLowerCase().indexOf(q) > -1) && !(hide && claimed.indexOf(g.id) > -1); });
+      var list = giveaways.filter(function(g){ return platformMatches(g) && (!q || (g.title + ' ' + g.platforms + ' ' + (g.description || '')).toLowerCase().indexOf(q) > -1) && (hide || !isGiveawayClaimed(g)); });
       var total = giveaways.reduce(function(s, g){ return s + worthUsd(g.worth); }, 0);
-      $('#gf-stats').innerHTML = giveaways.length ? '<span><b>' + giveaways.length + '</b> active</span><span><b>' + money(total) + '</b> total value</span><span><b>' + claimed.filter(function(id){ return giveaways.some(function(g){ return g.id === id; }); }).length + '</b> claimed by you</span>' + (q ? '<span><b>' + list.length + '</b> match</span>' : '') : '';
+      var claimedGiveaways=giveaways.filter(isGiveawayClaimed), claimedStore=zero.filter(isStoreClaimed);
+      $('#gf-stats').innerHTML = giveaways.length ? '<span><b>' + list.length + '</b> active shown</span><span><b>' + money(total) + '</b> total value</span><span><b>' + (claimedGiveaways.length+claimedStore.length) + '</b> claimed by you</span>' + (q ? '<span><b>' + list.length + '</b> match</span>' : '') : '';
       var pages = Math.max(1, Math.ceil(list.length / GPAGE)); gpage = Math.min(gpage, pages - 1);
       var slice = list.slice(gpage * GPAGE, gpage * GPAGE + GPAGE);
       $('#gf-list').innerHTML = slice.length ? '<div class="gd-grid">' + slice.map(giveawayCard).join('') + '</div>' : msg(giveaways.length ? 'Nothing matches that search.' : 'No active giveaways match those filters right now.');
       $('#gf-pager').innerHTML = list.length > GPAGE ? pagerHtml(gpage, gpage < pages - 1, pages, 'gf') : '';
       var chosenFreeStores=selectedStoreIds('gf');
-      var z = sortDeals(zero, 'Title').filter(function(d){ return (!chosenFreeStores.length || chosenFreeStores.indexOf(String(d.storeID))>-1) && (!q || d.title.toLowerCase().indexOf(q) > -1); });
-      $('#gf-zero').innerHTML = z.length ? '<div class="gd-list">' + z.map(dealRow).join('') + '</div>' : msg(zero.length ? 'No store freebies match that search.' : 'Nothing is priced at zero on the tracked stores at the moment.');
+      var z = sortDeals(zero, 'Title').filter(function(d){ return !isStoreClaimed(d) && (!chosenFreeStores.length || chosenFreeStores.indexOf(String(d.storeID))>-1) && (!q || d.title.toLowerCase().indexOf(q) > -1); });
+      $('#gf-zero').innerHTML = z.length ? '<div class="gd-list">' + z.map(function(d){return dealRow(d,true);}).join('') + '</div>' : msg(zero.length ? 'No unclaimed store freebies match those filters.' : 'Nothing is priced at zero on the tracked stores at the moment.');
+      claimedGiveaways.forEach(function(g){if(!claimedMeta.some(function(m){return String(m.id)===String(g.id);}))rememberClaim(g.id,g.title,'giveaway',String(g.platforms||'Platform not listed'));});
+      claimedStore.forEach(function(d){var id='store-'+d.gameID;if(!claimedMeta.some(function(m){return String(m.id)===id;}))rememberClaim(id,d.title,'store',storeName(d.storeID));});
+      var claimedHtml=claimedMeta.filter(function(m){return claimed.some(function(id){return String(id)===String(m.id);});}).slice().reverse().map(function(m){return '<div class="gd-claimed-row"><span>'+esc(m.title)+'</span><small>'+esc(m.source==='store'?'Official store · '+m.detail:'Giveaway · '+m.detail)+'</small><button type="button" class="game-btn secondary" data-claim="'+esc(m.id)+'">Unmark claimed</button></div>';});
+      $('#gf-claimed-count').textContent=claimedHtml.length;
+      $('#gf-claimed-list').innerHTML=claimedHtml.length?claimedHtml.join(''):'<p class="hint">Games you mark as claimed will appear here, saved in this browser.</p>';
     }
     function loadFree(){
       freeLoaded = true; gpage = 0;
@@ -1584,8 +1602,9 @@ function mountGameDeals(container){
       }
       var c = e.target.closest('[data-claim]');
       if(c){
-        var gid = Number(c.getAttribute('data-claim')), i = claimed.indexOf(gid);
-        if(i > -1) claimed.splice(i, 1); else claimed.push(gid);
+        var rawId = c.getAttribute('data-claim'), i = claimed.findIndex(function(id){return String(id)===String(rawId);});
+        if(i > -1){claimed.splice(i,1);claimedMeta=claimedMeta.filter(function(m){return String(m.id)!==String(rawId);});lsSet('vs-gd-claimed-meta',claimedMeta);}
+        else {claimed.push(/^store-/.test(rawId) ? rawId : (/^\d+$/.test(rawId) ? Number(rawId) : rawId));rememberClaim(rawId,c.getAttribute('data-claim-title')||((c.closest('.gd-card')&&c.closest('.gd-card').querySelector('.gd-title')||{}).textContent)||'Claimed game',c.getAttribute('data-claim-source')||(/^store-/.test(rawId)?'store':'giveaway'),c.getAttribute('data-claim-detail')||'');}
         lsSet('vs-gd-claimed', claimed.slice(-300)); drawFree(); return;
       }
       var r = e.target.getAttribute && e.target.getAttribute('data-retry');
@@ -3069,34 +3088,37 @@ PLAYABLES['uuid-generator'] = mountUuid;
 function mountWatermark(container){
   mountEmbed(container, 'TOOL / WATERMARK', function(body){
     body.innerHTML =
-      '<input type="file" accept="image/*,.heic,.heif,.avif,.ico,.bmp,.tif,.tiff,.svg,.gif,.webp,.jfif" id="wm-file" class="tool-row">'+
-      '<div class="tool-row"><input type="text" id="wm-text" value="© Velocity Systems" style="flex:1"><input type="color" id="wm-color" value="#ffffff"></div>'+
-      '<canvas id="wm-canvas" style="max-width:100%;border:1px solid var(--line)"></canvas>'+
-      '<div class="tool-row"><button class="game-btn" id="wm-download">Download</button></div>';
-    var canvas = body.querySelector('#wm-canvas'), ctx = canvas.getContext('2d'), img=null;
-    body.querySelector('#wm-file').addEventListener('change', function(e){
-      var file = e.target.files[0]; if(!file) return;
-      var reader = new FileReader();
-      reader.onload = function(ev){ img = new Image(); img.onload = render; img.src = ev.target.result; };
-      reader.readAsDataURL(file);
-    });
-    function render(){
-      if(!img) return;
-      canvas.width = img.width; canvas.height = img.height;
-      ctx.drawImage(img,0,0);
-      var text = body.querySelector('#wm-text').value;
-      ctx.font = 'bold '+Math.round(img.width*0.04)+'px sans-serif';
-      ctx.fillStyle = body.querySelector('#wm-color').value;
-      ctx.globalAlpha = 0.7;
-      ctx.textAlign = 'right';
-      ctx.fillText(text, img.width-20, img.height-20);
-      ctx.globalAlpha = 1;
+      '<div class="wm-layout"><div class="wm-controls">'+
+        '<input type="file" accept="image/*,.heic,.heif,.avif,.ico,.bmp,.tif,.tiff,.svg,.gif,.webp,.jfif" id="wm-file" aria-label="Choose image">'+
+        '<div class="wm-list-head"><strong>Watermarks</strong><button type="button" class="game-btn secondary" id="wm-add">+ Add watermark</button></div><div id="wm-items"></div>'+
+        '<p class="hint">Choose a preset or drag a watermark directly on the preview. Duplicate a watermark to create another copy. Processing stays in your browser.</p>'+
+        '<div class="tool-row"><button type="button" class="game-btn" id="wm-download" disabled>Download PNG</button></div></div>'+
+        '<div class="wm-preview"><canvas id="wm-canvas" aria-label="Image preview with draggable watermarks"></canvas><div class="hint">Tip: drag text to reposition it.</div></div></div>';
+    var $=function(s){return body.querySelector(s);};
+    var canvas=$('#wm-canvas'),ctx=canvas.getContext('2d'),img=null,watermarks=[],nextId=1,dragging=null,dragMoved=false;
+    var positions=[['tl','Top left'],['tc','Top centre'],['tr','Top right'],['ml','Middle left'],['mc','Centre'],['mr','Middle right'],['bl','Bottom left'],['bc','Bottom centre'],['br','Bottom right'],['custom','Custom / drag']];
+    function makeWatermark(copy){
+      var w=copy?Object.assign({},copy,{id:nextId++,text:copy.text+' copy'}):{id:nextId++,text:'© Velocity Systems',color:'#ffffff',opacity:70,size:4,position:'br',x:0.97,y:0.96};
+      watermarks.push(w);renderControls();render();
     }
-    ['wm-text','wm-color'].forEach(function(id){ body.querySelector('#'+id).addEventListener('input', render); });
-    body.querySelector('#wm-download').addEventListener('click', function(){
-      if(!img) return;
-      var a = document.createElement('a'); a.download='watermarked.png'; a.href = canvas.toDataURL('image/png'); a.click();
-    });
+    function preset(w){var p=w.position; if(p==='custom')return; var x=p.endsWith('l')?.03:p.endsWith('r')?.97:.5; var y=p.startsWith('t')?.05:p.startsWith('b')?.96:.5; if(p==='ml'||p==='mc'||p==='mr')y=.5; w.x=x;w.y=y;}
+    function renderControls(){
+      $('#wm-items').innerHTML=watermarks.map(function(w,i){return '<section class="wm-item" data-wm-item="'+w.id+'"><div class="wm-item-head"><strong>Watermark '+(i+1)+'</strong><div><button type="button" class="game-btn secondary" data-wm-copy="'+w.id+'">Duplicate</button> <button type="button" class="game-btn secondary" data-wm-remove="'+w.id+'" '+(watermarks.length===1?'disabled':'')+'>Remove</button></div></div><div class="field"><label>Text</label><input type="text" data-wm-field="text" value="'+esc(w.text)+'" maxlength="180"></div><div class="wm-control-grid"><div class="field"><label>Position</label><select data-wm-field="position">'+positions.map(function(p){return '<option value="'+p[0]+'" '+(w.position===p[0]?'selected':'')+'>'+p[1]+'</option>';}).join('')+'</select></div><div class="field"><label>Colour</label><input type="color" data-wm-field="color" value="'+w.color+'"></div><div class="field"><label>Opacity <span data-wm-opacity>'+w.opacity+'%</span></label><input type="range" min="5" max="100" value="'+w.opacity+'" data-wm-field="opacity"></div><div class="field"><label>Size <span data-wm-size>'+w.size+'%</span></label><input type="range" min="1" max="12" value="'+w.size+'" data-wm-field="size"></div><div class="field"><label>Horizontal position</label><input type="range" min="0" max="100" value="'+Math.round(w.x*100)+'" data-wm-field="x"></div><div class="field"><label>Vertical position</label><input type="range" min="0" max="100" value="'+Math.round(w.y*100)+'" data-wm-field="y"></div></div></section>';}).join('');
+    }
+    function drawWatermark(w){if(!w.text.trim())return;var size=Math.max(10,img.width*w.size/100);ctx.font='700 '+size+'px system-ui,sans-serif';ctx.textBaseline='middle';ctx.textAlign=w.x<.34?'left':w.x>.66?'right':'center';ctx.fillStyle=w.color;ctx.globalAlpha=w.opacity/100;var x=w.x*img.width,y=w.y*img.height;ctx.shadowColor='rgba(0,0,0,.35)';ctx.shadowBlur=Math.max(1,size*.08);ctx.fillText(w.text,x,y,Math.max(1,img.width-24));ctx.shadowBlur=0;ctx.globalAlpha=1;}
+    function render(){if(!img)return;canvas.width=img.naturalWidth||img.width;canvas.height=img.naturalHeight||img.height;ctx.clearRect(0,0,canvas.width,canvas.height);ctx.drawImage(img,0,0);watermarks.forEach(drawWatermark);$('#wm-download').disabled=false;}
+    function pointerPoint(e){var r=canvas.getBoundingClientRect();return {x:Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)),y:Math.max(0,Math.min(1,(e.clientY-r.top)/r.height))};}
+    function hitWatermark(pt){if(!img)return null;for(var i=watermarks.length-1;i>=0;i--){var w=watermarks[i],size=Math.max(10,img.width*w.size/100);ctx.font='700 '+size+'px system-ui,sans-serif';var width=ctx.measureText(w.text).width/ img.width; if(Math.abs(pt.y-w.y)<Math.max(.025,size/img.height*.8)&&Math.abs(pt.x-w.x)<Math.max(.04,width*.55))return w;}return null;}
+    $('#wm-file').addEventListener('change',function(e){var file=e.target.files[0];if(!file)return;var reader=new FileReader();reader.onload=function(ev){var candidate=new Image();candidate.onload=function(){img=candidate;render();};candidate.onerror=function(){notify('This image format could not be previewed in your browser.','warn');};candidate.src=ev.target.result;};reader.readAsDataURL(file);});
+    $('#wm-add').addEventListener('click',function(){makeWatermark();});
+    $('#wm-items').addEventListener('input',function(e){var field=e.target.getAttribute('data-wm-field');if(!field)return;var item=e.target.closest('[data-wm-item]'),w=watermarks.find(function(x){return String(x.id)===item.getAttribute('data-wm-item');});if(!w)return;if(field==='x'||field==='y')w[field]=Number(e.target.value)/100;else if(field==='opacity'||field==='size')w[field]=Number(e.target.value);else w[field]=e.target.value;if(field==='position')preset(w);var o=item.querySelector('[data-wm-opacity]'),z=item.querySelector('[data-wm-size]');if(o)o.textContent=w.opacity+'%';if(z)z.textContent=w.size+'%';if(field==='position'){item.querySelector('[data-wm-field="x"]').value=Math.round(w.x*100);item.querySelector('[data-wm-field="y"]').value=Math.round(w.y*100);}render();});
+    $('#wm-items').addEventListener('change',function(e){if(e.target.matches('select[data-wm-field="position"]'))e.target.dispatchEvent(new Event('input',{bubbles:true}));});
+    $('#wm-items').addEventListener('click',function(e){var copy=e.target.closest('[data-wm-copy]'),remove=e.target.closest('[data-wm-remove]');if(copy){var w=watermarks.find(function(x){return String(x.id)===copy.getAttribute('data-wm-copy');});if(w)makeWatermark(w);}if(remove){watermarks=watermarks.filter(function(x){return String(x.id)!==remove.getAttribute('data-wm-remove');});renderControls();render();}});
+    canvas.addEventListener('pointerdown',function(e){var pt=pointerPoint(e);dragging=hitWatermark(pt);if(dragging){dragMoved=true;canvas.setPointerCapture(e.pointerId);}});
+    canvas.addEventListener('pointermove',function(e){if(!dragging)return;var pt=pointerPoint(e);dragging.x=pt.x;dragging.y=pt.y;dragging.position='custom';render();});
+    canvas.addEventListener('pointerup',function(){if(!dragging)return;dragging=null;renderControls();});canvas.addEventListener('pointercancel',function(){dragging=null;});
+    $('#wm-download').addEventListener('click',function(){if(!img)return;var a=document.createElement('a');a.download='watermarked.png';a.href=canvas.toDataURL('image/png');a.click();});
+    makeWatermark();
   });
 }
 PLAYABLES['watermark-tool'] = mountWatermark;

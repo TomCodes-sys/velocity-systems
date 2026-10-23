@@ -717,13 +717,17 @@ function mountMinesweeper(container){
         : reason==='TIME' ? 'Time ran out.' : 'Survived '+seconds+'s — try again.';
       notify(won?'Minesweeper cleared in '+seconds+'s':'Minesweeper — you hit a mine', won?'ok':'warn');
     }
-    /* Cell size: as big as fits the screen (44px max on touch devices, never below 32px there); wider boards scroll sideways. */
+    /* Fit the board to the available width, but let small boards use more of a large screen.
+       The scroll viewport centres a board that fits and left-aligns one that must scroll. */
     function fitCells(){
-      var avail = ((grid.parentNode && grid.parentNode.clientWidth) || body.clientWidth || 360) - 14;
-      var fit = Math.floor((avail - (cols - 1) * 2) / cols);
+      var viewport = grid.parentNode;
+      var avail = Math.max(220, ((viewport && viewport.clientWidth) || body.clientWidth || 360) - 16);
+      var fit = Math.floor((avail - (cols - 1) * 2 - 4) / cols);
       var coarse = window.matchMedia && matchMedia('(pointer:coarse)').matches;
-      var size = coarse ? Math.max(34, Math.min(44, fit)) : Math.max(28, Math.min(36, fit));
+      var maxSize = coarse ? 46 : 44;
+      var size = Math.max(coarse ? 32 : 28, Math.min(maxSize, fit));
       grid.style.setProperty('--ms-cell', size + 'px');
+      if(viewport) viewport.classList.toggle('is-overflowing', cols * (size + 2) + 4 > viewport.clientWidth);
     }
     window.addEventListener('resize', fitCells);
     onUnmount(grid, function(){ window.removeEventListener('resize', fitCells); });

@@ -453,13 +453,20 @@ function rememberSearch(q){
    Which of the main routes show as quick-access pills in the command bar,
    configurable from Settings. Anything that doesn't fit collapses into a
    "more" dropdown rather than wrapping or overflowing the bar. */
+var navPinDocumentClickBound = false, activePinDragId = null;
+function reorderPinnedItem(target){
+  if(!activePinDragId || !target || target===activePinDragId) return;
+  var from=favorites.indexOf(activePinDragId), to=favorites.indexOf(target);
+  if(from<0 || to<0) return;
+  var moved=favorites.splice(from,1)[0]; favorites.splice(to,0,moved); activePinDragId=null; saveFavorites(); renderSidebarBookmarks(); renderNavPins();
+}
 function renderNavPins(){
   var container = qs('#nav-pins');
   if(!container) return;
   var favItems = favorites.map(getItem).filter(Boolean);
   if(!favItems.length){ container.innerHTML=''; return; }
   container.innerHTML = favItems.map(function(item){
-    return '<a href="'+itemUrl(item)+'" class="nav-pin-link" title="'+esc(item.title)+'">'+icon(kindMeta[item.kind].icon,{size:13})+'<span>'+esc(item.title)+'</span></a>';
+    return '<a href="'+itemUrl(item)+'" class="nav-pin-link" data-pin-id="'+esc(item.id)+'" draggable="true" title="Drag to reorder · '+esc(item.title)+'">'+icon(kindMeta[item.kind].icon,{size:13})+'<span>'+esc(item.title)+'</span></a>';
   }).join('') +
   '<div class="nav-pin-more" id="nav-pin-more" style="display:none">'+
     '<button class="nav-pin-more-btn" id="nav-pin-more-btn" aria-label="More bookmarks">'+icon('menu',{size:14})+'</button>'+
@@ -469,9 +476,20 @@ function renderNavPins(){
     e.stopPropagation();
     qs('#nav-pin-dropdown').classList.toggle('open');
   });
-  document.addEventListener('click', function closeDropdown(e){
-    var dd = qs('#nav-pin-dropdown');
-    if(dd && !e.target.closest('#nav-pin-more')) dd.classList.remove('open');
+  if(!navPinDocumentClickBound){
+    document.addEventListener('click', function closeDropdown(e){
+      var dd = qs('#nav-pin-dropdown');
+      if(dd && !e.target.closest('#nav-pin-more')) dd.classList.remove('open');
+    });
+    navPinDocumentClickBound = true;
+  }
+  var links = qsa('.nav-pin-link', container);
+  links.forEach(function(link){
+    link.addEventListener('dragstart', function(e){ activePinDragId=link.getAttribute('data-pin-id'); link.classList.add('dragging'); if(e.dataTransfer){e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',activePinDragId);} });
+    link.addEventListener('dragend', function(){activePinDragId=null; links.forEach(function(x){x.classList.remove('dragging','drag-over');});});
+    link.addEventListener('dragover', function(e){ if(activePinDragId && activePinDragId!==link.getAttribute('data-pin-id')){e.preventDefault();link.classList.add('drag-over');} });
+    link.addEventListener('dragleave', function(){link.classList.remove('drag-over');});
+    link.addEventListener('drop', function(e){if(!activePinDragId)return;e.preventDefault();reorderPinnedItem(link.getAttribute('data-pin-id'));});
   });
   requestAnimationFrame(layoutNavPins);
 }
@@ -484,18 +502,30 @@ function layoutNavPins(){
   moreWrap.style.display = 'none';
   links.forEach(function(l){ l.style.display = ''; });
   if(!links.length) return;
-  var avail = container.clientWidth - 40;
+  var widths = links.map(function(l){return l.offsetWidth + 6;});
+  var total = widths.reduce(function(a,b){return a+b;},0);
+  var avail = Math.max(0,container.clientWidth);
+  /* Only reserve the overflow button when there really is overflow. This avoids
+     needlessly hiding the last pin behind the menu while a little space remains. */
+  if(total <= avail) return;
+  moreWrap.style.display = '';
+  var reserve = moreWrap.offsetWidth + 6;
+  avail = Math.max(0,avail-reserve);
   var used = 0, overflow = [];
-  links.forEach(function(l){
-    var w = l.offsetWidth + 6;
-    if(used + w <= avail){ used += w; } else { l.style.display = 'none'; overflow.push(l); }
+  links.forEach(function(l,i){
+    if(used + widths[i] <= avail){ used += widths[i]; }
+    else { l.style.display = 'none'; overflow.push(l); }
   });
-  if(overflow.length){
-    moreWrap.style.display = '';
-    qs('#nav-pin-dropdown').innerHTML = overflow.map(function(l){
-      return '<a href="'+l.getAttribute('href')+'">'+esc(l.getAttribute('title'))+'</a>';
-    }).join('');
-  }
+  if(!overflow.length) moreWrap.style.display = 'none';
+  qs('#nav-pin-dropdown').innerHTML = overflow.map(function(l){
+    return '<a href="'+l.getAttribute('href')+'" data-pin-id="'+esc(l.getAttribute('data-pin-id'))+'" draggable="true">'+esc(l.getAttribute('title').replace(/^Drag to reorder · /,''))+'</a>';
+  }).join('');
+  qsa('#nav-pin-dropdown a',container).forEach(function(link){
+    link.addEventListener('dragstart',function(e){activePinDragId=link.getAttribute('data-pin-id');if(e.dataTransfer){e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',activePinDragId);}});
+    link.addEventListener('dragover',function(e){if(activePinDragId && activePinDragId!==link.getAttribute('data-pin-id'))e.preventDefault();});
+    link.addEventListener('drop',function(e){if(!activePinDragId)return;e.preventDefault();reorderPinnedItem(link.getAttribute('data-pin-id'));});
+    link.addEventListener('dragend',function(){activePinDragId=null;});
+  });
 }
 function renderSidebarBookmarks(){
   var container = qs('#sidebar-bookmarks');

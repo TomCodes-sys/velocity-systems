@@ -1316,3 +1316,78 @@ select,.tool-row select,.field select,.cat-sort-select,.gd-filters select{min-he
 select option{background:var(--surface);color:var(--text)}
 .gd-layout[hidden],.gd-free-layout[hidden]{display:none!important}
 [data-motion="off"]::view-transition-old(root),[data-motion="off"]::view-transition-new(root){animation:none!important}
+
+
+/* Precision pass: centred Minesweeper, consistent checkbox alignment and stronger deal hierarchy. */
+.mine-wrap{width:100%;max-width:1380px;margin-inline:auto;box-sizing:border-box}
+.mine-grid-scroll{display:flex;justify-content:center;align-items:flex-start;width:100%;min-width:0}
+.mine-grid-scroll.is-overflowing{justify-content:flex-start}
+.mine-grid{margin-inline:auto}
+.mine-grid-scroll.is-overflowing .mine-grid{margin-inline:0}
+@media(min-width:1100px){.mine-wrap{gap:18px}.mine-hud{justify-content:center;gap:clamp(18px,3vw,42px)}}
+
+/* The checkbox mark is drawn from the centre of the checkbox rather than shifted down. */
+input[type="checkbox"]{box-sizing:border-box;place-content:center;align-items:center;justify-content:center;padding:0;line-height:1}
+input[type="checkbox"]::after{display:block;width:5px;height:8px;margin:0;transform:translateY(-.5px) rotate(45deg) scale(0);transform-origin:center;box-sizing:border-box}
+input[type="checkbox"]:checked::after{transform:translateY(-.5px) rotate(45deg) scale(1)}
+.gd-check-options{gap:5px;padding:7px}
+.gd-check-options label{min-height:37px;padding:8px 9px;gap:10px;border:1px solid transparent;border-radius:7px}
+.gd-check-options label:hover{border-color:color-mix(in srgb,var(--line) 70%,transparent);background:var(--surface-1)}
+.gd-check-options input[type=checkbox]{width:17px!important;height:17px!important;min-width:17px!important;min-height:17px!important;flex:0 0 17px;margin:0!important}
+.gd-check-options input[type=checkbox]::after{width:5px;height:8px}
+.gd-picker-search{position:sticky;top:-7px;z-index:1;width:100%;min-width:0;box-sizing:border-box;margin:0 0 3px;padding:9px 10px;border:1px solid var(--line);border-radius:7px;background:var(--surface-1);color:var(--text);font:12px var(--font-sans,system-ui,sans-serif)}
+.gd-picker-search:focus{outline:2px solid color-mix(in srgb,var(--accent) 40%,transparent);outline-offset:1px}
+.gd-title-line{display:flex;align-items:center;gap:7px;flex-wrap:wrap;min-width:0;margin-bottom:3px}
+.gd-title-line .gd-title{flex:0 1 auto;min-width:0;white-space:normal;line-height:1.3;overflow-wrap:anywhere}
+.gd-title-line .gd-kind-badge,.gd-title-line .gd-badge{flex:0 0 auto;margin:0;vertical-align:middle}
+.gd-store-name{display:inline-flex;align-items:center;min-height:21px;margin:2px 5px 2px 0;padding:2px 7px;border:1px solid color-mix(in srgb,var(--accent) 28%,var(--line));border-radius:5px;background:color-mix(in srgb,var(--accent) 7%,var(--surface-1));color:var(--text);font:700 10px/1.2 var(--font-sans,system-ui,sans-serif);letter-spacing:.015em}
+.gd-now{font-size:clamp(16px,1.1vw,20px);font-weight:750;letter-spacing:-.025em;color:var(--text);white-space:nowrap}
+.gd-off{font-size:12px;font-weight:750;min-width:54px;padding:5px 7px;border:1px solid color-mix(in srgb,var(--accent) 35%,var(--line));border-radius:6px;background:color-mix(in srgb,var(--accent) 10%,var(--surface));color:var(--accent);white-space:nowrap}
+.gd-claim{display:inline-flex;align-items:center;justify-content:center;margin:2px 5px;padding:4px 7px;border:1px solid var(--line);border-radius:5px;background:var(--surface-2);color:var(--text);font:600 10px var(--font-sans,system-ui,sans-serif);cursor:pointer;vertical-align:middle}
+.gd-claim:hover{border-color:var(--accent);color:var(--accent)}
+.gd-claimed-panel{margin:20px 0;border:1px solid var(--line);border-radius:var(--rad);background:var(--surface)}
+.gd-claimed-panel>summary{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 15px;cursor:pointer;font-size:13px;font-weight:650;list-style:none}
+.gd-claimed-panel>summary::-webkit-details-marker{display:none}
+.gd-claimed-panel>summary span{padding:3px 8px;border-radius:99px;background:var(--surface-2);color:var(--muted);font:11px var(--font-mono)}
+#gf-claimed-list{padding:0 12px 12px}
+.gd-claimed-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;align-items:center;padding:11px 4px;border-top:1px solid var(--line)}
+.gd-claimed-row>span{font-weight:650;font-size:13px;overflow-wrap:anywhere}
+.gd-claimed-row small{grid-column:1;color:var(--muted);font-size:11px}
+.gd-claimed-row button{grid-column:2;grid-row:1 / span 2}
+
+/* Watermark editor: predictable control widths and an image-first preview. */
+.wm-layout{display:grid;grid-template-columns:minmax(280px,.8fr) minmax(0,1.2fr);gap:20px;align-items:start;width:100%;min-width:0}
+.wm-controls,.wm-preview{min-width:0}
+.wm-list-head,.wm-item-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.wm-list-head{margin:14px 0 10px}
+.wm-item{padding:13px;margin:0 0 10px;border:1px solid var(--line);border-radius:var(--rad);background:var(--surface)}
+.wm-item-head{margin-bottom:10px;font-size:12px}
+.wm-item-head>div{display:flex;gap:6px;flex-wrap:wrap}
+.wm-item-head .game-btn{padding:6px 8px;font-size:11px}
+.wm-item .field{display:flex;flex-direction:column;gap:6px;margin-bottom:10px;min-width:0}
+.wm-item .field label{font-size:11px;color:var(--muted)}
+.wm-item .field input:not([type=range]):not([type=color]){width:100%;box-sizing:border-box}
+.wm-item input[type=color]{width:100%;height:38px;min-width:0;padding:3px}
+.wm-control-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px}
+.wm-control-grid .field{margin:0}
+.wm-control-grid input[type=range]{width:100%;min-width:0}
+.wm-preview{position:sticky;top:84px;padding:12px;border:1px solid var(--line);border-radius:var(--rad);background:var(--surface-1)}
+#wm-canvas{display:block;width:100%;height:auto;max-height:72vh;object-fit:contain;border:1px solid var(--line);background:var(--surface);touch-action:none;cursor:crosshair}
+.wm-preview .hint{margin:8px 0 0}
+@media(max-width:900px){.wm-layout{grid-template-columns:minmax(0,1fr)}.wm-preview{position:static}.wm-control-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.gd-claimed-row{grid-template-columns:minmax(0,1fr)}.gd-claimed-row small,.gd-claimed-row button{grid-column:1;grid-row:auto}.gd-off{font-size:10px;padding:4px}.gd-title-line .gd-title{flex-basis:100%}.wm-control-grid{grid-template-columns:minmax(0,1fr)}}
+
+/* Keep the content gutter and rail transition in lockstep so content reflows with the sidebar. */
+.workspace{width:calc(100% - 188px);box-sizing:border-box;transition:margin-left .24s cubic-bezier(.2,.75,.25,1),width .24s cubic-bezier(.2,.75,.25,1)}
+html[data-rail="collapsed"] .workspace{width:calc(100% - 64px)}
+.tool-discovery{margin-inline:clamp(18px,3vw,36px)}
+@media(max-width:720px){.workspace{width:100%}html[data-rail="collapsed"] .workspace{width:100%}}
+.nav-pin-link{cursor:grab;transition:background-color .15s,border-color .15s,opacity .15s}
+.nav-pin-link.dragging{opacity:.4;cursor:grabbing}
+.nav-pin-link.drag-over{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,var(--surface-1))}
+@media(prefers-reduced-motion:reduce){.nav-pin-link{transition:none}}
+
+/* Reserve a real, bounded region for pinned shortcuts so overflow can be measured accurately. */
+.nav-pins{max-width:min(52vw,760px);min-width:0;flex-shrink:1;overflow:visible}
+@media(max-width:1100px){.nav-pins{max-width:44vw}}
+@keyframes vs-page-enter{from{opacity:.82}to{opacity:1}}
