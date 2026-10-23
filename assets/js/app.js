@@ -548,6 +548,13 @@ function pageHome(){
       '<a href="'+kindUrl('games')+'">Games</a><a href="'+kindUrl('tools')+'">Tools</a><a href="'+kindUrl('library')+'">Library</a><a href="'+kindUrl('articles')+'">Articles</a>'+
       '<a href="'+searchUrl({collection:'essential-windows'})+'">Collections</a>'+
     '</div></section>';
+  html += '<section class="home-convert" aria-labelledby="home-convert-title"><div class="hs-head"><div><span>QUICK / CONVERSION</span><h2 id="home-convert-title">Quick converter</h2></div><a href="'+kindUrl('tools')+'">All tools →</a></div>'+
+    '<div class="hc-controls"><label class="field"><span class="field-label">Convert</span><select id="hc-mode"><option value="unit">Units</option><option value="currency">Currency</option></select></label>'+
+    '<label class="field" id="hc-family-wrap"><span class="field-label">Unit type</span><select id="hc-family"><option>Length</option><option>Mass</option><option>Data</option><option>Temperature</option></select></label>'+
+    '<label class="field"><span class="field-label">Amount</span><input type="number" id="hc-amount" value="1" step="any"></label>'+
+    '<label class="field"><span class="field-label">From</span><select id="hc-from"></select></label>'+
+    '<label class="field"><span class="field-label">To</span><select id="hc-to"></select></label>'+
+    '<div class="hc-result"><span>RESULT</span><b id="hc-result">—</b><small id="hc-note">Choose units to convert</small></div></div></section>';
 
   function section(title, eyebrow, list, link){
     return '<section class="home-section"><div class="hs-head"><div><span>'+eyebrow+'</span><h2>'+title+'</h2></div>'+
@@ -595,6 +602,39 @@ function pageHome(){
     var v = this.querySelector('input').value.trim();
     if(v) rememberSearch(v);
   });
+  (function initHomeConverter(){
+    var mode=qs('#hc-mode'), family=qs('#hc-family'), amount=qs('#hc-amount'), from=qs('#hc-from'), to=qs('#hc-to'), result=qs('#hc-result'), note=qs('#hc-note');
+    var units={
+      Length:[['m','Metres',1],['km','Kilometres',1000],['cm','Centimetres',.01],['mm','Millimetres',.001],['mi','Miles',1609.344],['ft','Feet',.3048],['in','Inches',.0254]],
+      Mass:[['kg','Kilograms',1],['g','Grams',.001],['lb','Pounds',.45359237],['oz','Ounces',.028349523125]],
+      Data:[['MB','Megabytes',1],['GB','Gigabytes',1000],['KB','Kilobytes',.001],['MiB','Mebibytes',1.048576],['GiB','Gibibytes',1073.741824]],
+      Temperature:[['C','Celsius'],['F','Fahrenheit'],['K','Kelvin']]
+    };
+    var rates=null;
+    function fill(){
+      var list=mode.value==='currency'?[['USD','US dollar'],['AUD','Australian dollar'],['EUR','Euro'],['GBP','British pound'],['NZD','New Zealand dollar'],['CAD','Canadian dollar'],['JPY','Japanese yen'],['CNY','Chinese yuan'],['INR','Indian rupee']]:units[family.value];
+      from.innerHTML=to.innerHTML=list.map(function(x){return '<option value="'+x[0]+'">'+x[1]+' ('+x[0]+')</option>';}).join('');
+      if(mode.value==='currency'){from.value='USD';to.value='AUD';}
+      else if(family.value==='Length'){from.value='m';to.value='ft';}
+      else if(family.value==='Mass'){from.value='kg';to.value='lb';}
+      else if(family.value==='Data'){from.value='GB';to.value='MB';}
+      else{from.value='C';to.value='F';}
+      qs('#hc-family-wrap').hidden=mode.value==='currency'; calculate();
+    }
+    function temp(v,a,b){var c=a==='F'?(v-32)*5/9:a==='K'?v-273.15:v;return b==='F'?c*9/5+32:b==='K'?c+273.15:c;}
+    function calculate(){
+      var v=parseFloat(amount.value);if(!isFinite(v)){result.textContent='—';return;}
+      if(mode.value==='currency'){
+        if(!rates){result.textContent='…';note.textContent='Loading exchange rates';return;}
+        var cv=v*rates[to.value]/rates[from.value];result.textContent=new Intl.NumberFormat(undefined,{style:'currency',currency:to.value,maximumFractionDigits:4}).format(cv);note.textContent='Reference rate from USD · live when connected';
+      }else if(family.value==='Temperature'){result.textContent=temp(v,from.value,to.value).toLocaleString(undefined,{maximumFractionDigits:6})+' '+to.value;note.textContent='Temperature conversion';}
+      else{var list=units[family.value],a=list.find(function(x){return x[0]===from.value;}),b=list.find(function(x){return x[0]===to.value;});result.textContent=(v*a[2]/b[2]).toLocaleString(undefined,{maximumFractionDigits:8})+' '+to.value;note.textContent=family.value+' conversion';}
+    }
+    mode.addEventListener('change',fill);family.addEventListener('change',fill);
+    [amount,from,to].forEach(function(el){el.addEventListener('input',calculate);el.addEventListener('change',calculate);});
+    fill();
+    fetch('https://open.er-api.com/v6/latest/USD').then(function(r){if(!r.ok)throw new Error();return r.json();}).then(function(d){if(d&&d.result==='success'){rates=d.rates;calculate();}}).catch(function(){note.textContent='Currency rates unavailable offline';});
+  })();
 }
 
 /* ---------- catalog view (games/tools/library/articles) ---------- */
@@ -703,9 +743,12 @@ function pageSectioned(kind){
 
   qs('#app').innerHTML =
     '<section class="page-heading"><span>'+meta[1]+'</span><h1>'+meta[0]+'</h1><p>'+meta[2]+'</p>'+
-      '<div class="catalog-search">'+icon('search',{size:16})+'<input id="cat-search" placeholder="Search '+meta[0].toLowerCase()+'…" aria-label="Search '+meta[0]+'" autocomplete="off"></div>'+
+      '<div class="catalog-search">'+icon('search',{size:16})+'<input id="cat-search" placeholder="Search '+meta[0].toLowerCase()+'…" aria-label="Search '+meta[0]+'" autocomplete="off"><button type="button" id="cat-clear" class="catalog-clear" hidden aria-label="Clear search">Clear</button></div>'+
       '<b id="cat-count"></b>'+
     '</section>'+
+    (kind==='tools' ? '<section class="tool-discovery" id="tool-popular"><div class="tool-discovery-head"><span>Popular tools</span><small>QUICK ACCESS</small></div><div class="tool-shortcuts">'+[
+      ['calculator','Calculator'],['unit-converter','Unit converter'],['password-generator','Password generator'],['json-formatter','JSON formatter'],['diff-checker','Text diff'],['qr-generator','QR generator']
+    ].map(function(x){var it=getItem(x[0]);return it?'<a class="tool-shortcut" href="'+itemUrl(it)+'">'+(it.emoji||'•')+' '+esc(x[1])+'</a>':'';}).join('')+'</div></section>' : '')+
     '<nav class="section-nav" id="sec-nav" aria-label="Jump to a section"></nav>'+
     '<div id="sec-recent"></div>'+
     '<div id="sec-list"></div>';
@@ -726,7 +769,7 @@ function pageSectioned(kind){
     // Recently opened items of this kind, only when not searching.
     var rec = q ? [] : recent.map(getItem).filter(function(x){ return x && x.kind===kind; }).slice(0,4);
     qs('#sec-recent').innerHTML = rec.length
-      ? '<section class="cat-section cat-recent"><header class="cat-head static"><span class="cat-title">Recently opened</span><span class="cat-count">'+pad2(rec.length)+'</span></header>'+cardGrid(rec)+'</section>'
+      ? '<section class="cat-section cat-recent"><header class="cat-head static"><span class="cat-title">Recently used</span><span class="cat-count">'+pad2(rec.length)+'</span></header>'+cardGrid(rec)+'</section>'
       : '';
 
     qs('#sec-list').innerHTML = groups.length ? groups.map(function(g){
@@ -776,7 +819,8 @@ function pageSectioned(kind){
     sec.scrollIntoView({behavior: settings.animations ? 'smooth' : 'auto', block:'start'});
     try { history.replaceState(null,'','#sec-'+id); } catch(err){}
   });
-  qs('#cat-search').addEventListener('input', function(){ query = this.value; render(); });
+  qs('#cat-search').addEventListener('input', function(){ query = this.value; qs('#cat-clear').hidden = !query; var pop=qs('#tool-popular'); if(pop) pop.hidden=!!query.trim(); render(); });
+  qs('#cat-clear').addEventListener('click', function(){ query=''; qs('#cat-search').value=''; qs('#cat-clear').hidden=true; var pop=qs('#tool-popular'); if(pop) pop.hidden=false; render(); qs('#cat-search').focus(); });
   render();
   if(location.hash.indexOf('#sec-') === 0){
     var target = qs(location.hash);

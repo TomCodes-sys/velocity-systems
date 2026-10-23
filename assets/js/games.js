@@ -578,7 +578,7 @@ function mountMinesweeper(container){
           '<span id="mine-timer">TIME 0s</span>'+
           '<span id="mine-best">BEST —</span>'+
         '</div>'+
-        '<div class="mine-grid" id="mine-grid"></div>'+
+        '<div class="mine-grid-scroll"><div class="mine-grid" id="mine-grid"></div></div>'+
         '<div class="tool-row" style="justify-content:center"><button class="game-btn secondary" id="mine-new">New game (R)</button></div>'+
         '<div class="result-banner" id="mine-banner">'+
           '<span id="mine-banner-icon" style="font-size:22px"></span>'+
@@ -824,7 +824,7 @@ function mountMinesweeperCoop(container){
     var peer = null, conns = {}, hostConn = null;
     var players = [];
     var rows, cols, mineCount, board, revealed, flagged, owner, gameOver;
-    var roomCode = '';
+    var roomCode = '', lastRenderState = null;
 
     function ensurePeerJS(cb, onerr){
       if(window.Peer){ cb(); return; }
@@ -993,6 +993,7 @@ function mountMinesweeperCoop(container){
     }
 
     function renderGame(state){
+      lastRenderState = state;
       var playersHtml = (state.players||players).map(function(p){
         return '<span class="player-chip"><span class="player-dot" style="background:'+p.color+'"></span>'+esc(p.name||'Player')+(p.host?' <span style="color:var(--muted);font-size:9px">HOST</span>':'')+'</span>';
       }).join('');
@@ -1002,7 +1003,7 @@ function mountMinesweeperCoop(container){
         '</div>'+
         '<div class="tool-row" style="justify-content:center">'+playersHtml+'</div>'+
         '<div class="mine-hud"><span>MINES '+state.mineCount+'</span></div>'+
-        '<div class="mine-grid" id="mc-grid"></div>'+
+        '<div class="mc-grid-scroll"><div class="mine-grid" id="mc-grid"></div></div>'+
         '<div class="tool-msg" id="mc-result">'+(state.gameOver ? (checkAllSafeRevealed(state) ? 'Board cleared! 🏆' : 'A mine was hit 💥') : '')+'</div>'+
         '<div class="tool-row" style="justify-content:center"><button class="game-btn secondary" id="mc-leave">Leave room</button></div>';
 
@@ -1016,7 +1017,13 @@ function mountMinesweeperCoop(container){
       });
 
       var grid = root.querySelector('#mc-grid');
-      grid.style.gridTemplateColumns = 'repeat('+state.cols+',26px)';
+      var scroll = grid.parentNode;
+      var avail = Math.max(180, (scroll.clientWidth || root.clientWidth || 360) - 8);
+      var coarse = window.matchMedia && matchMedia('(pointer:coarse)').matches;
+      var fit = Math.floor((avail - (state.cols - 1) * 2) / state.cols);
+      var cellSize = coarse ? Math.max(34, Math.min(44, fit)) : Math.max(26, Math.min(32, fit));
+      grid.style.gridTemplateColumns = 'repeat('+state.cols+','+cellSize+'px)';
+      grid.style.width = 'max-content';
       grid.innerHTML='';
       for(var r=0;r<state.rows;r++) for(var c=0;c<state.cols;c++){
         var val = state.board[r][c];
@@ -1042,8 +1049,10 @@ function mountMinesweeperCoop(container){
       return true;
     }
 
+    function resizeCoopBoard(){ if(lastRenderState && root.querySelector('#mc-grid')) renderGame(lastRenderState); }
+    window.addEventListener('resize', resizeCoopBoard);
     renderLobby();
-    onUnmount(root, function(){ if(peer){ try{ peer.destroy(); }catch(e){} } });
+    onUnmount(root, function(){ window.removeEventListener('resize', resizeCoopBoard); if(peer){ try{ peer.destroy(); }catch(e){} } });
   });
 }
 PLAYABLES['minesweeper-coop'] = mountMinesweeperCoop;

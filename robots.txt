@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://tomcodes-sys.github.io/velocity-systems/sitemap.xml
+Sitemap: https://velocitysystems.pages.dev/sitemap.xml

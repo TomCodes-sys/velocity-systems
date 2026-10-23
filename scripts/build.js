@@ -20,7 +20,7 @@ var path = require('path');
 var vm = require('vm');
 var crypto = require('crypto');
 
-var SITE_URL = (process.env.SITE_URL || 'https://tomcodes-sys.github.io/velocity-systems/').replace(/\/?$/, '/');
+var SITE_URL = (process.env.SITE_URL || 'https://velocitysystems.pages.dev/').replace(/\/?$/, '/');
 var SITE_NAME = 'Velocity Systems';
 var THEME_COLOR = '#6b98e6'; // Discord uses this for the coloured stripe on the embed
 

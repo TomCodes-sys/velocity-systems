@@ -749,7 +749,7 @@ PLAYABLES['dice-coin'] = mountDiceCoin;
 function mountDiffChecker(container){
   mountEmbed(container, 'TOOL / DIFF CHECKER', function(body){
     body.innerHTML =
-      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'+
+      '<div class="diff-columns">'+
         '<div><div class="tool-msg">Original</div><textarea class="tool-textarea" id="diff-a"></textarea></div>'+
         '<div><div class="tool-msg">Modified</div><textarea class="tool-textarea" id="diff-b"></textarea></div>'+
       '</div>'+
@@ -772,6 +772,7 @@ function mountDiffChecker(container){
     function run(){
       var a = body.querySelector('#diff-a').value.split('\n');
       var b = body.querySelector('#diff-b').value.split('\n');
+      if(a.length*b.length>300000){body.querySelector('#diff-out').textContent='This comparison is too large for the line-by-line algorithm. Try comparing smaller sections (up to roughly 500 lines per side, depending on length).';return;}
       var dp = lcs(a,b);
       var ops = backtrack(dp,a,b,a.length,b.length);
       var adds=0, dels=0;
@@ -1233,22 +1234,24 @@ PLAYABLES['fraction-calculator'] = mountFractionCalc;
 // are estimates: stores can charge differently in your region.
 function mountGameDeals(container){
   mountEmbed(container, 'TOOL / GAME DEALS & FREEBIES', function(body){
-    var CS = 'https://www.cheapshark.com/api/1.0', GP = 'https://www.gamerpower.com/api', PAGE = 24, GPAGE = 18;
+    var CS = 'https://www.cheapshark.com/api/1.0', GP = 'https://www.gamerpower.com/api', PAGE = 40, GPAGE = 18;
     var PLATFORMS = [['', 'All platforms'], ['pc', 'PC'], ['steam', 'Steam'], ['epic-games-store', 'Epic Games'], ['gog', 'GOG'], ['ubisoft', 'Ubisoft'], ['itchio', 'itch.io'], ['battlenet', 'Battle.net'],
       ['ps5', 'PlayStation 5'], ['ps4', 'PlayStation 4'], ['xbox-series-xs', 'Xbox Series X|S'], ['xbox-one', 'Xbox One'], ['switch', 'Nintendo Switch'], ['android', 'Android'], ['ios', 'iOS'], ['vr', 'VR']];
-    var fx = null, stores = null, cur = getCurrency(), freeLoaded = false, picker = null;
+    var fx = null, stores = null, cur = getCurrency(), freeLoaded = false, picker = null, dealsRequest = 0;
 
     body.innerHTML =
       '<div class="gd-top"><span class="seg" id="gd-seg"><button type="button" data-t="deals" class="on">'+icon('tag',{size:14})+' Deals</button><button type="button" data-t="free">'+icon('gift',{size:14})+' Free stuff</button><button type="button" data-t="wish">'+icon('heart',{size:14})+' Wishlist <span id="gd-wcount"></span></button></span>'+
         '<select id="gd-tab" style="display:none"><option value="deals">deals</option><option value="free">free</option><option value="wish">wish</option></select>'+
         '<div class="gd-cur"><span class="field-label">Prices in</span><div id="gd-cur-w"></div></div></div>'+
       '<p class="hint" id="gd-fx">Loading exchange rates…</p>'+
+      '<div id="gd-local-warning" class="tool-msg gd-local-warning" role="status" hidden></div>'+
 
       '<div id="gd-deals" class="gd-layout">'+
         '<aside class="gd-filters"><div class="field"><label for="gd-store">Store</label><select id="gd-store"><option value="">All stores</option></select></div>'+
+          '<div class="field"><label for="gd-kind">Content type</label><select id="gd-kind"><option value="all">Games &amp; DLC</option><option value="game">Games only</option><option value="dlc">DLC &amp; add-ons</option></select></div>'+
           '<div class="field"><label for="gd-sort">Sort by</label><select id="gd-sort"><option value="Deal Rating">Best deal</option><option value="Price">Lowest price</option><option value="Savings">Biggest discount</option><option value="recent">Newest deals</option><option value="Reviews">Steam reviews</option><option value="Metacritic">Metacritic</option><option value="Title">Title A–Z</option></select></div>'+
           '<div class="field"><label for="gd-max">Max price (<span id="gd-maxc"></span>)</label><input id="gd-max" inputmode="decimal" autocomplete="off" placeholder="No limit"></div>'+
-          '<label><input type="checkbox" id="gd-sale" checked> On sale only</label></aside>'+
+          '<label><input type="checkbox" id="gd-sale"> On sale only</label></aside>'+
         '<section class="gd-main"><div class="gd-searchbar">'+icon('search',{size:18})+'<input id="gd-q" type="search" autocomplete="off" placeholder="Search for a game, e.g. Hades or Elden Ring — leave empty for the top deals"><button class="game-btn" id="gd-go">Search</button></div>'+
           '<div class="gd-links" id="gd-links"></div><div id="gd-results"></div></section>'+
       '</div>'+
@@ -1259,7 +1262,7 @@ function mountGameDeals(container){
         '<div class="gd-searchbar">'+icon('search',{size:18})+'<input id="gf-q" type="search" autocomplete="off" placeholder="Search free games, giveaways and loot by name or platform"></div>'+
         '<div class="tool-grid gd-fgrid">'+
           '<div class="field"><label for="gf-type">Type</label><select id="gf-type"><option value="">Everything</option><option value="game">Full games</option><option value="loot">In-game loot &amp; DLC</option><option value="beta">Beta access</option></select></div>'+
-          '<div class="field"><label for="gf-plat">Platform</label><select id="gf-plat">'+PLATFORMS.map(function(p){ return '<option value="'+p[0]+'">'+p[1]+'</option>'; }).join('')+'</select></div>'+
+          '<div class="field"><span class="field-label">Platforms</span><details class="gd-platform-picker" id="gf-plat-wrap"><summary>All platforms</summary><div class="gd-platform-options"><label><input type="checkbox" id="gf-plat-all" checked> All platforms</label>'+PLATFORMS.filter(function(p){return p[0];}).map(function(p){return '<label><input type="checkbox" data-gf-platform="'+p[0]+'"> '+p[1]+'</label>';}).join('')+'</div></details></div>'+
           '<div class="field"><label for="gf-sort">Sort by</label><select id="gf-sort"><option value="date">Newest</option><option value="value">Highest value</option><option value="popularity">Most popular</option></select></div>'+
           '<div class="field"><span class="field-label">&nbsp;</span><div class="tool-row" style="margin:0"><label><input type="checkbox" id="gf-hide"> Hide claimed</label><button class="game-btn secondary" id="gf-refresh">Refresh</button></div></div>'+
         '</div>'+
@@ -1283,6 +1286,15 @@ function mountGameDeals(container){
     picker = currencyPicker($('#gd-cur-w'), {value: cur.code, onChange: function(c){ cur = {code: c, why: 'your saved choice'}; setCurrency(c); renderCurrency(); redrawAll(); }});
     $('#gd-maxc').textContent = cur.code;
     function msg(text, retry){ return '<div class="empty-state" style="margin:14px 0">' + esc(text) + (retry ? ' <button class="game-btn secondary" data-retry="' + retry + '">Try again</button>' : '') + '</div>'; }
+    function noMatch(q){ var isDlc=$('#gd-kind').value==='dlc', steam='https://store.steampowered.com/search/?term='+encodeURIComponent(q||'')+(isDlc?'&category1=21':''); return '<div class="gd-no-match"><h4>No live price matches found</h4><p>CheapShark returned no offers for <strong>“'+esc(q|| (isDlc?'DLC and add-ons':'these filters'))+'”</strong>. This does not mean the item is unavailable; CheapShark only indexes participating stores.</p><div class="gd-no-match-actions"><a class="game-btn secondary" target="_blank" rel="noopener" href="'+steam+'">Search Steam Store'+(isDlc?' for DLC':'')+' ↗</a><button type="button" class="game-btn secondary" data-clear-deal-search>Clear filters</button></div><small>Steam opens a separate store search. Its results are not live price data from this comparison.</small></div>'; }
+    /* CheapShark does not expose a reliable game-vs-DLC field on every deal. Label by title
+       heuristics and make that limitation explicit rather than claiming authoritative metadata. */
+    function dealKind(d){ var title=String(d.title||''); return /\b(dlc|expansion|season pass|soundtrack|ost|upgrade|content pack|cosmetic pack|character pack|map pack|add[- ]on|story pack|bonus pack|supporter pack|starter pack)\b/i.test(title) ? 'dlc' : 'game'; }
+    function kindBadge(d){ var k=dealKind(d); return '<span class="gd-kind-badge '+k+'" title="Inferred from the listing title; store metadata may differ">'+(k==='dlc'?'DLC / ADD-ON':'GAME')+'</span>'; }
+    if(location.protocol==='file:'){
+      $('#gd-local-warning').hidden=false;
+      $('#gd-local-warning').innerHTML='<strong>Opened as a local file.</strong> Live deals and exchange rates can fail from <code>file://</code> because browsers restrict cross-origin requests. Test the live finder at <a href="https://velocitysystems.pages.dev/tools/game-deals.html" target="_blank" rel="noopener">velocitysystems.pages.dev</a>, or run <code>python -m http.server</code> in the project folder and open <code>http://localhost:8000/tools/game-deals.html</code>.';
+    }
 
     /* ---- shared pager ---- */
     function pagerHtml(page, hasNext, total, id){
@@ -1298,7 +1310,7 @@ function mountGameDeals(container){
     function storeName(id){ return (stores && stores[id]) || 'Store ' + id; }
     function shopLinks(q){
       var enc = encodeURIComponent(q || '');
-      var L = [['Steam', 'https://store.steampowered.com/search/?term=' + enc], ['GOG', 'https://www.gog.com/en/games?query=' + enc], ['Epic', 'https://store.epicgames.com/en-US/browse?q=' + enc],
+      var L = [['Steam', 'https://store.steampowered.com/search/?term=' + enc], ['Steam DLC', 'https://store.steampowered.com/search/?term=' + enc + '&category1=21'], ['GOG', 'https://www.gog.com/en/games?query=' + enc], ['Epic', 'https://store.epicgames.com/en-US/browse?q=' + enc],
         ['Instant Gaming', 'https://www.instant-gaming.com/en/search/?query=' + enc], ['Eneba', 'https://www.eneba.com/store/all?text=' + enc], ['Kinguin', 'https://www.kinguin.net/listing?active=1&phrase=' + enc],
         ['G2A', 'https://www.g2a.com/search?query=' + enc], ['Gamivo', 'https://www.gamivo.com/catalogsearch/result/?q=' + enc], ['CDKeys', 'https://www.cdkeys.com/catalogsearch/result/?q=' + enc]];
       $('#gd-links').innerHTML = q
@@ -1341,7 +1353,7 @@ function mountGameDeals(container){
       var hb = histBits(d.gameID, sale), href = esc(dealHref(d));
       return '<div class="gd-deal" data-gid="' + esc(d.gameID) + '" data-title="' + esc(d.title) + '" data-thumb="' + esc(d.thumb || '') + '" data-steam="' + esc(d.steamAppID || '') + '">'+
         '<a class="gd-thumbwrap" tabindex="-1" aria-hidden="true" target="_blank" rel="noopener" href="' + href + '">' + (d.thumb ? '<img class="gd-thumb" src="' + esc(d.thumb) + '" alt="" loading="lazy">' : '<span class="gd-thumb"></span>') + '</a>'+
-        '<div class="gd-main"><a class="gd-title gd-open" target="_blank" rel="noopener" href="' + href + '">' + esc(d.title) + '</a>' + hb.badge + '<div class="gd-sub">' + esc(storeName(d.storeID)) +
+        '<div class="gd-main"><a class="gd-title gd-open" target="_blank" rel="noopener" href="' + href + '">' + esc(d.title) + '</a>' + kindBadge(d) + hb.badge + '<div class="gd-sub">' + esc(storeName(d.storeID)) +
           (d.steamRatingPercent && d.steamRatingPercent !== '0' ? ' · ' + esc(d.steamRatingPercent) + '% positive' : '') + (d.metacriticScore && d.metacriticScore !== '0' ? ' · Metacritic ' + esc(d.metacriticScore) : '') + hb.sub + '</div></div>'+
         '<div class="gd-was">' + (normal > sale ? money(normal) : '') + '</div>'+
         '<div class="gd-now' + (sale === 0 ? ' free' : '') + '">' + (sale === 0 ? 'FREE' : money(sale)) + '</div>'+
@@ -1384,18 +1396,21 @@ function mountGameDeals(container){
     }
     /* The list stays on screen while the next page loads, so nothing jumps or blanks. */
     function drawDeals(){
-      var maxLocal = parseFloat($('#gd-max').value), list = pageData;
+      var maxLocal = parseFloat($('#gd-max').value), list = pageData, kind=$('#gd-kind').value;
+      if(kind!=='all') list = list.filter(function(d){ return dealKind(d)===kind; });
       if(!isNaN(maxLocal)) list = list.filter(function(d){ return parseFloat(d.salePrice) * rate() <= maxLocal; });
       list = sortDeals(list, $('#gd-sort').value);
       $('#gd-results').innerHTML = '<h3 class="gd-h">' + esc(dealsHeading) + (dealsLoading ? ' · loading…' : '') + '</h3>' +
-        (list.length ? '<div class="gd-list' + (dealsLoading ? ' busy' : '') + '">' + list.map(dealRow).join('') + '</div>' : msg('Nothing matches. Try a shorter name, another store, or untick “On sale only”.')) +
+        (list.length ? '<div class="gd-list' + (dealsLoading ? ' busy' : '') + '">' + list.map(dealRow).join('') + '</div>' : ($('#gd-kind').value!=='all' ? noMatch($('#gd-q').value.trim()) : msg('Nothing matches. Try a shorter name, another store, or untick “On sale only”.'))) +
         pagerHtml(dealsPage, pageData.length >= PAGE, dealsTotal, 'deals');
     }
     function searchDeals(page){
       var q = $('#gd-q').value.trim();
+      var requestId = ++dealsRequest;
       dealsPage = page || 0; lastQ = q; shopLinks(q);
-      var url = CS + '/deals?pageSize=' + PAGE + '&pageNumber=' + dealsPage + '&sortBy=' + encodeURIComponent($('#gd-sort').value);
-      if(['Savings', 'Reviews', 'Metacritic'].indexOf($('#gd-sort').value) > -1) url += '&desc=1';
+      var sort = $('#gd-sort').value;
+      var url = CS + '/deals?pageSize=' + PAGE + '&pageNumber=' + dealsPage + '&sortBy=' + encodeURIComponent(sort === 'recent' ? 'Recent' : sort);
+      if(['Savings', 'Reviews', 'Metacritic'].indexOf(sort) > -1) url += '&desc=1';
       if(q) url += '&title=' + encodeURIComponent(q);
       if($('#gd-store').value) url += '&storeID=' + encodeURIComponent($('#gd-store').value);
       if($('#gd-sale').checked || !q) url += '&onSale=1';
@@ -1403,22 +1418,51 @@ function mountGameDeals(container){
       if(!isNaN(maxLocal)) url += '&upperPrice=' + Math.ceil(maxLocal / rate());
       dealsLoading = true; dealsHeading = q ? 'Results for “' + q + '”' : 'Top deals right now';
       if(pageData.length) drawDeals(); else $('#gd-results').innerHTML = '<div class="empty-state" style="margin:14px 0">Searching stores…</div>';
-      var ctl = typeof AbortController === 'function' ? new AbortController() : null, timer = setTimeout(function(){ if(ctl) ctl.abort(); }, 12000);
-      fetch(url, ctl ? {signal: ctl.signal} : undefined).then(function(r){
-        clearTimeout(timer); if(!r.ok) throw new Error('HTTP ' + r.status);
-        var t = parseInt(r.headers.get('X-Total-Page-Count'), 10); dealsTotal = isNaN(t) ? null : t;
+      var ctl = typeof AbortController === 'function' ? new AbortController() : null;
+      var timer = setTimeout(function(){ if(ctl) ctl.abort(); }, 12000);
+      fetch(url, ctl ? {signal:ctl.signal} : undefined).then(function(r){
+        clearTimeout(timer); if(!r.ok) throw new Error('HTTP '+r.status);
+        var total = parseInt(r.headers.get('X-Total-Page-Count'),10); dealsTotal = isNaN(total)?null:total;
         return r.json();
       }).then(function(deals){
+        if(requestId !== dealsRequest) return;
         if(!Array.isArray(deals)) throw new Error('Unexpected reply');
-        pageData = deals; dealsLoading = false; drawDeals(); loadHistory(deals);
+        if(!deals.length && (q || $('#gd-store').value || !isNaN(maxLocal))){
+          /* CheapShark's sale-only and store/price filters can hide otherwise valid title matches.
+             Retry the title without restrictive filters, then apply store/price locally. If the
+             sale-only search was empty, deliberately drop onSale too (matching the older finder). */
+          var fallback = CS + '/deals?pageSize=' + PAGE + '&pageNumber=' + dealsPage + '&sortBy=' + encodeURIComponent(sort === 'recent' ? 'Recent' : sort);
+          if(['Savings','Reviews','Metacritic'].indexOf(sort)>-1) fallback += '&desc=1';
+          if(q) fallback += '&title=' + encodeURIComponent(q);
+          return fetchJson(fallback, {ttl:0, timeout:10000, stale:false}).then(function(retry){
+            if(requestId !== dealsRequest) return;
+            pageData = Array.isArray(retry) ? retry : [];
+            if($('#gd-store').value) pageData = pageData.filter(function(d){return String(d.storeID)===String($('#gd-store').value);});
+            if(!isNaN(maxLocal)) pageData = pageData.filter(function(d){return parseFloat(d.salePrice)*rate()<=maxLocal;});
+            dealsLoading=false;
+            if(!pageData.length && q){
+              $('#gd-results').innerHTML = noMatch(q);
+              return;
+            }
+            drawDeals(); loadHistory(pageData);
+          });
+        }
+        pageData=deals; dealsLoading=false;
+        if(!pageData.length && q){
+          $('#gd-results').innerHTML = noMatch(q);
+          return;
+        }
+        drawDeals(); loadHistory(deals);
       }).catch(function(){
-        dealsLoading = false;
-        $('#gd-results').innerHTML = msg('Couldn’t reach CheapShark. Check your connection, then try again.', 'deals');
+        if(requestId !== dealsRequest) return;
+        dealsLoading=false;
+        $('#gd-results').innerHTML=msg(location.protocol==='file:' ? 'This page is opened with file://, so the browser may block the live API. Open the hosted Game Deals page or run a local HTTP server, then retry.' : 'CheapShark did not respond in time or could not be reached. The search has stopped; check your connection and try again.','deals');
       });
     }
+    $('#gd-results').addEventListener('click', function(e){ if(e.target.closest('[data-clear-deal-search]')){ $('#gd-store').value=''; $('#gd-max').value=''; $('#gd-sale').checked=false; $('#gd-kind').value='all'; pageData=[]; searchDeals(0); } });
     $('#gd-go').addEventListener('click', function(){ pageData = []; searchDeals(0); });
     $('#gd-q').addEventListener('keydown', function(e){ if(e.key === 'Enter'){ pageData = []; searchDeals(0); } });
-    ['#gd-sort', '#gd-store', '#gd-sale'].forEach(function(s){ $(s).addEventListener('change', function(){ searchDeals(0); }); });
+    ['#gd-sort', '#gd-store', '#gd-sale', '#gd-kind'].forEach(function(s){ $(s).addEventListener('change', function(){ searchDeals(0); }); });
     $('#gd-max').addEventListener('input', function(){ if(pageData.length) drawDeals(); });
     $('#gd-max').addEventListener('change', function(){ searchDeals(0); });
 
@@ -1443,9 +1487,25 @@ function mountGameDeals(container){
           '<div class="tool-row" style="margin:10px 0 0"><a class="game-btn" target="_blank" rel="noopener" href="' + esc(g.open_giveaway_url || g.gamerpower_url || '#') + '">Get it ↗</a>'+
           '<button type="button" class="game-btn secondary" data-claim="' + esc(g.id) + '">' + (isClaimed ? '✓ Claimed' : 'Mark claimed') + '</button></div></div></div>';
     }
+    function selectedPlatforms(){ return Array.prototype.slice.call(body.querySelectorAll('[data-gf-platform]:checked')).map(function(x){return x.getAttribute('data-gf-platform');}); }
+    function syncPlatformPicker(){
+      var selected=selectedPlatforms(), all=$('#gf-plat-all');
+      all.checked=selected.length===0;
+      $('#gf-plat-wrap').querySelector('summary').textContent=selected.length?selected.length+' platform'+(selected.length===1?'':'s')+' selected':'All platforms';
+    }
+    $('#gf-plat-wrap').addEventListener('change',function(e){
+      if(e.target.id==='gf-plat-all' && e.target.checked){body.querySelectorAll('[data-gf-platform]').forEach(function(x){x.checked=false;});}
+      else if(e.target.matches('[data-gf-platform]') && e.target.checked){$('#gf-plat-all').checked=false;}
+      syncPlatformPicker();loadFree();
+    });
+    function platformMatches(g){
+      var selected=selectedPlatforms(); if(!selected.length)return true;
+      var text=String(g.platforms||'').toLowerCase();
+      return selected.some(function(key){var p=PLATFORMS.filter(function(x){return x[0]===key;})[0];return text.indexOf(key.toLowerCase())>-1 || (p && text.indexOf(p[1].toLowerCase())>-1);});
+    }
     function drawFree(){
       var q = $('#gf-q').value.trim().toLowerCase(), hide = $('#gf-hide').checked;
-      var list = giveaways.filter(function(g){ return (!q || (g.title + ' ' + g.platforms + ' ' + (g.description || '')).toLowerCase().indexOf(q) > -1) && !(hide && claimed.indexOf(g.id) > -1); });
+      var list = giveaways.filter(function(g){ return platformMatches(g) && (!q || (g.title + ' ' + g.platforms + ' ' + (g.description || '')).toLowerCase().indexOf(q) > -1) && !(hide && claimed.indexOf(g.id) > -1); });
       var total = giveaways.reduce(function(s, g){ return s + worthUsd(g.worth); }, 0);
       $('#gf-stats').innerHTML = giveaways.length ? '<span><b>' + giveaways.length + '</b> active</span><span><b>' + money(total) + '</b> total value</span><span><b>' + claimed.filter(function(id){ return giveaways.some(function(g){ return g.id === id; }); }).length + '</b> claimed by you</span>' + (q ? '<span><b>' + list.length + '</b> match</span>' : '') : '';
       var pages = Math.max(1, Math.ceil(list.length / GPAGE)); gpage = Math.min(gpage, pages - 1);
@@ -1461,7 +1521,6 @@ function mountGameDeals(container){
       if(!zero.length) $('#gf-zero').innerHTML = '<div class="empty-state" style="margin:14px 0">Loading store freebies…</div>';
       var url = GP + '/giveaways?sort-by=' + encodeURIComponent($('#gf-sort').value);
       if($('#gf-type').value) url += '&type=' + encodeURIComponent($('#gf-type').value);
-      if($('#gf-plat').value) url += '&platform=' + encodeURIComponent($('#gf-plat').value);
       var a = fetchJson(url, {ttl: 300000}).then(function(d){ giveaways = Array.isArray(d) ? d : []; return true; }).catch(function(){ giveaways = []; return false; });
       var b = fetchJson(CS + '/deals?upperPrice=0&pageSize=40&sortBy=recent', {ttl: 300000}).then(function(d){ zero = Array.isArray(d) ? d : []; loadHistory(zero); return true; }).catch(function(){ zero = []; return false; });
       Promise.all([a, b]).then(function(ok){
@@ -1470,7 +1529,7 @@ function mountGameDeals(container){
         if(!ok[1]) $('#gf-zero').innerHTML = msg('Couldn’t reach CheapShark. Try again in a moment.', 'free');
       });
     }
-    ['#gf-type', '#gf-plat', '#gf-sort'].forEach(function(s){ $(s).addEventListener('change', loadFree); });
+    ['#gf-type', '#gf-sort'].forEach(function(s){ $(s).addEventListener('change', loadFree); });
     $('#gf-refresh').addEventListener('click', loadFree);
     $('#gf-q').addEventListener('input', function(){ gpage = 0; drawFree(); });
     $('#gf-hide').addEventListener('change', function(){ gpage = 0; drawFree(); });
@@ -1660,7 +1719,7 @@ function mountBulkCompressor(container){
         '<div class="field"><label for="bc-format">Output format</label><select id="bc-format"><option value="image/jpeg">JPEG</option><option value="image/webp">WebP</option></select></div>'+
         '<div class="field"><label for="bc-q">Quality: <span id="bc-qv">75</span>%</label><input type="range" id="bc-q" min="30" max="95" value="75"></div>'+
         '<div class="field"><label for="bc-max">Longest side (px, 0 = keep size)</label><input type="number" id="bc-max" min="0" max="12000" value="2000"></div>'+
-        '<div class="tool-row tl-btns"><button class="game-btn" id="bc-run" disabled>'+icon('zap',{size:14})+' Compress</button><button class="game-btn secondary" id="bc-clear" disabled>Clear</button></div>'+
+        '<div class="tool-row tl-btns"><button class="game-btn" id="bc-run" disabled>'+icon('zap',{size:14})+' Compress</button><button class="game-btn secondary" id="bc-clear" disabled>Clear</button><button class="game-btn secondary" id="bc-zip" disabled>Download all as ZIP</button></div>'+
         '<div class="tool-msg" id="bc-msg">Add some images to begin.</div></div></div>';
     var files = [], results = [];
     var list = body.querySelector('#bc-list'), msg = body.querySelector('#bc-msg');
@@ -1671,7 +1730,7 @@ function mountBulkCompressor(container){
           (r ? ' → <b>'+fmtBytes(r.blob.size)+'</b> <i>'+(r.blob.size < f.size ? '−'+Math.round(100-r.blob.size/f.size*100)+'%' : 'no gain')+'</i>' : '')+'</span>'+
           (r ? '<a class="game-btn secondary" download="'+esc(r.name)+'" href="'+r.url+'">Save</a>' : '')+'</div>';
       }).join('');
-      body.querySelector('#bc-run').disabled = !files.length; body.querySelector('#bc-clear').disabled = !files.length;
+      body.querySelector('#bc-run').disabled = !files.length; body.querySelector('#bc-clear').disabled = !files.length; body.querySelector('#bc-zip').disabled = !results.some(Boolean);
     }
     function add(fl){
       Array.prototype.forEach.call(fl, function(f){ if(/^image\//.test(f.type)) files.push(f); });
@@ -1698,6 +1757,16 @@ function mountBulkCompressor(container){
         im.src = url;
       });
     }
+    body.querySelector('#bc-zip').addEventListener('click', async function(){
+      var packed = [];
+      for(var i=0;i<results.length;i++){
+        if(!results[i]) continue;
+        packed.push({name:results[i].name, data:new Uint8Array(await results[i].blob.arrayBuffer())});
+      }
+      if(!packed.length){ msg.textContent='Compress at least one image first.'; return; }
+      try { saveBlob('compressed-images.zip', makeZip(packed), 'application/zip'); msg.textContent='ZIP created with '+packed.length+' image(s).'; }
+      catch(e){ msg.textContent='Could not create the ZIP in this browser.'; }
+    });
     body.querySelector('#bc-run').addEventListener('click', function(){
       var fmt = body.querySelector('#bc-format').value, q = parseInt(body.querySelector('#bc-q').value, 10) / 100, max = parseInt(body.querySelector('#bc-max').value, 10) || 0;
       msg.textContent = 'Compressing…'; results = [];
@@ -1725,10 +1794,11 @@ function mountJsonCsv(container){
       '<div class="tool-grid two"><div class="field"><label for="jc-in">Input</label><textarea id="jc-in" spellcheck="false" placeholder=\'[{"name":"Ada","age":36}]\'></textarea></div>'+
         '<div class="field"><label for="jc-out">Output</label><textarea id="jc-out" readonly spellcheck="false"></textarea></div></div>'+
       '<div class="err-text" id="jc-err" role="alert"></div>'+
-      '<div class="tool-row"><button class="game-btn secondary" id="jc-copy">Copy output</button><button class="game-btn secondary" id="jc-dl">Download</button></div>';
+      '<div class="tool-row"><button class="game-btn secondary" id="jc-copy" disabled>Copy output</button><button class="game-btn secondary" id="jc-dl" disabled>Download</button></div>';
     var $ = function(s){ return body.querySelector(s); };
 
     function parseCsv(text, d){
+      text = text.replace(/^\uFEFF/, '');
       var rows = [], row = [], cur = '', q = false;
       for(var i = 0; i < text.length; i++){
         var c = text[i];
@@ -1739,6 +1809,7 @@ function mountJsonCsv(container){
         else if(c === '\n' || c === '\r'){ if(c === '\r' && text[i+1] === '\n') i++; row.push(cur); rows.push(row); row = []; cur = ''; }
         else cur += c;
       }
+      if(q) throw new Error('CSV contains an unclosed quoted field. Check the quotation marks.');
       if(cur !== '' || row.length){ row.push(cur); rows.push(row); }
       return rows.filter(function(r){ return !(r.length === 1 && r[0] === ''); });
     }
@@ -1750,7 +1821,7 @@ function mountJsonCsv(container){
     function convert(){
       var err = $('#jc-err'), d = $('#jc-delim').value, src = $('#jc-in').value;
       err.textContent = '';
-      if(!src.trim()){ $('#jc-out').value = ''; return; }
+      if(!src.trim()){ $('#jc-out').value = ''; $('#jc-copy').disabled=true; $('#jc-dl').disabled=true; return; }
       try {
         if($('#jc-mode').value === 'j2c'){
           var data = JSON.parse(src);
@@ -1772,7 +1843,8 @@ function mountJsonCsv(container){
             }); return o;
           }), null, 2);
         }
-      } catch(e){ err.textContent = e.message; $('#jc-out').value = ''; }
+        $('#jc-copy').disabled=!$('#jc-out').value; $('#jc-dl').disabled=!$('#jc-out').value;
+      } catch(e){ err.textContent = e.message; $('#jc-out').value = ''; $('#jc-copy').disabled=true; $('#jc-dl').disabled=true; }
     }
     $('#jc-seg').addEventListener('click', function(e){
       var b = e.target.closest('[data-m]'); if(!b) return;
@@ -2713,7 +2785,7 @@ function mountBase64(container){
     };
     body.innerHTML =
       '<div class="tool-row" id="b64-tabs"></div>'+
-      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'+
+      '<div class="diff-columns">'+
         '<div><div class="tool-msg">Input</div><textarea class="tool-textarea" id="b64-in"></textarea></div>'+
         '<div><div class="tool-msg">Output</div><textarea class="tool-textarea" id="b64-out"></textarea></div>'+
       '</div>'+
@@ -3377,6 +3449,242 @@ function mountImageEditor(container){
   });
 }
 PLAYABLES['image-editor'] = mountImageEditor;
+
+
+/* ==================================================================
+   tools / speed-test
+   Browser-only throughput check using Cloudflare's public speed-test endpoints.
+   ================================================================== */
+function mountSpeedTest(container){
+  mountEmbed(container, 'TOOL / INTERNET SPEED TEST', function(body){
+    body.innerHTML = '<div class="st-wrap"><div class="st-metrics"><div class="st-metric"><span>LATENCY</span><b id="st-ping">—</b><small>ms</small></div><div class="st-metric"><span>DOWNLOAD</span><b id="st-down">—</b><small>Mbps</small></div><div class="st-metric"><span>UPLOAD</span><b id="st-up">—</b><small>Mbps</small></div></div><div class="tool-row"><button class="game-btn" id="st-run">Run speed test</button></div><p class="tool-msg" id="st-msg">Uses a small amount of data. Results vary with Wi-Fi, other traffic and your connection.</p></div>';
+    var $ = function(s){return body.querySelector(s);}, running=false;
+    async function timedFetch(url, opts, timeout){
+      var ctl = typeof AbortController === 'function' ? new AbortController() : null;
+      var timer = setTimeout(function(){if(ctl)ctl.abort();}, timeout || 15000);
+      var start = performance.now();
+      try { var r = await fetch(url, Object.assign({}, opts || {}, ctl ? {signal:ctl.signal} : {})); if(!r.ok) throw new Error('HTTP '+r.status); return {response:r,ms:performance.now()-start}; }
+      finally { clearTimeout(timer); }
+    }
+    $('#st-run').addEventListener('click', async function(){
+      if(running)return; running=true; $('#st-run').disabled=true;
+      ['#st-ping','#st-down','#st-up'].forEach(function(s){$(s).textContent='…';});
+      $('#st-msg').textContent='Checking latency…';
+      try{
+        var pings=[];
+        for(var i=0;i<3;i++){var p=await timedFetch('https://speed.cloudflare.com/__down?bytes=1000&cache='+Date.now()+'-'+i, {cache:'no-store'}, 10000); await p.response.arrayBuffer(); pings.push(p.ms);}
+        pings.sort(function(a,b){return a-b;}); $('#st-ping').textContent=Math.round(pings[1]);
+        $('#st-msg').textContent='Measuring download…';
+        var downBytes=5000000, d=await timedFetch('https://speed.cloudflare.com/__down?bytes='+downBytes+'&cache='+Date.now(), {cache:'no-store'}, 20000);
+        var data=await d.response.arrayBuffer(); var down=data.byteLength*8/(d.ms/1000)/1000000;
+        $('#st-down').textContent=down.toFixed(1);
+        $('#st-msg').textContent='Measuring upload…';
+        var upBytes=1000000, payload=new Uint8Array(upBytes);
+        if(window.crypto && crypto.getRandomValues){ for(var off=0;off<payload.length;off+=65536) crypto.getRandomValues(payload.subarray(off,Math.min(off+65536,payload.length))); }
+        var u=await timedFetch('https://speed.cloudflare.com/__up', {method:'POST',body:payload,headers:{'Content-Type':'application/octet-stream'},cache:'no-store'}, 20000);
+        await u.response.arrayBuffer(); var up=upBytes*8/(u.ms/1000)/1000000;
+        $('#st-up').textContent=up.toFixed(1);
+        $('#st-msg').textContent='Test complete. Approximate browser measurements, not a certified ISP speed test.';
+      }catch(e){
+        ['#st-ping','#st-down','#st-up'].forEach(function(s){if($(s).textContent==='…')$(s).textContent='—';});
+        $('#st-msg').textContent='The test could not reach the measurement service. Check your connection, disable blocking extensions for this page, or try again later.';
+      }finally{running=false;$('#st-run').disabled=false;}
+    });
+  });
+}
+PLAYABLES['speed-test'] = mountSpeedTest;
+
+/* ==================================================================
+   tools / qr-scanner
+   Camera scanning when supported, plus local image upload fallback.
+   ================================================================== */
+function mountQrScanner(container){
+  mountEmbed(container, 'TOOL / QR CODE SCANNER', function(body){
+    body.innerHTML = '<div class="qrscan-layout"><div><div class="tool-row"><button type="button" class="game-btn" id="qr-camera">Start camera</button><button type="button" class="game-btn secondary" id="qr-stop" disabled>Stop camera</button></div><video id="qr-video" playsinline muted hidden></video><canvas id="qr-canvas" hidden></canvas><p class="tool-msg" id="qr-status">Use the camera or choose a picture containing a QR code.</p></div><div><label class="field"><span class="field-label">Scan an image</span><input type="file" id="qr-file" accept="image/*"></label><label class="field"><span class="field-label">Decoded content</span><textarea id="qr-result" class="tool-textarea" rows="4" readonly placeholder="Scanned text or link appears here"></textarea></label><div class="tool-row"><button type="button" class="game-btn secondary" id="qr-copy" disabled>Copy result</button></div></div></div>';
+    var $=function(s){return body.querySelector(s);}, stream=null, scanTimer=null, detector=null, useJsQr=false, fallbackLoading=null;
+    function stop(){if(scanTimer){clearTimeout(scanTimer);scanTimer=null;}if(stream){stream.getTracks().forEach(function(t){t.stop();});stream=null;}$('#qr-video').srcObject=null;$('#qr-video').hidden=true;$('#qr-stop').disabled=true;$('#qr-camera').disabled=false;}
+    function result(value){if(!value)return;$('#qr-result').value=value;$('#qr-copy').disabled=false;$('#qr-status').textContent='QR code detected.';}
+    function ensureScanner(){
+      if('BarcodeDetector' in window){try{detector=new BarcodeDetector({formats:['qr_code']});return Promise.resolve();}catch(e){}}
+      useJsQr=true;
+      if(window.jsQR)return Promise.resolve();
+      if(fallbackLoading)return fallbackLoading;
+      fallbackLoading=new Promise(function(resolve,reject){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';s.onload=function(){window.jsQR?resolve():reject(new Error('QR fallback library did not load.'));};s.onerror=function(){reject(new Error('Native QR detection is unavailable and the fallback library could not load. Check your connection.'));};document.head.appendChild(s);});
+      return fallbackLoading;
+    }
+    async function decodeImageSource(source,w,h){
+      if(detector){var found=await detector.detect(source);return found&&found.length?found[0].rawValue:null;}
+      var canvas=$('#qr-canvas'),ctx=canvas.getContext('2d');canvas.width=w;canvas.height=h;ctx.drawImage(source,0,0,w,h);
+      var pixels=ctx.getImageData(0,0,w,h);var hit=window.jsQR(pixels.data,w,h,{inversionAttempts:'attemptBoth'});return hit?hit.data:null;
+    }
+    async function scanVideo(){
+      if(!stream)return;
+      try{var video=$('#qr-video'),value=await decodeImageSource(video,video.videoWidth,video.videoHeight);if(value){result(value);stop();return;}}
+      catch(e){}
+      if(stream)scanTimer=setTimeout(scanVideo,250);
+    }
+    $('#qr-camera').addEventListener('click',async function(){
+      try{
+        await ensureScanner();
+        if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error('Camera access is unavailable. Open this page on HTTPS or localhost, or upload an image instead.');
+        stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
+        $('#qr-video').srcObject=stream;$('#qr-video').hidden=false;$('#qr-video').style.width='100%';$('#qr-video').style.maxWidth='480px';
+        await $('#qr-video').play();$('#qr-stop').disabled=false;$('#qr-camera').disabled=true;$('#qr-status').textContent='Point the camera at a QR code…';scanVideo();
+      }catch(e){stop();$('#qr-status').textContent=e.message||'Could not start camera. Upload an image containing the QR code instead.';}
+    });
+    $('#qr-stop').addEventListener('click',stop);
+    $('#qr-file').addEventListener('change',async function(){
+      var f=this.files&&this.files[0];if(!f)return;
+      try{
+        await ensureScanner();
+        var bitmap=await createImageBitmap(f);
+        var value=await decodeImageSource(bitmap,bitmap.width,bitmap.height);bitmap.close&&bitmap.close();
+        if(value)result(value);else $('#qr-status').textContent='No QR code found in that image.';
+      }catch(e){$('#qr-status').textContent=e.message||'Could not decode this image in the current browser.';}
+      this.value='';
+    });
+    $('#qr-copy').addEventListener('click',function(){copyText($('#qr-result').value);});
+    onUnmount(body,function(){stop();});
+  });
+}
+PLAYABLES['qr-scanner'] = mountQrScanner;
+
+/* ==================================================================
+   tools / pdf-tools
+   PDF merge and page-range extraction using pdf-lib in the browser.
+   ================================================================== */
+function mountPdfTools(container){
+  mountEmbed(container, 'TOOL / PDF MERGE & SPLIT', function(body){
+    body.innerHTML = '<p class="tool-msg">Files are processed in your browser. PDF features load the open-source pdf-lib library from a CDN when first used.</p><div class="tool-row"><label class="field"><span class="field-label">Mode</span><select id="pdf-mode"><option value="merge">Merge PDFs</option><option value="split">Extract page range</option></select></label><label class="field"><span class="field-label">PDF files</span><input type="file" id="pdf-files" accept="application/pdf,.pdf" multiple></label></div><div id="pdf-file-list" class="tool-output">Choose one or more PDF files.</div><div class="tool-row" id="pdf-range-wrap" hidden><label class="field"><span class="field-label">Pages (e.g. 1-3, 5, 8-10)</span><input type="text" id="pdf-range" placeholder="1-3, 5"></label></div><div class="tool-row"><button type="button" class="game-btn" id="pdf-run">Create PDF</button></div><p class="tool-msg" id="pdf-status" role="status"></p>';
+    var $=function(s){return body.querySelector(s);}, files=[];
+    $('#pdf-mode').addEventListener('change',function(){$('#pdf-range-wrap').hidden=this.value!=='split';});
+    $('#pdf-files').addEventListener('change',function(){files=Array.from(this.files||[]);$('#pdf-file-list').textContent=files.length?files.map(function(f,i){return (i+1)+'. '+f.name+' ('+Math.round(f.size/1024)+' KB)';}).join('\n'):'Choose one or more PDF files.';});
+    function loadLib(){if(window.PDFLib)return Promise.resolve(window.PDFLib);return new Promise(function(resolve,reject){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';s.onload=function(){window.PDFLib?resolve(window.PDFLib):reject(new Error('PDF library did not load.'));};s.onerror=function(){reject(new Error('Could not load the PDF library. Check your connection or content blocker.'));};document.head.appendChild(s);});}
+    $('#pdf-run').addEventListener('click',async function(){
+      if(!files.length){$('#pdf-status').textContent='Choose at least one PDF first.';return;}
+      var mode=$('#pdf-mode').value;$('#pdf-run').disabled=true;$('#pdf-status').textContent='Processing…';
+      try{
+        var lib=await loadLib(), out=await lib.PDFDocument.create();
+        if(mode==='merge'){
+          for(var f of files){var src=await lib.PDFDocument.load(await f.arrayBuffer());var pages=await out.copyPages(src,src.getPageIndices());pages.forEach(function(pg){out.addPage(pg);});}
+          if(!out.getPageCount())throw new Error('No pages were found in the selected PDFs.');
+        }else{
+          if(files.length!==1)throw new Error('Choose exactly one PDF when extracting a page range.');
+          var src2=await lib.PDFDocument.load(await files[0].arrayBuffer()), count=src2.getPageCount(), indexes=new Set(), parts=$('#pdf-range').value.split(',');
+          parts.forEach(function(part){var m=part.trim().match(/^(\d+)(?:\s*-\s*(\d+))?$/);if(!m)throw new Error('Use page numbers and ranges such as 1-3, 5.');var a=Number(m[1]),b=Number(m[2]||m[1]);if(a<1||b<a||b>count)throw new Error('Page range is outside this PDF (1–'+count+').');for(var n=a;n<=b;n++)indexes.add(n-1);});
+          var selected=Array.from(indexes).sort(function(a,b){return a-b;});if(!selected.length)throw new Error('Enter at least one page.');
+          (await out.copyPages(src2,selected)).forEach(function(pg){out.addPage(pg);});
+        }
+        var bytes=await out.save(), base=mode==='merge'?'merged.pdf':(files[0].name.replace(/\.pdf$/i,'')+'-pages.pdf');
+        saveBlob(base,new Blob([bytes],{type:'application/pdf'}));$('#pdf-status').textContent='Created '+base+' ('+out.getPageCount()+' pages).';
+      }catch(e){$('#pdf-status').textContent=e.message||'Could not process these PDFs.';}
+      finally{$('#pdf-run').disabled=false;}
+    });
+  });
+}
+PLAYABLES['pdf-tools'] = mountPdfTools;
+
+/* ==================================================================
+   tools / text-to-image
+   Render text at exact pixel dimensions to a downloadable PNG.
+   ================================================================== */
+function mountTextToImage(container){
+  mountEmbed(container, 'TOOL / TEXT TO IMAGE SIZE', function(body){
+    body.innerHTML = '<div class="tl-split"><div class="tl-main"><label class="field"><span class="field-label">Text</span><textarea id="ti-text" class="tool-textarea" rows="5" placeholder="Type or paste text to render…">Velocity Systems</textarea></label><div class="tool-row"><label class="field"><span class="field-label">Width (px)</span><input type="number" id="ti-w" min="1" max="6000" value="1200"></label><label class="field"><span class="field-label">Height (px)</span><input type="number" id="ti-h" min="1" max="6000" value="630"></label></div><div class="tool-row"><label class="field"><span class="field-label">Font size (px)</span><input type="number" id="ti-size" min="1" max="500" value="64"></label><label class="field"><span class="field-label">Alignment</span><select id="ti-align"><option value="center">Center</option><option value="left">Left</option><option value="right">Right</option></select></label></div><div class="tool-row"><label class="field"><span class="field-label">Text colour</span><input type="color" id="ti-color" value="#ffffff"></label><label class="field"><span class="field-label">Background</span><input type="color" id="ti-bg" value="#17191f"></label></div><label class="field"><span class="field-label">Font family</span><select id="ti-font"><option value="Arial">Arial</option><option value="Georgia">Georgia</option><option value="monospace">Monospace</option><option value="sans-serif">Sans serif</option></select></label><div class="tool-row"><button type="button" class="game-btn" id="ti-download">Download PNG</button></div></div><div class="tl-side"><h3 class="tl-h">Preview</h3><canvas id="ti-canvas" style="width:100%;height:auto;border:1px solid var(--line);border-radius:var(--rad)"></canvas><p class="tool-msg" id="ti-meta"></p></div></div>';
+    var $=function(s){return body.querySelector(s);}, canvas=$('#ti-canvas'),ctx=canvas.getContext('2d');
+    function draw(){
+      var w=Math.max(1,Math.min(6000,parseInt($('#ti-w').value,10)||1)),h=Math.max(1,Math.min(6000,parseInt($('#ti-h').value,10)||1)),size=Math.max(1,Math.min(500,parseInt($('#ti-size').value,10)||1));
+      canvas.width=w;canvas.height=h;ctx.fillStyle=$('#ti-bg').value;ctx.fillRect(0,0,w,h);ctx.fillStyle=$('#ti-color').value;ctx.font=size+'px "'+$('#ti-font').value+'"';ctx.textBaseline='middle';ctx.textAlign=$('#ti-align').value;
+      var x=ctx.textAlign==='left'?Math.min(w-1,Math.round(size*.35)):ctx.textAlign==='right'?Math.max(1,w-Math.round(size*.35)):w/2;
+      var lines=$('#ti-text').value.split('\n'),lineH=size*1.25,total=lineH*lines.length,y=(h-total)/2+lineH/2;
+      lines.forEach(function(line,i){ctx.fillText(line,x,y+i*lineH,Math.max(1,w-size*.7));});
+      $('#ti-meta').textContent=w+' × '+h+' px · PNG';
+    }
+    ['#ti-text','#ti-w','#ti-h','#ti-size','#ti-align','#ti-color','#ti-bg','#ti-font'].forEach(function(s){$(s).addEventListener('input',draw);$(s).addEventListener('change',draw);});
+    $('#ti-download').addEventListener('click',function(){canvas.toBlob(function(b){if(b)saveBlob('text-image.png',b);},'image/png');});
+    draw();
+  });
+}
+PLAYABLES['text-to-image'] = mountTextToImage;
+
+/* ==================================================================
+   tools / URL encoder and decoder
+   ================================================================== */
+function mountUrlEncoder(container){
+  mountEmbed(container, 'TOOL / URL ENCODER & DECODER', function(body){
+    body.innerHTML='<div class="tool-row"><label class="field"><span class="field-label">Operation</span><select id="ue-mode"><option value="component-encode">Encode component</option><option value="component-decode">Decode component</option><option value="url-encode">Encode full URL</option><option value="url-decode">Decode full URL</option></select></label></div><div class="tool-grid"><label class="field"><span class="field-label">Input</span><textarea id="ue-in" class="tool-textarea" rows="7" placeholder="Paste a URL or query parameter…"></textarea></label><label class="field"><span class="field-label">Output</span><textarea id="ue-out" class="tool-textarea" rows="7" readonly placeholder="Encoded or decoded result appears here"></textarea></label></div><div class="tool-row"><button type="button" class="game-btn" id="ue-run">Convert</button><button type="button" class="game-btn secondary" id="ue-copy">Copy output</button><button type="button" class="game-btn secondary" id="ue-clear">Clear</button><span class="hint" id="ue-status" aria-live="polite"></span></div><p class="tool-msg">Use <b>Encode component</b> for individual query values. Use <b>Encode full URL</b> when you need to preserve URL separators such as <code>https://</code>, <code>/</code> and <code>&amp;</code>.</p>';
+    var $=function(s){return body.querySelector(s);};
+    function run(){try{var v=$('#ue-in').value,m=$('#ue-mode').value;$('#ue-out').value=m==='component-encode'?encodeURIComponent(v):m==='component-decode'?decodeURIComponent(v):m==='url-encode'?encodeURI(v):decodeURI(v);$('#ue-status').textContent='Converted';}catch(e){$('#ue-out').value='';$('#ue-status').textContent='Invalid encoded input: '+(e.message||'decode failed');}}
+    $('#ue-run').addEventListener('click',run);$('#ue-in').addEventListener('input',run);$('#ue-mode').addEventListener('change',run);
+    $('#ue-copy').addEventListener('click',function(){copyText($('#ue-out').value);$('#ue-status').textContent='Copied output';});
+    $('#ue-clear').addEventListener('click',function(){$('#ue-in').value='';$('#ue-out').value='';$('#ue-status').textContent='';$('#ue-in').focus();});
+  });
+}
+PLAYABLES['url-encoder'] = mountUrlEncoder;
+
+/* ==================================================================
+   tools / file checksum verifier
+   ================================================================== */
+function mountChecksumVerifier(container){
+  mountEmbed(container, 'TOOL / FILE CHECKSUM VERIFIER', function(body){
+    body.innerHTML='<div class="field"><span class="field-label">Choose file</span><input id="cv-file" type="file" data-nopersist></div><div class="tool-row"><label class="field"><span class="field-label">Algorithm</span><select id="cv-algo"><option>SHA-256</option><option>SHA-384</option><option>SHA-512</option><option>SHA-1</option></select></label></div><label class="field"><span class="field-label">Expected checksum (optional)</span><input id="cv-expected" spellcheck="false" autocomplete="off" placeholder="Paste a checksum to verify against"></label><div class="tool-row"><button type="button" class="game-btn" id="cv-run">Calculate checksum</button><button type="button" class="game-btn secondary" id="cv-copy" disabled>Copy checksum</button></div><div class="tool-output" id="cv-out" aria-live="polite">Select a file to calculate its checksum.</div><p class="tool-msg">The file is read locally in your browser. SHA-1 is provided for compatibility, not for security-sensitive use. Large files may use significant memory.</p>';
+    var $=function(s){return body.querySelector(s);}, digest='';
+    $('#cv-run').addEventListener('click',async function(){var f=$('#cv-file').files[0];if(!f){$('#cv-out').textContent='Choose a file first.';return;}if(!window.crypto||!crypto.subtle){$('#cv-out').textContent='Web Crypto is unavailable. Open this page over HTTPS or localhost and try again.';return;}var btn=$('#cv-run');btn.disabled=true;btn.textContent='Calculating…';$('#cv-copy').disabled=true;try{var buf=await f.arrayBuffer(),hash=await crypto.subtle.digest($('#cv-algo').value,buf);digest=Array.from(new Uint8Array(hash)).map(function(b){return b.toString(16).padStart(2,'0');}).join('');var expected=$('#cv-expected').value.trim().replace(/\s+/g,'').toLowerCase();var verdict=expected?(expected===digest?'MATCH — checksum verified':'NO MATCH — checksums differ'):'No expected checksum supplied.';$('#cv-out').innerHTML='<div class="tool-msg">'+esc(f.name)+' · '+fmtSize(f.size)+' · '+esc($('#cv-algo').value)+'</div><code class="checksum-value">'+digest+'</code><div class="checksum-verdict '+(expected?(expected===digest?'ok':'bad'):'')+'">'+esc(verdict)+'</div>';$('#cv-copy').disabled=false;}catch(e){$('#cv-out').textContent='Could not read or hash this file: '+(e.message||'unknown error');}finally{btn.disabled=false;btn.textContent='Calculate checksum';}});
+    $('#cv-copy').addEventListener('click',function(){if(digest)copyText(digest);});
+  });
+}
+PLAYABLES['checksum-verifier'] = mountChecksumVerifier;
+
+/* ==================================================================
+   tools / batch filename cleaner
+   ================================================================== */
+function mountFilenameCleaner(container){
+  mountEmbed(container, 'TOOL / BATCH FILENAME CLEANER', function(body){
+    body.innerHTML='<div class="field"><span class="field-label">Choose files</span><input id="fn-files" type="file" multiple data-nopersist></div><div class="tool-grid"><label class="field"><span class="field-label">Replace spaces with</span><select id="fn-spaces"><option value="-">Hyphen (-)</option><option value="_">Underscore (_)</option><option value="">Remove spaces</option><option value=" ">Keep spaces</option></select></label><label class="field"><span class="field-label">Letter case</span><select id="fn-case"><option value="keep">Keep original</option><option value="lower">lowercase</option><option value="upper">UPPERCASE</option></select></label><label class="field"><span class="field-label">Prefix</span><input id="fn-prefix" placeholder="e.g. project-"></label><label class="field"><span class="field-label">Suffix (before extension)</span><input id="fn-suffix" placeholder="e.g. -final"></label></div><div class="tool-row"><label><input type="checkbox" id="fn-safe" checked> Remove unsupported filename characters</label><label><input type="checkbox" id="fn-number"> Add sequence numbers</label></div><div class="tool-row"><button type="button" class="game-btn" id="fn-preview">Preview names</button><button type="button" class="game-btn secondary" id="fn-download" disabled>Download renamed files (.zip)</button></div><div id="fn-status" class="tool-msg">Choose files to preview the new names. Files stay on your device.</div><div id="fn-list" class="gd-list"></div>';
+    var $=function(s){return body.querySelector(s);}, selected=[];
+    function cleanedName(name,i){var dot=name.lastIndexOf('.'),base=dot>0?name.slice(0,dot):name,ext=dot>0?name.slice(dot):'';var sp=$('#fn-spaces').value;base=base.replace(/\s+/g,sp);if($('#fn-safe').checked)base=base.replace(/[<>:"/\\|?*\x00-\x1F]/g,'').replace(/[. ]+$/g,'').replace(/^\.+/g,'');var cs=$('#fn-case').value;if(cs==='lower'){base=base.toLowerCase();ext=ext.toLowerCase();}if(cs==='upper'){base=base.toUpperCase();ext=ext.toUpperCase();}base=$('#fn-prefix').value+base+$('#fn-suffix').value;if($('#fn-number').checked)base=String(i+1).padStart(2,'0')+'-'+base;if(!base)base='file-'+(i+1);return base+ext;}
+    function preview(){selected=Array.from($('#fn-files').files||[]);if(!selected.length){$('#fn-status').textContent='Choose at least one file first.';$('#fn-list').innerHTML='';$('#fn-download').disabled=true;return;}var seen={};var entries=selected.map(function(f,i){var name=cleanedName(f.name,i),unique=name,n=2;while(seen[unique.toLowerCase()]){var dot=name.lastIndexOf('.');unique=(dot>0?name.slice(0,dot):name)+'-'+n+(dot>0?name.slice(dot):'');n++;}seen[unique.toLowerCase()]=true;return {file:f,name:unique};});selected=entries;$('#fn-list').innerHTML=entries.map(function(it){return '<div class="gd-row"><div class="gd-main"><div class="gd-title">'+esc(it.name)+'</div><div class="gd-sub">'+esc(it.file.name)+' · '+fmtSize(it.file.size)+'</div></div></div>';}).join('');$('#fn-status').textContent=entries.length+' file'+(entries.length===1?'':'s')+' ready. Duplicate output names have been made unique.';$('#fn-download').disabled=false;}
+    $('#fn-preview').addEventListener('click',preview);['#fn-spaces','#fn-case','#fn-prefix','#fn-suffix','#fn-safe','#fn-number'].forEach(function(sel){$(sel).addEventListener('change',function(){if($('#fn-files').files.length)preview();});});$('#fn-files').addEventListener('change',preview);
+    $('#fn-download').addEventListener('click',async function(){if(!selected.length)return;var btn=$('#fn-download');btn.disabled=true;btn.textContent='Preparing ZIP…';try{var files=[];for(var i=0;i<selected.length;i++){files.push({name:selected[i].name,data:new Uint8Array(await selected[i].file.arrayBuffer())});}saveBlob('cleaned-filenames.zip',makeZip(files));$('#fn-status').textContent='ZIP ready with '+files.length+' renamed files.';}catch(e){$('#fn-status').textContent='Could not package files: '+(e.message||'unknown error');}finally{btn.disabled=false;btn.textContent='Download renamed files (.zip)';}});
+  });
+}
+PLAYABLES['filename-cleaner'] = mountFilenameCleaner;
+
+/* ==================================================================
+   tools / image metadata viewer and remover
+   ================================================================== */
+function mountImageMetadata(container){
+  mountEmbed(container, 'TOOL / IMAGE METADATA', function(body){
+    body.innerHTML='<div class="field"><span class="field-label">Choose an image</span><input type="file" id="im-file" accept="image/*" data-nopersist></div><div class="tool-row"><label class="field"><span class="field-label">Clean export format</span><select id="im-format"><option value="image/png">PNG (lossless)</option><option value="image/jpeg">JPEG</option><option value="image/webp">WebP</option></select></label><label class="field"><span class="field-label">Quality (JPEG / WebP)</span><input type="range" id="im-quality" min="40" max="100" value="92"><span id="im-qv" class="hint">92%</span></label></div><div class="tool-row"><button type="button" class="game-btn" id="im-inspect">Inspect image</button><button type="button" class="game-btn secondary" id="im-clean" disabled>Export without embedded metadata</button></div><div id="im-status" class="tool-output" aria-live="polite">Choose an image to inspect its dimensions and basic file metadata.</div><canvas id="im-canvas" hidden></canvas><p class="tool-msg">Everything runs locally. Clean export redraws the image through a canvas, which strips embedded EXIF/IPTC/XMP metadata supported by the browser decoder. This tool reports basic file metadata, not every camera-specific EXIF field.</p>';
+    var $=function(s){return body.querySelector(s);}, file=null, image=null;
+    $('#im-quality').addEventListener('input',function(){$('#im-qv').textContent=this.value+'%';});
+    function load(){file=$('#im-file').files[0]||null;image=null;$('#im-clean').disabled=true;if(!file){$('#im-status').textContent='Choose an image first.';return;}if(!file.type.startsWith('image/')){$('#im-status').textContent='That file is not recognised as an image.';return;}var url=URL.createObjectURL(file),img=new Image();img.onload=function(){image=img;$('#im-clean').disabled=false;$('#im-status').innerHTML='<dl class="metadata-list"><dt>File name</dt><dd>'+esc(file.name)+'</dd><dt>Format</dt><dd>'+esc(file.type||'Unknown')+'</dd><dt>File size</dt><dd>'+esc(fmtSize(file.size))+'</dd><dt>Dimensions</dt><dd>'+img.naturalWidth+' × '+img.naturalHeight+' px</dd><dt>Last modified</dt><dd>'+esc(file.lastModified?new Date(file.lastModified).toLocaleString():'Not available')+'</dd><dt>Embedded metadata</dt><dd>May be present; clean export removes supported embedded metadata</dd></dl>';URL.revokeObjectURL(url);};img.onerror=function(){URL.revokeObjectURL(url);$('#im-status').textContent='The browser could not decode this image format.';};img.src=url;}
+    $('#im-file').addEventListener('change',load);$('#im-inspect').addEventListener('click',load);
+    $('#im-clean').addEventListener('click',function(){if(!image||!file)return;var canvas=$('#im-canvas'),ctx=canvas.getContext('2d'),type=$('#im-format').value;canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;if(type==='image/jpeg'){ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);}ctx.drawImage(image,0,0);canvas.toBlob(function(blob){if(!blob){$('#im-status').textContent='Could not export this image in the selected format.';return;}var ext=type==='image/jpeg'?'jpg':type==='image/webp'?'webp':'png',base=file.name.replace(/\.[^.]+$/,'');saveBlob(base+'-clean.'+ext,blob);$('#im-status').insertAdjacentHTML('beforeend','<p class="tool-msg">Clean copy exported as '+esc(ext.toUpperCase())+'. The original file was not changed.</p>');},type,Number($('#im-quality').value)/100);});
+  });
+}
+PLAYABLES['image-metadata'] = mountImageMetadata;
+
+/* ==================================================================
+   tools / network diagnostics
+   ================================================================== */
+function mountNetworkDiagnostics(container){
+  mountEmbed(container, 'TOOL / NETWORK DIAGNOSTICS', function(body){
+    body.innerHTML='<div class="tool-row"><label class="field"><span class="field-label">Domain for DNS lookup</span><input id="nd-domain" placeholder="example.com" autocomplete="url" spellcheck="false"></label><button type="button" class="game-btn" id="nd-run">Run checks</button></div><div class="tool-grid" id="nd-cards"><div class="tool-output"><strong>Public IP</strong><p>Not checked</p></div><div class="tool-output"><strong>DNS lookup</strong><p>Not checked</p></div><div class="tool-output"><strong>Connectivity</strong><p>Not checked</p></div></div><p class="tool-msg" id="nd-note" aria-live="polite">Checks use public HTTPS endpoints (ipify for public IP, Cloudflare DNS for lookups and CheapShark for connectivity). A browser cannot perform raw ping/ICMP; latency here is an HTTPS round-trip estimate.</p>';
+    var $=function(s){return body.querySelector(s);};
+    if(location.protocol==='file:') $('#nd-note').textContent='Opened as file://. Some browser policies block these API requests; use the hosted HTTPS page or localhost. Checks contact ipify (public IP), Cloudflare DNS (entered domain) and CheapShark (connectivity).';
+    function safeDomain(v){v=String(v||'').trim().replace(/^https?:\/\//i,'').split(/[/?#]/)[0];return /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(v)?v:'';}
+    function card(title,content,state){return '<div class="tool-output nd-result '+(state||'')+'"><strong>'+esc(title)+'</strong><div>'+content+'</div></div>';}
+    async function timed(url,opts){var start=performance.now(),ctl=typeof AbortController==='function'?new AbortController():null,t=setTimeout(function(){if(ctl)ctl.abort();},8000);try{var r=await fetch(url,Object.assign({},opts||{},ctl?{signal:ctl.signal}:{}));if(!r.ok)throw new Error('HTTP '+r.status);return {response:r,ms:Math.round(performance.now()-start)};}finally{clearTimeout(t);}}
+    $('#nd-run').addEventListener('click',async function(){var btn=$('#nd-run'),domain=safeDomain($('#nd-domain').value);if($('#nd-domain').value.trim()&&!domain){$('#nd-note').textContent='Enter a valid domain such as example.com.';$('#nd-domain').focus();return;}btn.disabled=true;btn.textContent='Checking…';$('#nd-cards').innerHTML=card('Public IP','Checking…')+card('DNS lookup','Checking…')+card('Connectivity','Checking…');var results=[];
+      var jobs=[(async function(){try{var x=await timed('https://api.ipify.org?format=json');var d=await x.response.json();return card('Public IP','<code>'+esc(d.ip||'Unavailable')+'</code><p>'+x.ms+' ms HTTPS response</p>','ok');}catch(e){return card('Public IP','Unavailable. The request may be blocked by a network, extension or browser origin policy.','bad');}})(),
+      (async function(){if(!domain)return card('DNS lookup','Enter a domain to run this check.');try{var x=await timed('https://cloudflare-dns.com/dns-query?name='+encodeURIComponent(domain)+'&type=A',{headers:{accept:'application/dns-json'}}),d=await x.response.json(),answers=(d.Answer||[]).filter(function(a){return a.type===1||a.type===5;});if(!answers.length)return card('DNS lookup','No A/alias answer found for '+esc(domain)+'. This can be valid for some domains.','bad');return card('DNS lookup','<p>'+esc(domain)+'</p><ul>'+answers.map(function(a){return '<li><code>'+esc(a.data)+'</code></li>';}).join('')+'</ul><p>'+x.ms+' ms HTTPS response</p>','ok');}catch(e){return card('DNS lookup','Could not query DNS-over-HTTPS. Check the domain, connection or browser restrictions.','bad');}})(),
+      (async function(){try{var x=await timed('https://www.cheapshark.com/api/1.0/stores');var d=await x.response.json();return card('Connectivity','CheapShark API reachable · '+(Array.isArray(d)?d.length:0)+' stores returned · '+x.ms+' ms','ok');}catch(e){return card('Connectivity','Could not reach the CheapShark API from this browser. A VPN, DNS filter, extension, file:// origin or network policy may block it.','bad');}})()];
+      results=await Promise.all(jobs);$('#nd-cards').innerHTML=results.join('');$('#nd-note').textContent=location.protocol==='file:'?'You opened this page as file://. Browser origin restrictions can block API requests; use the hosted HTTPS page or localhost for testing.':'Results are approximate HTTPS checks, not ICMP ping or a complete network diagnosis.';btn.disabled=false;btn.textContent='Run checks';
+    });
+  });
+}
+PLAYABLES['network-diagnostics'] = mountNetworkDiagnostics;
 
 /* ---------- start the one this page is for ---------- */
 (function(){
