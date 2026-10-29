@@ -1,0 +1,9 @@
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(self), microphone=(self), geolocation=(), payment=()
+  X-Frame-Options: SAMEORIGIN
+
+# Asset URLs carry a ?v=<hash> (see scripts/build.js), so they are safe to cache for a year.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

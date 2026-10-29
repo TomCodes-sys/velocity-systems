@@ -3776,6 +3776,711 @@ function mountSubnetCalculator(container){
 PLAYABLES['subnet-calculator'] = mountSubnetCalculator;
 
 /* ---------- start the one this page is for ---------- */
+/* ---------------- Video Trimmer & Compressor ----------------
+   Runs fully in the browser: the clip is decoded by a <video>, scaled on a canvas and re-encoded
+   with MediaRecorder at the bitrate you choose. Encoding runs in real time (a 60 s clip takes 60 s). */
+function mountVideoTrimmer(container){
+  mountEmbed(container, 'TOOL / VIDEO TRIMMER &amp; COMPRESSOR', function(body){
+    var PRESETS = {
+      high:     {label:'High',     bpp:0.120, abr:192},
+      balanced: {label:'Balanced', bpp:0.070, abr:128},
+      small:    {label:'Small',    bpp:0.040, abr:96},
+      tiny:     {label:'Tiny',     bpp:0.022, abr:64}
+    };
+    var OVERHEAD = 1.03;           // container + encoder slack on top of the raw bitrate
+    var MIN_CLIP = 0.1;
+    var MIN_VBR = 50, MAX_VBR = 20000;
+
+    body.innerHTML =
+      '<div class="vt">'+
+        '<div class="file-wrap"><input type="file" id="vt-file" accept="video/*,.mkv,.mov,.mp4,.webm,.m4v,.avi,.ogv"></div>'+
+        '<div class="vt-empty" id="vt-empty">Choose or drop a video. Nothing is uploaded; trimming and compression happen on your device.</div>'+
+        '<div class="vt-main" id="vt-main" hidden>'+
+          '<div class="vt-stats" aria-live="polite">'+
+            '<div class="vt-stat"><span>Original</span><b id="vt-s-orig">–</b><small id="vt-s-orig-sub"></small></div>'+
+            '<div class="vt-stat"><span>Selected clip</span><b id="vt-s-clip">–</b><small id="vt-s-clip-sub"></small></div>'+
+            '<div class="vt-stat vt-accent"><span>Estimated output</span><b id="vt-s-est">–</b><small id="vt-s-est-sub"></small></div>'+
+            '<div class="vt-stat"><span>Saved</span><b id="vt-s-save">–</b><small id="vt-s-save-sub"></small></div>'+
+          '</div>'+
+          '<div class="vt-bars"><div class="vt-bar-row"><span>Original</span><i><u id="vt-bar-o" style="width:100%"></u></i></div>'+
+            '<div class="vt-bar-row"><span>Output</span><i><u id="vt-bar-e"></u></i></div></div>'+
+          '<div class="vt-warn" id="vt-warn" hidden></div>'+
+          '<div class="vt-stage"><video id="vt-video" playsinline preload="auto"></video></div>'+
+          '<div class="vt-transport">'+
+            '<button type="button" class="game-btn" id="vt-play">Play</button>'+
+            '<button type="button" class="game-btn secondary" id="vt-prev" title="Back one frame (←)">◀ Frame</button>'+
+            '<button type="button" class="game-btn secondary" id="vt-next" title="Forward one frame (→)">Frame ▶</button>'+
+            '<button type="button" class="game-btn secondary" id="vt-set-in" title="Set start at playhead (I)">Set start</button>'+
+            '<button type="button" class="game-btn secondary" id="vt-set-out" title="Set end at playhead (O)">Set end</button>'+
+            '<button type="button" class="game-btn secondary" id="vt-sel" title="Play only the selection">Play selection</button>'+
+            '<label class="vt-inline"><input type="checkbox" id="vt-loop"> Loop</label>'+
+            '<label class="vt-inline"><input type="checkbox" id="vt-vol" checked> Sound</label>'+
+            '<span class="vt-time" id="vt-now">0:00.00</span>'+
+          '</div>'+
+          '<div class="vt-tl" id="vt-tl" tabindex="-1">'+
+            '<div class="vt-thumbs" id="vt-thumbs"></div>'+
+            '<div class="vt-dim" id="vt-dim-l"></div><div class="vt-dim" id="vt-dim-r"></div>'+
+            '<div class="vt-sel" id="vt-selbox"></div>'+
+            '<div class="vt-handle" id="vt-h-s" role="slider" tabindex="0" aria-label="Trim start"></div>'+
+            '<div class="vt-handle" id="vt-h-e" role="slider" tabindex="0" aria-label="Trim end"></div>'+
+            '<div class="vt-head" id="vt-head"></div>'+
+          '</div>'+
+          '<div class="vt-times">'+
+            '<label>Start <input id="vt-t-s" class="vt-tin" value="0:00.00" spellcheck="false" aria-label="Start time"></label>'+
+            '<label>End <input id="vt-t-e" class="vt-tin" value="0:00.00" spellcheck="false" aria-label="End time"></label>'+
+            '<label>Length <input id="vt-t-d" class="vt-tin" value="0:00.00" spellcheck="false" aria-label="Clip length"></label>'+
+            '<button type="button" class="game-btn secondary" id="vt-reset-trim">Reset trim</button>'+
+          '</div>'+
+          '<div class="vt-panel">'+
+            '<div class="vt-mode" role="group" aria-label="Compression mode">'+
+              '<button type="button" data-mode="preset" class="on">Preset</button>'+
+              '<button type="button" data-mode="custom">Custom bitrate</button>'+
+              '<button type="button" data-mode="target">Target file size</button>'+
+            '</div>'+
+            '<div class="vt-grid">'+
+              '<label class="vt-f" data-for="preset">Quality<select id="vt-preset" aria-label="Quality preset">'+
+                Object.keys(PRESETS).map(function(k){ return '<option value="'+k+'"'+(k==='balanced'?' selected':'')+'>'+PRESETS[k].label+'</option>'; }).join('')+
+              '</select></label>'+
+              '<label class="vt-f" data-for="target">Target size (MB)<input type="number" id="vt-target" min="0.1" step="0.1" value="25" aria-label="Target size in megabytes"></label>'+
+              '<label class="vt-f">Resolution<select id="vt-res" aria-label="Output resolution">'+
+                '<option value="0">Source</option><option value="1080">1080p</option><option value="720">720p</option><option value="480">480p</option><option value="360">360p</option><option value="240">240p</option>'+
+              '</select></label>'+
+              '<label class="vt-f">Frame rate<select id="vt-fps" aria-label="Frame rate cap">'+
+                '<option value="0">Source</option><option value="60">60 fps</option><option value="30">30 fps</option><option value="24">24 fps</option><option value="15">15 fps</option><option value="10">10 fps</option>'+
+              '</select></label>'+
+              '<label class="vt-f">Audio<select id="vt-audio" aria-label="Audio"><option value="keep">Keep</option><option value="mute">Remove</option></select></label>'+
+              '<label class="vt-f">Audio bitrate<select id="vt-abr" aria-label="Audio bitrate">'+
+                [32,64,96,128,160,192,256].map(function(n){ return '<option value="'+n+'"'+(n===128?' selected':'')+'>'+n+' kbps</option>'; }).join('')+
+              '</select></label>'+
+              '<label class="vt-f">Format<select id="vt-fmt" aria-label="Output format"></select></label>'+
+            '</div>'+
+            '<div class="vt-chips" id="vt-chips"><span>Fit to:</span>'+
+              [8,10,25,50,100,500].map(function(n){ return '<button type="button" data-mb="'+n+'">'+n+' MB</button>'; }).join('')+
+            '</div>'+
+            '<div class="vt-vbr"><label for="vt-vbr-r">Video bitrate</label>'+
+              '<input type="range" id="vt-vbr-r" min="0" max="1000" step="1" value="500" aria-label="Video bitrate slider">'+
+              '<span><input type="number" id="vt-vbr-n" min="'+MIN_VBR+'" max="'+MAX_VBR+'" step="10" aria-label="Video bitrate in kbps"> kbps</span>'+
+              '<em id="vt-q"></em></div>'+
+            '<div class="vt-out-info" id="vt-out-info"></div>'+
+          '</div>'+
+          '<div class="vt-run">'+
+            '<button type="button" class="game-btn" id="vt-go">Trim &amp; compress</button>'+
+            '<button type="button" class="game-btn secondary" id="vt-cancel" hidden>Cancel</button>'+
+            '<span class="vt-hint">Encodes in real time. Keep this tab visible while it runs.</span>'+
+          '</div>'+
+          '<div class="vt-progress" id="vt-progress" hidden>'+
+            '<div class="vt-pbar"><u id="vt-pfill"></u></div>'+
+            '<div class="vt-ptext" id="vt-ptext"></div>'+
+          '</div>'+
+          '<div class="vt-result" id="vt-result" hidden>'+
+            '<div class="vt-result-head"><b>Done</b><span id="vt-r-sum"></span></div>'+
+            '<video id="vt-r-video" controls playsinline></video>'+
+            '<div class="vt-result-actions">'+
+              '<a class="game-btn" id="vt-dl" download>Download</a>'+
+              '<button type="button" class="game-btn secondary" id="vt-reedit">Edit this result</button>'+
+            '</div>'+
+          '</div>'+
+        '</div>'+
+        '<div class="tool-msg" id="vt-msg" role="status"></div>'+
+      '</div>';
+
+    var $ = function(s){ return body.querySelector(s); };
+    var el = {
+      file:$('#vt-file'), empty:$('#vt-empty'), main:$('#vt-main'), video:$('#vt-video'), msg:$('#vt-msg'),
+      play:$('#vt-play'), now:$('#vt-now'), tl:$('#vt-tl'), thumbs:$('#vt-thumbs'),
+      dimL:$('#vt-dim-l'), dimR:$('#vt-dim-r'), selbox:$('#vt-selbox'), hS:$('#vt-h-s'), hE:$('#vt-h-e'), head:$('#vt-head'),
+      tS:$('#vt-t-s'), tE:$('#vt-t-e'), tD:$('#vt-t-d'),
+      preset:$('#vt-preset'), target:$('#vt-target'), res:$('#vt-res'), fps:$('#vt-fps'), audio:$('#vt-audio'), abr:$('#vt-abr'), fmt:$('#vt-fmt'),
+      vbrR:$('#vt-vbr-r'), vbrN:$('#vt-vbr-n'), q:$('#vt-q'), outInfo:$('#vt-out-info'), warn:$('#vt-warn'),
+      go:$('#vt-go'), cancel:$('#vt-cancel'), progress:$('#vt-progress'), pfill:$('#vt-pfill'), ptext:$('#vt-ptext'),
+      result:$('#vt-result'), rvideo:$('#vt-r-video'), dl:$('#vt-dl'), rsum:$('#vt-r-sum'), loop:$('#vt-loop'), vol:$('#vt-vol')
+    };
+
+    /* ---------- helpers ---------- */
+    function clamp(n, a, b){ return Math.min(b, Math.max(a, n)); }
+    function even(n){ n = Math.round(n); return Math.max(2, n - (n % 2)); }
+    function fmtBytes(n){
+      if(!isFinite(n) || n < 0) return '–';
+      if(n < 1024) return Math.round(n) + ' B';
+      if(n < 1048576) return (n / 1024).toFixed(n < 10240 ? 2 : 1) + ' KB';
+      if(n < 1073741824) return (n / 1048576).toFixed(n < 104857600 ? 2 : 1) + ' MB';
+      return (n / 1073741824).toFixed(2) + ' GB';
+    }
+    function fmtTime(s, short){
+      if(!isFinite(s) || s < 0) s = 0;
+      var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+      var ss = (sec < 10 ? '0' : '') + sec.toFixed(2);
+      if(short) return h ? h + ':' + String(m).padStart(2, '0') + ':' + String(Math.floor(sec)).padStart(2, '0') : m + ':' + String(Math.floor(sec)).padStart(2, '0');
+      return h ? h + ':' + String(m).padStart(2, '0') + ':' + ss : m + ':' + ss;
+    }
+    function parseTime(str){
+      str = String(str).trim();
+      if(!str) return NaN;
+      var parts = str.split(':');
+      if(parts.length > 3) return NaN;
+      var total = 0;
+      for(var i = 0; i < parts.length; i++){
+        if(!/^\d*\.?\d*$/.test(parts[i]) || parts[i] === '' || parts[i] === '.') return NaN;
+        total = total * 60 + parseFloat(parts[i]);
+      }
+      return total;
+    }
+    function setMsg(text, kind){ el.msg.textContent = text || ''; el.msg.className = 'tool-msg' + (kind ? ' ' + kind : ''); }
+    function sliderToKbps(v){ return MIN_VBR * Math.pow(MAX_VBR / MIN_VBR, v / 1000); }
+    function kbpsToSlider(k){ return Math.round(1000 * Math.log(clamp(k, MIN_VBR, MAX_VBR) / MIN_VBR) / Math.log(MAX_VBR / MIN_VBR)); }
+
+    /* ---------- state ---------- */
+    var S = {file:null, url:null, dur:0, w:0, h:0, fps:30, start:0, end:0, hasAudio:true, mode:'preset', playSel:false};
+    var enc = null;           // active encode job
+    var resultUrl = null;
+    var thumbJob = 0;
+    var saved = lsGet('vt-settings', {});
+
+    /* supported output containers */
+    var FORMATS = [
+      {id:'mp4-h264', label:'MP4 (H.264)', mime:'video/mp4;codecs=avc1.42E01E,mp4a.40.2', ext:'mp4'},
+      {id:'webm-vp9', label:'WebM (VP9)', mime:'video/webm;codecs=vp9,opus', ext:'webm'},
+      {id:'webm-vp8', label:'WebM (VP8)', mime:'video/webm;codecs=vp8,opus', ext:'webm'},
+      {id:'webm', label:'WebM', mime:'video/webm', ext:'webm'}
+    ].filter(function(f){ return window.MediaRecorder && MediaRecorder.isTypeSupported(f.mime); });
+    el.fmt.innerHTML = FORMATS.map(function(f){ return '<option value="'+f.id+'">'+f.label+'</option>'; }).join('');
+    if(!FORMATS.length){
+      el.go.disabled = true;
+      setMsg('This browser cannot record video (MediaRecorder is unavailable). Use a current Chrome, Edge, Firefox or Safari.', 'err');
+    }
+    function curFormat(){ return FORMATS.filter(function(f){ return f.id === el.fmt.value; })[0] || FORMATS[0]; }
+
+    ['preset','res','fps','audio','abr','fmt'].forEach(function(k){ if(saved[k] != null && el[k].querySelector('option[value="'+saved[k]+'"]')) el[k].value = saved[k]; });
+    function saveSettings(){
+      lsSet('vt-settings', {preset:el.preset.value, res:el.res.value, fps:el.fps.value, audio:el.audio.value, abr:el.abr.value, fmt:el.fmt.value});
+    }
+
+    /* ---------- estimates ---------- */
+    function calc(){
+      var clip = Math.max(MIN_CLIP, S.end - S.start);
+      var ref = Math.min(S.w, S.h), r = +el.res.value, scale = (r && ref > r) ? r / ref : 1;
+      var ow = even(S.w * scale), oh = even(S.h * scale);
+      var fsel = +el.fps.value, ofps = fsel ? Math.min(fsel, S.fps) : S.fps;
+      var mute = el.audio.value === 'mute' || !S.hasAudio, abr = mute ? 0 : +el.abr.value;
+      var vbr, short = false;
+      if(S.mode === 'target'){
+        var tb = Math.max(0.1, +el.target.value || 0) * 1048576;
+        vbr = tb / OVERHEAD * 8 / clip / 1000 - abr;
+        if(vbr < MIN_VBR) short = true;
+      } else if(S.mode === 'custom'){
+        vbr = +el.vbrN.value || MIN_VBR;
+      } else {
+        vbr = ow * oh * ofps * PRESETS[el.preset.value].bpp / 1000;
+      }
+      var capped = vbr > MAX_VBR;
+      vbr = clamp(Math.round(vbr / 10) * 10, MIN_VBR, MAX_VBR);
+      var bytes = (vbr + abr) * 1000 / 8 * clip * OVERHEAD;
+      var bpp = vbr * 1000 / (ow * oh * ofps);
+      return {clip:clip, w:ow, h:oh, fps:ofps, mute:mute, abr:abr, vbr:vbr, bytes:bytes, bpp:bpp, short:short, capped:capped,
+              trimOnly:S.file.size * clip / S.dur};
+    }
+    function qualityLabel(bpp){ return bpp < 0.02 ? 'Very low quality' : bpp < 0.04 ? 'Low quality' : bpp < 0.07 ? 'Medium quality' : bpp < 0.11 ? 'Good quality' : 'High quality'; }
+
+    function update(){
+      if(!S.file || !S.dur) return;
+      var c = calc();
+      if(S.mode !== 'custom'){ el.vbrN.value = c.vbr; el.vbrR.value = kbpsToSlider(c.vbr); }
+      var orig = S.file.size;
+      $('#vt-s-orig').textContent = fmtBytes(orig);
+      $('#vt-s-orig-sub').textContent = S.w + '×' + S.h + ' · ' + fmtTime(S.dur, true) + ' · ' + (orig * 8 / S.dur / 1e6).toFixed(2) + ' Mbps';
+      $('#vt-s-clip').textContent = fmtTime(c.clip, true);
+      $('#vt-s-clip-sub').textContent = Math.round(c.clip / S.dur * 100) + '% of video · trim only ≈ ' + fmtBytes(c.trimOnly);
+      $('#vt-s-est').textContent = '≈ ' + fmtBytes(c.bytes);
+      $('#vt-s-est-sub').textContent = c.w + '×' + c.h + ' · ' + Math.round(c.fps) + ' fps · ' + (c.vbr + c.abr) + ' kbps';
+      var diff = orig - c.bytes, pct = orig ? Math.round(diff / orig * 100) : 0;
+      $('#vt-s-save').textContent = diff >= 0 ? pct + '%' : '+' + (-pct) + '%';
+      $('#vt-s-save-sub').textContent = diff >= 0 ? fmtBytes(diff) + ' smaller' : fmtBytes(-diff) + ' larger';
+      $('#vt-bar-e').style.width = clamp(c.bytes / orig * 100, 1, 100) + '%';
+      $('#vt-bar-e').className = c.bytes > orig ? 'over' : '';
+      el.q.textContent = qualityLabel(c.bpp);
+      el.outInfo.textContent = 'Output: ' + c.w + '×' + c.h + ', ' + Math.round(c.fps) + ' fps, video ' + c.vbr + ' kbps' + (c.mute ? ', no audio' : ', audio ' + c.abr + ' kbps') + ' · the estimate is a guide: simple footage often encodes smaller, busy footage can run slightly over';
+      var w = [];
+      if(c.short) w.push('Target is too small for this clip length. Shorten the clip, lower the resolution or raise the target. Using the minimum bitrate.');
+      else if(c.capped && S.mode === 'target') w.push('Target is larger than needed at the highest bitrate; the output will be smaller than the target.');
+      if(c.bytes > orig) w.push('Estimated output is larger than the original. Lower the quality, resolution or frame rate.');
+      if(!S.hasAudio) w.push('No audio track detected in this video.');
+      el.warn.hidden = !w.length; el.warn.textContent = w.join(' ');
+      drawTimeline();
+    }
+
+    /* ---------- timeline ---------- */
+    function pct(t){ return S.dur ? clamp(t / S.dur * 100, 0, 100) : 0; }
+    function drawTimeline(){
+      var a = pct(S.start), b = pct(S.end);
+      el.dimL.style.width = a + '%';
+      el.dimR.style.left = b + '%'; el.dimR.style.width = (100 - b) + '%';
+      el.selbox.style.left = a + '%'; el.selbox.style.width = (b - a) + '%';
+      el.hS.style.left = a + '%'; el.hE.style.left = b + '%';
+      el.hS.setAttribute('aria-valuenow', S.start.toFixed(2)); el.hS.setAttribute('aria-valuetext', fmtTime(S.start));
+      el.hE.setAttribute('aria-valuenow', S.end.toFixed(2)); el.hE.setAttribute('aria-valuetext', fmtTime(S.end));
+      [el.hS, el.hE].forEach(function(h){ h.setAttribute('aria-valuemin', 0); h.setAttribute('aria-valuemax', S.dur.toFixed(2)); });
+      if(document.activeElement !== el.tS) el.tS.value = fmtTime(S.start);
+      if(document.activeElement !== el.tE) el.tE.value = fmtTime(S.end);
+      if(document.activeElement !== el.tD) el.tD.value = fmtTime(S.end - S.start);
+      drawHead();
+    }
+    function drawHead(){
+      var t = el.video.currentTime || 0;
+      el.head.style.left = pct(t) + '%';
+      el.now.textContent = fmtTime(t) + ' / ' + fmtTime(S.dur, true);
+    }
+    function setStart(t, keepPlayhead){
+      S.start = clamp(t, 0, S.end - MIN_CLIP);
+      if(!keepPlayhead && el.video.currentTime < S.start) el.video.currentTime = S.start;
+      update();
+    }
+    function setEnd(t){
+      S.end = clamp(t, S.start + MIN_CLIP, S.dur);
+      update();
+    }
+    function seek(t){ el.video.currentTime = clamp(t, 0, S.dur); drawHead(); }
+
+    var drag = null;
+    function timeAt(ev){
+      var r = el.tl.getBoundingClientRect();
+      return clamp((ev.clientX - r.left) / r.width, 0, 1) * S.dur;
+    }
+    el.tl.addEventListener('pointerdown', function(ev){
+      if(!S.dur || enc) return;
+      var t = timeAt(ev);
+      if(ev.target === el.hS) drag = 'start';
+      else if(ev.target === el.hE) drag = 'end';
+      else drag = 'head';
+      el.tl.setPointerCapture(ev.pointerId);
+      if(drag === 'head'){ pausePreview(); seek(t); }
+      ev.preventDefault();
+    });
+    el.tl.addEventListener('pointermove', function(ev){
+      if(!drag) return;
+      var t = timeAt(ev);
+      if(drag === 'start'){ S.start = clamp(t, 0, S.end - MIN_CLIP); seek(S.start); update(); }
+      else if(drag === 'end'){ S.end = clamp(t, S.start + MIN_CLIP, S.dur); seek(S.end); update(); }
+      else seek(t);
+    });
+    function endDrag(){ drag = null; }
+    el.tl.addEventListener('pointerup', endDrag);
+    el.tl.addEventListener('pointercancel', endDrag);
+    [el.hS, el.hE].forEach(function(h, i){
+      h.addEventListener('keydown', function(ev){
+        var step = ev.shiftKey ? 1 : 1 / S.fps, d = ev.key === 'ArrowLeft' ? -step : ev.key === 'ArrowRight' ? step : 0;
+        if(!d) return;
+        ev.preventDefault();
+        if(i === 0){ setStart(S.start + d, true); seek(S.start); } else { setEnd(S.end + d); seek(S.end); }
+      });
+    });
+
+    /* time text boxes */
+    function commitTime(inp, apply){
+      var t = parseTime(inp.value);
+      if(isNaN(t)){ setMsg('Time format is m:ss.ms, h:mm:ss or plain seconds.', 'err'); drawTimeline(); return; }
+      setMsg('');
+      apply(t);
+      drawTimeline();
+    }
+    [[el.tS, function(t){ setStart(t); seek(S.start); }],
+     [el.tE, function(t){ setEnd(t); seek(S.end); }],
+     [el.tD, function(t){ setEnd(S.start + t); }]].forEach(function(p){
+      p[0].addEventListener('change', function(){ commitTime(p[0], p[1]); });
+      p[0].addEventListener('keydown', function(e){ if(e.key === 'Enter'){ p[0].blur(); } });
+      p[0].addEventListener('blur', drawTimeline);
+    });
+    $('#vt-reset-trim').addEventListener('click', function(){ S.start = 0; S.end = S.dur; update(); seek(0); });
+
+    /* ---------- preview playback ---------- */
+    var raf = 0;
+    function pausePreview(){ el.video.pause(); }
+    function tick(){
+      var v = el.video;
+      if(!v.paused && S.dur){
+        if(v.currentTime >= S.end - 0.02){
+          if(el.loop.checked){ v.currentTime = S.start; }
+          else { v.pause(); v.currentTime = S.end; }
+        }
+      }
+      drawHead();
+      raf = requestAnimationFrame(tick);
+    }
+    el.video.addEventListener('play', function(){ el.play.textContent = 'Pause'; });
+    el.video.addEventListener('pause', function(){ el.play.textContent = 'Play'; });
+    el.video.addEventListener('ended', function(){ el.play.textContent = 'Play'; });
+    function togglePlay(fromStart){
+      var v = el.video;
+      if(fromStart){ v.currentTime = S.start; v.play(); return; }
+      if(!v.paused){ v.pause(); return; }
+      if(v.currentTime < S.start || v.currentTime >= S.end - 0.05) v.currentTime = S.start;
+      v.play();
+    }
+    el.play.addEventListener('click', function(){ togglePlay(false); });
+    $('#vt-sel').addEventListener('click', function(){ togglePlay(true); });
+    el.video.addEventListener('click', function(){ togglePlay(false); });
+    $('#vt-prev').addEventListener('click', function(){ pausePreview(); seek(el.video.currentTime - 1 / S.fps); });
+    $('#vt-next').addEventListener('click', function(){ pausePreview(); seek(el.video.currentTime + 1 / S.fps); });
+    $('#vt-set-in').addEventListener('click', function(){ setStart(Math.min(el.video.currentTime, S.end - MIN_CLIP), true); });
+    $('#vt-set-out').addEventListener('click', function(){ setEnd(Math.max(el.video.currentTime, S.start + MIN_CLIP)); });
+    el.vol.addEventListener('change', function(){ el.video.muted = !el.vol.checked; });
+
+    container.addEventListener('keydown', function(e){
+      if(!S.dur || /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName) || e.target.getAttribute('role') === 'slider') return;
+      if(e.target.tagName === 'BUTTON' && (e.key === ' ' || e.key === 'Enter')) return;
+      var k = e.key;
+      if(k === ' '){ e.preventDefault(); togglePlay(false); }
+      else if(k === 'i' || k === 'I') $('#vt-set-in').click();
+      else if(k === 'o' || k === 'O') $('#vt-set-out').click();
+      else if(k === 'ArrowLeft'){ e.preventDefault(); pausePreview(); seek(el.video.currentTime - (e.shiftKey ? 1 : 1 / S.fps)); }
+      else if(k === 'ArrowRight'){ e.preventDefault(); pausePreview(); seek(el.video.currentTime + (e.shiftKey ? 1 : 1 / S.fps)); }
+    });
+
+    /* ---------- settings wiring ---------- */
+    function setMode(m){
+      S.mode = m;
+      qsa2(body, '.vt-mode button').forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-mode') === m); });
+      qsa2(body, '.vt-f[data-for]').forEach(function(f){ f.hidden = f.getAttribute('data-for') !== m; });
+      $('#vt-chips').hidden = m !== 'target';
+      el.vbrR.disabled = el.vbrN.disabled = (m !== 'custom');
+      if(m === 'custom' && S.file){ el.vbrN.value = calc().vbr; }
+      update();
+    }
+    qsa2(body, '.vt-mode button').forEach(function(b){
+      b.addEventListener('click', function(){
+        var m = b.getAttribute('data-mode');
+        if(m === 'custom' && S.file) el.vbrN.value = calc().vbr;   // start from what the current setting would use
+        setMode(m);
+      });
+    });
+    qsa2(body, '#vt-chips button').forEach(function(b){
+      b.addEventListener('click', function(){ el.target.value = b.getAttribute('data-mb'); update(); });
+    });
+    el.preset.addEventListener('change', function(){ el.abr.value = PRESETS[el.preset.value].abr; saveSettings(); update(); });
+    ['res','fps','audio','abr','fmt'].forEach(function(k){ el[k].addEventListener('change', function(){ saveSettings(); update(); }); });
+    el.audio.addEventListener('change', function(){ el.abr.disabled = el.audio.value === 'mute'; });
+    el.target.addEventListener('input', update);
+    el.vbrR.addEventListener('input', function(){ el.vbrN.value = Math.round(sliderToKbps(+el.vbrR.value) / 10) * 10; update(); });
+    el.vbrN.addEventListener('input', function(){ el.vbrR.value = kbpsToSlider(+el.vbrN.value); update(); });
+    el.vbrN.addEventListener('change', function(){ el.vbrN.value = clamp(Math.round((+el.vbrN.value || MIN_VBR) / 10) * 10, MIN_VBR, MAX_VBR); update(); });
+    el.abr.disabled = el.audio.value === 'mute';
+
+    /* ---------- loading a file ---------- */
+    function freeUrls(){
+      if(S.url){ URL.revokeObjectURL(S.url); S.url = null; }
+      if(resultUrl){ URL.revokeObjectURL(resultUrl); resultUrl = null; }
+    }
+    onUnmount('video-trimmer', function(){ if(enc) enc.abort(true); freeUrls(); cancelAnimationFrame(raf); });
+
+    function loadFile(file){
+      if(enc){ setMsg('Finish or cancel the current encode first.', 'err'); return; }
+      thumbJob++;
+      freeUrls();
+      el.result.hidden = true; el.progress.hidden = true; el.rvideo.removeAttribute('src');
+      el.thumbs.innerHTML = '';
+      setMsg('Reading video…');
+      S.file = file; S.url = URL.createObjectURL(file);
+      var v = el.video;
+      v.muted = !el.vol.checked;
+      v.onloadedmetadata = function(){
+        if(!isFinite(v.duration) || !v.videoWidth){
+          // WebM files written by MediaRecorder report Infinity until the end is reached
+          if(!isFinite(v.duration)){
+            v.currentTime = 1e101;
+            v.ontimeupdate = function(){ v.ontimeupdate = null; v.currentTime = 0; init(); };
+            return;
+          }
+          fail(); return;
+        }
+        init();
+      };
+      v.onerror = fail;
+      v.src = S.url; v.load();
+      function fail(){
+        S.file = null;
+        el.main.hidden = true; el.empty.hidden = false;
+        setMsg('This browser cannot decode that file. Try MP4 (H.264), WebM or MOV. For MKV/AVI, convert it first.', 'err');
+      }
+      function init(){
+        if(!isFinite(v.duration) || v.duration <= 0){ fail(); return; }
+        S.dur = v.duration; S.w = v.videoWidth; S.h = v.videoHeight;
+        S.start = 0; S.end = S.dur; S.fps = 30; S.hasAudio = true;
+        el.empty.hidden = true; el.main.hidden = false;
+        setMsg('');
+        setMode(S.mode);
+        update();
+        probe(file, S.url, function(info){
+          if(S.file !== file) return;
+          if(info.fps) S.fps = info.fps;
+          if(info.hasAudio === false){ S.hasAudio = false; el.audio.value = 'mute'; el.audio.disabled = true; el.abr.disabled = true; }
+          else { el.audio.disabled = false; el.abr.disabled = el.audio.value === 'mute'; }
+          update();
+        });
+        makeThumbs(S.url, thumbJob);
+        cancelAnimationFrame(raf); tick();
+      }
+    }
+    el.file.addEventListener('change', function(e){ var f = e.target.files[0]; if(f) loadFile(f); });
+
+    /* Detect frame rate and whether there is an audio track by playing a muted copy for a moment. */
+    function probe(file, url, done){
+      var p = document.createElement('video'), out = {}, times = [], finished = false;
+      p.muted = true; p.playsInline = true; p.preload = 'auto'; p.src = url;
+      function finish(){
+        if(finished) return; finished = true;
+        try{ p.pause(); }catch(e){}
+        if(times.length > 4){
+          var d = [];
+          for(var i = 1; i < times.length; i++){ var x = times[i] - times[i - 1]; if(x > 0.001) d.push(x); }
+          d.sort(function(a, b){ return a - b; });
+          if(d.length){
+            var f = 1 / d[Math.floor(d.length * 0.2)], snap = [10, 12, 15, 20, 24, 25, 30, 48, 50, 60, 120];
+            snap.forEach(function(s){ if(Math.abs(f - s) / s < 0.04) f = s; });
+            if(f >= 5 && f <= 240) out.fps = f < 30 && f > 23.9 && f < 24.1 ? 24 : Math.round(f * 100) / 100;
+          }
+        }
+        if(p.mozHasAudio !== undefined) out.hasAudio = p.mozHasAudio;
+        else if(p.audioTracks && p.audioTracks.length !== undefined) out.hasAudio = p.audioTracks.length > 0;
+        else if(p.webkitAudioDecodedByteCount !== undefined && p.currentTime > 0.3) out.hasAudio = p.webkitAudioDecodedByteCount > 0;
+        p.removeAttribute('src'); p.load();
+        done(out);
+      }
+      if(!p.requestVideoFrameCallback){ done(out); return; }
+      function cb(now, md){ times.push(md.mediaTime); if(times.length >= 18 || p.currentTime > 1.2) finish(); else p.requestVideoFrameCallback(cb); }
+      var go = p.play();
+      if(go && go.then) go.then(function(){ p.requestVideoFrameCallback(cb); }).catch(function(){ finish(); });
+      setTimeout(finish, 3000);
+    }
+
+    /* Thumbnail strip for the timeline. */
+    function makeThumbs(url, job){
+      var t = document.createElement('video'), n = 12, i = 0, c = document.createElement('canvas');
+      t.muted = true; t.preload = 'auto'; t.src = url;
+      var cw = 96, ch = Math.max(2, Math.round(96 * S.h / S.w));
+      c.width = cw; c.height = ch;
+      var g = c.getContext('2d');
+      el.thumbs.innerHTML = '';
+      function next(){
+        if(job !== thumbJob || i >= n){ t.removeAttribute('src'); t.load(); return; }
+        var guard = setTimeout(function(){ i++; next(); }, 2500);
+        t.onseeked = function(){
+          clearTimeout(guard);
+          try{ g.drawImage(t, 0, 0, cw, ch); var d = document.createElement('i'); d.style.backgroundImage = 'url(' + c.toDataURL('image/jpeg', 0.6) + ')'; el.thumbs.appendChild(d); }catch(e){}
+          i++; next();
+        };
+        t.currentTime = Math.min(S.dur - 0.05, (i + 0.5) / n * S.dur);
+      }
+      t.onloadeddata = next;
+    }
+
+    /* ---------- encoding ---------- */
+    function patchWebmDuration(blob, seconds){
+      // MediaRecorder writes WebM without a Duration field, so many players cannot show length or seek.
+      return blob.slice(0, 8192).arrayBuffer().then(function(ab){
+        var b = new Uint8Array(ab);
+        function vint(pos, keepMarker){
+          var first = b[pos], len = 1, mask = 0x80;
+          while(len <= 8 && !(first & mask)){ len++; mask >>= 1; }
+          if(len > 8) return null;
+          var val = keepMarker ? first : (first & (mask - 1)), allOnes = (first & (mask - 1)) === mask - 1;
+          for(var i = 1; i < len; i++){ val = val * 256 + b[pos + i]; if(b[pos + i] !== 0xFF) allOnes = false; }
+          return {val:val, len:len, unknown:allOnes};
+        }
+        var pos = 0, id = vint(pos, true);
+        if(!id || id.val !== 0x1A45DFA3) return blob;
+        var sz = vint(pos + id.len); pos += id.len + sz.len + sz.val;                 // skip EBML header
+        id = vint(pos, true);
+        if(!id || id.val !== 0x18538067) return blob;                                  // Segment
+        sz = vint(pos + id.len);
+        if(!sz.unknown) return blob;                                                   // known size: leave untouched
+        pos += id.len + sz.len;
+        for(var guard = 0; guard < 40 && pos < b.length - 12; guard++){
+          id = vint(pos, true); if(!id) return blob;
+          sz = vint(pos + id.len); if(!sz || sz.unknown) return blob;
+          if(id.val === 0x1549A966){                                                   // Info
+            var bodyStart = pos + id.len + sz.len, bodyEnd = bodyStart + sz.val, scale = 1000000, q = bodyStart;
+            if(bodyEnd > b.length) return blob;
+            while(q < bodyEnd){
+              var cid = vint(q, true), csz = vint(q + cid.len);
+              if(cid.val === 0x4489) return blob;                                      // already has Duration
+              if(cid.val === 0x2AD7B1){ scale = 0; for(var k = 0; k < csz.val; k++) scale = scale * 256 + b[q + cid.len + csz.len + k]; }
+              q += cid.len + csz.len + csz.val;
+            }
+            var dur = new Uint8Array(11); dur[0] = 0x44; dur[1] = 0x89; dur[2] = 0x88;
+            new DataView(dur.buffer).setFloat64(3, seconds * 1e9 / scale, false);
+            var newSize = sz.val + 11, sizeBytes = new Uint8Array(8);                  // always write an 8-byte size
+            sizeBytes[0] = 0x01; for(var j = 7; j >= 1; j--){ sizeBytes[j] = newSize % 256; newSize = Math.floor(newSize / 256); }
+            return new Blob([b.slice(0, pos + id.len), sizeBytes, b.slice(bodyStart, bodyEnd), dur, blob.slice(bodyEnd)], {type:blob.type});
+          }
+          pos += id.len + sz.len + sz.val;
+        }
+        return blob;
+      }).catch(function(){ return blob; });
+    }
+
+    function startEncode(){
+      if(enc || !S.file) return;
+      var c = calc(), fmt = curFormat();
+      if(!fmt){ setMsg('No supported output format.', 'err'); return; }
+      pausePreview();
+      el.result.hidden = true;
+      el.go.disabled = true; el.cancel.hidden = false; el.progress.hidden = false;
+      el.pfill.style.width = '0%'; el.ptext.textContent = 'Preparing…';
+      setMsg('');
+      lockUi(true);
+
+      var v = document.createElement('video');
+      v.playsInline = true; v.preload = 'auto'; v.src = S.url;
+      var canvas = document.createElement('canvas'); canvas.width = c.w; canvas.height = c.h;
+      var ctx = canvas.getContext('2d', {alpha:false});
+      var actx = null, rec = null, chunks = [], bytes = 0, stopped = false, aborted = false, timer = 0, stall = 0, lastT = -1, lastMove = Date.now();
+      var t0 = 0, lastDraw = -1, gap = +el.fps.value ? (1 / c.fps) * 0.92 : 0;   // throttle only when a cap was chosen; 'Source' never drops frames
+
+      function cleanup(){
+        clearInterval(timer);
+        try{ v.pause(); }catch(e){}
+        if(actx){ try{ actx.close(); }catch(e){} }
+        v.removeAttribute('src'); try{ v.load(); }catch(e){}
+        document.removeEventListener('visibilitychange', onVis);
+        enc = null; lockUi(false);
+        el.go.disabled = false; el.cancel.hidden = true;
+      }
+      function onVis(){ if(document.hidden) setMsg('Tab is in the background. Encoding may stall until you come back.', 'err'); else setMsg(''); }
+      document.addEventListener('visibilitychange', onVis);
+
+      enc = {abort:function(silent){
+        if(stopped) return; aborted = true; stopped = true;
+        try{ if(rec && rec.state !== 'inactive') rec.stop(); }catch(e){}
+        cleanup(); el.progress.hidden = true;
+        if(!silent) setMsg('Cancelled.');
+      }};
+
+      function failEnc(msg){
+        if(stopped) return; stopped = true; aborted = true;
+        try{ if(rec && rec.state !== 'inactive') rec.stop(); }catch(e){}
+        cleanup(); el.progress.hidden = true; setMsg(msg, 'err');
+      }
+
+      v.onerror = function(){ failEnc('The browser could not decode this video for encoding.'); };
+      v.onloadedmetadata = function(){
+        v.currentTime = S.start;
+        setTimeout(function(){ if(!seekedOnce && !stopped){ seekedOnce = true; begin(); } }, 800);   // some browsers skip 'seeked' when already at the start
+      };
+      var seekedOnce = false;
+      v.onseeked = function(){
+        if(seekedOnce || stopped) return; seekedOnce = true;
+        begin();
+      };
+
+      function begin(){
+        try{
+          ctx.drawImage(v, 0, 0, c.w, c.h);
+          var stream = gap ? canvas.captureStream(c.fps) : canvas.captureStream();
+          if(!c.mute){
+            var AC = window.AudioContext || window.webkitAudioContext;
+            actx = new AC();
+            var src = actx.createMediaElementSource(v), dest = actx.createMediaStreamDestination();
+            src.connect(dest);                                   // not connected to speakers: silent while encoding
+            dest.stream.getAudioTracks().forEach(function(t){ stream.addTrack(t); });
+            if(actx.state === 'suspended') actx.resume();
+          }
+          var opts = {mimeType:fmt.mime, videoBitsPerSecond:c.vbr * 1000};
+          if(!c.mute) opts.audioBitsPerSecond = c.abr * 1000;
+          rec = new MediaRecorder(stream, opts);
+        }catch(err){ failEnc('Could not start the encoder: ' + (err && err.message || err)); return; }
+
+        rec.ondataavailable = function(e){ if(e.data && e.data.size){ chunks.push(e.data); bytes += e.data.size; } };
+        rec.onerror = function(e){ failEnc('Encoder error: ' + ((e.error && e.error.message) || 'unknown')); };
+        rec.onstop = function(){
+          if(aborted) return;
+          var type = fmt.mime.split(';')[0];
+          var raw = new Blob(chunks, {type:type});
+          var p = fmt.ext === 'webm' ? patchWebmDuration(raw, c.clip) : Promise.resolve(raw);
+          p.then(function(blob){ cleanup(); el.progress.hidden = true; showResult(blob, fmt, c); });
+        };
+
+        t0 = Date.now();
+        rec.start(400);
+        var playing = v.play();
+        if(playing && playing.catch) playing.catch(function(){ failEnc('The browser blocked playback. Click Trim & compress again.'); });
+        if(v.requestVideoFrameCallback) v.requestVideoFrameCallback(onFrame);
+        else (function loop(){ if(stopped) return; onFrame(0, {mediaTime:v.currentTime}); requestAnimationFrame(loop); })();
+
+        timer = setInterval(function(){
+          if(stopped) return;
+          var t = v.currentTime;
+          if(t >= S.end - 0.005 || v.ended){ return finishEnc(); }
+          if(t !== lastT){ lastT = t; lastMove = Date.now(); }
+          else if(Date.now() - lastMove > 10000){ return failEnc('Playback stalled. Keep this tab in the foreground and try again.'); }
+          progress(t);
+        }, 200);
+      }
+
+      function onFrame(now, md){
+        if(stopped) return;
+        var mt = md ? md.mediaTime : v.currentTime;
+        if(mt >= S.end){ return; }
+        if(lastDraw < 0 || !gap || mt - lastDraw >= gap){ ctx.drawImage(v, 0, 0, c.w, c.h); lastDraw = mt; }
+        if(v.requestVideoFrameCallback) v.requestVideoFrameCallback(onFrame);
+      }
+
+      function progress(t){
+        var frac = clamp((t - S.start) / Math.max(0.001, S.end - S.start), 0, 1), el_s = (Date.now() - t0) / 1000;
+        el.pfill.style.width = (frac * 100).toFixed(1) + '%';
+        var left = frac > 0.02 ? el_s * (1 - frac) / frac : NaN;
+        el.ptext.textContent = Math.round(frac * 100) + '% · ' + fmtTime(el_s, true) + ' elapsed' + (isFinite(left) ? ' · ~' + fmtTime(left, true) + ' left' : '') +
+          ' · ' + fmtBytes(bytes) + ' so far' + (frac > 0.1 ? ' (projected ' + fmtBytes(bytes / frac) + ')' : '');
+      }
+
+      function finishEnc(){
+        if(stopped) return; stopped = true;
+        clearInterval(timer);
+        try{ v.pause(); ctx.drawImage(v, 0, 0, c.w, c.h); }catch(e){}
+        el.pfill.style.width = '100%'; el.ptext.textContent = 'Finalising…';
+        setTimeout(function(){ try{ rec.stop(); }catch(e){ failEnc('Encoder stopped unexpectedly.'); } }, 250);
+      }
+    }
+
+    function lockUi(on){
+      qsa2(body, '.vt-panel select, .vt-panel input, .vt-panel button, .vt-times input, .vt-times button, #vt-set-in, #vt-set-out, #vt-file').forEach(function(x){ x.disabled = on; });
+      if(!on){ el.audio.disabled = !S.hasAudio; el.abr.disabled = el.audio.value === 'mute' || !S.hasAudio; setMode(S.mode); }
+      el.tl.classList.toggle('locked', on);
+    }
+
+    var lastResult = null;
+    function showResult(blob, fmt, c){
+      if(resultUrl) URL.revokeObjectURL(resultUrl);
+      resultUrl = URL.createObjectURL(blob);
+      lastResult = {blob:blob, fmt:fmt};
+      var base = S.file.name.replace(/\.[^.]+$/, ''), name = base + '_trimmed.' + fmt.ext;
+      el.rvideo.src = resultUrl;
+      el.dl.href = resultUrl; el.dl.setAttribute('download', name);
+      var orig = S.file.size, d = orig - blob.size, p = Math.round(d / orig * 100);
+      el.rsum.textContent = fmtBytes(blob.size) + ' (' + (d >= 0 ? p + '% smaller than the original ' + fmtBytes(orig) : (-p) + '% larger than the original ' + fmtBytes(orig)) +
+        ') · estimate was ' + fmtBytes(c.bytes) + ' · ' + c.w + '×' + c.h + ' · ' + fmtTime(c.clip, true);
+      el.dl.textContent = 'Download ' + fmtBytes(blob.size) + ' (' + fmt.ext.toUpperCase() + ')';
+      el.result.hidden = false;
+      setMsg(d >= 0 ? 'Finished. File is ' + fmtBytes(blob.size) + '.' : 'Finished, but the file is larger than the original. Lower the quality and run again.', d >= 0 ? 'ok' : 'err');
+      el.result.scrollIntoView({block:'nearest', behavior:'smooth'});
+    }
+    el.rvideo.addEventListener('loadedmetadata', function(){
+      var v = el.rvideo;
+      if(v.duration === Infinity){ v.currentTime = 1e101; v.ontimeupdate = function(){ v.ontimeupdate = null; v.currentTime = 0; }; }
+    });
+
+    $('#vt-reedit').addEventListener('click', function(){
+      if(!lastResult) return;
+      var f = new File([lastResult.blob], el.dl.getAttribute('download'), {type:lastResult.blob.type});
+      loadFile(f);
+      el.main.scrollIntoView({block:'start', behavior:'smooth'});
+    });
+    el.go.addEventListener('click', startEncode);
+    el.cancel.addEventListener('click', function(){ if(enc) enc.abort(); });
+
+    setMode('preset');
+  }, {persist:false});
+}
+PLAYABLES['video-trimmer'] = mountVideoTrimmer;
+
 (function(){
   var id = document.body.getAttribute('data-id'), slot = document.getElementById('embed-slot');
   if(slot && PLAYABLES[id]) PLAYABLES[id](slot);

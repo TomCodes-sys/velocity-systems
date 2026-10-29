@@ -372,7 +372,7 @@ function renderShellOnce(){
     '<a class="skip-link" href="#app" id="skip-link">Skip to content</a>'+
     '<div class="site-shell">'+
       '<aside class="sidebar" id="sidebar">'+
-        '<a href="'+pageUrl('home')+'" class="brand"><img class="brand-mark brand-logo-img" src="assets/img/velocity-mark.png" alt="" width="32" height="32"><span>VELOCITY<br><b>SYSTEMS</b></span></a>'+
+        '<a href="'+pageUrl('home')+'" class="brand"><img class="brand-mark brand-logo-img" src="'+ROOT+'assets/img/velocity-mark.png" alt="" width="32" height="32"><span>VELOCITY<br><b>SYSTEMS</b></span></a>'+
         '<nav id="nav" aria-label="Primary navigation">'+
           NAV_LINKS.map(function(l){ return '<a href="'+pageUrl(l[0])+'" class="nav-link" data-route="'+l[0]+'" title="'+l[1]+'">'+icon(l[2])+'<span>'+l[1]+'</span></a>'; }).join('')+
         '</nav>'+
@@ -919,7 +919,7 @@ function pageSearch(params){
   qs('#app').innerHTML =
     '<section class="page-heading"><span>COMMAND / GLOBAL INDEX</span><h1 id="search-title"></h1><p id="search-sub"></p></section>'+
     '<div class="search-page">'+
-      '<div class="search-large">'+icon('search')+'<input id="search-input" placeholder="Search all indexed content…" autocomplete="off"></div>'+
+      '<div class="search-large">'+icon('search')+'<input id="search-input" aria-label="Search all content" placeholder="Search all indexed content…" autocomplete="off"></div>'+
       '<div class="recent-searches" id="recent-searches"></div>'+
       '<div id="search-results"></div>'+
     '</div>';
@@ -1013,7 +1013,7 @@ function pageSettings(){
   function toggleRows(){
     return [['animations','Animations'],['effects','Visual effects'],['notifications','Notifications']].map(function(t){
       var key=t[0], label=t[1];
-      return '<div class="setting-row"><label>'+label+'</label><button class="switch '+(settings[key]?'on':'')+'" data-toggle-key="'+key+'" aria-pressed="'+!!settings[key]+'"><i></i></button></div>';
+      return '<div class="setting-row"><label>'+label+'</label><button class="switch '+(settings[key]?'on':'')+'" data-toggle-key="'+key+'" aria-label="'+label+'" aria-pressed="'+!!settings[key]+'"><i></i></button></div>';
     }).join('');
   }
   function shortcutRow(){
@@ -1259,4 +1259,31 @@ function boot(){
   else if(d.page === 'settings') pageSettings();
   updateNavActive();
 }
+/* Give every unlabelled form control an accessible name. Tools render their own markup,
+   so derive the name from the nearest visible caption (.tool-msg / label / preceding text),
+   then placeholder, then the id. Runs after each render, debounced. */
+function labelControls(){
+  var sel = 'input:not([type=hidden]):not([aria-label]):not([aria-labelledby]), select:not([aria-label]):not([aria-labelledby]), textarea:not([aria-label]):not([aria-labelledby])';
+  var nodes = document.querySelectorAll(sel);
+  for(var i = 0; i < nodes.length; i++){
+    var el = nodes[i];
+    if(el.title || el.closest('label') || (el.id && document.querySelector('label[for="'+el.id+'"]'))) continue;
+    var name = '', prev = el.previousElementSibling;
+    if(prev && !/^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(prev.tagName)) name = (prev.textContent || '').trim();
+    if(!name && el.parentElement){
+      var cap = el.parentElement.querySelector(':scope > .tool-msg, :scope > label, :scope > .label');
+      if(cap) name = (cap.textContent || '').trim();
+    }
+    if(!name) name = el.getAttribute('placeholder') || '';
+    if(!name) name = (el.id || el.name || el.type || 'Field').replace(/[-_]+/g, ' ');
+    el.setAttribute('aria-label', name.replace(/\s+/g, ' ').slice(0, 80));
+  }
+}
+(function(){
+  var t = 0;
+  function queue(){ clearTimeout(t); t = setTimeout(labelControls, 120); }
+  var main = document.getElementById('app');
+  if(main && window.MutationObserver) new MutationObserver(queue).observe(main, {childList: true, subtree: true});
+  queue();
+})();
 boot();
