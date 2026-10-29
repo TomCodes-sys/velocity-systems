@@ -1,7 +1,8 @@
 // tools.js — every tool on the site, in one file.
 // Loaded by each tools/<id>.html after app.js and play.js. The block at the bottom
 // runs only the tool whose id matches <body data-id>, so one file serves all pages.
-// To add a tool: add its section here, register it in PLAYABLES, and list it in data.js.
+// To add an established tool: add its section here, register it in PLAYABLES, and list it in data.js.
+// New standalone browser tools may live in new-tools.js; scripts/build.js loads that module only for their detail pages.
 // Contents (each section below is one tool):
 //   base-converter
 //   calculator
@@ -1769,16 +1770,17 @@ PLAYABLES['image-resizer'] = mountImageResizer;
    Compress many images at once in the browser (canvas re-encode to JPEG or WebP). Nothing is uploaded.
    ===================================================================== */
 function mountBulkCompressor(container){
-  mountEmbed(container, 'TOOL / BULK IMAGE COMPRESSOR', function(body){
+  mountEmbed(container, 'TOOL / BATCH IMAGE PROCESSOR', function(body){
     body.innerHTML =
       '<div class="tl-split"><div class="tl-main">'+
         '<label class="drop-zone" for="bc-file">'+icon('upload',{size:18})+' <span>Choose images, or drop them here</span></label>'+
         '<input type="file" id="bc-file" multiple accept="image/*" style="position:absolute;opacity:0;width:1px;height:1px">'+
         '<div id="bc-list" class="bc-list"></div></div>'+
       '<div class="tl-side"><h3 class="tl-h">'+icon('settings',{size:14})+' Settings</h3>'+
-        '<div class="field"><label for="bc-format">Output format</label><select id="bc-format"><option value="image/jpeg">JPEG</option><option value="image/webp">WebP</option></select></div>'+
+        '<div class="field"><label for="bc-format">Output format</label><select id="bc-format"><option value="image/jpeg">JPEG</option><option value="image/webp">WebP</option><option value="image/png">PNG (lossless)</option></select></div>'+
         '<div class="field"><label for="bc-q">Quality: <span id="bc-qv">75</span>%</label><input type="range" id="bc-q" min="30" max="95" value="75"></div>'+
         '<div class="field"><label for="bc-max">Longest side (px, 0 = keep size)</label><input type="number" id="bc-max" min="0" max="12000" value="2000"></div>'+
+        '<div class="field"><label for="bc-prefix">Filename prefix</label><input id="bc-prefix" placeholder="e.g. web-"></div><div class="field"><label for="bc-suffix">Filename suffix</label><input id="bc-suffix" value="-optimised"></div>'+
         '<div class="tool-row tl-btns"><button class="game-btn" id="bc-run" disabled>'+icon('zap',{size:14})+' Compress</button><button class="game-btn secondary" id="bc-clear" disabled>Clear</button><button class="game-btn secondary" id="bc-zip" disabled>Download all as ZIP</button></div>'+
         '<div class="tool-msg" id="bc-msg">Add some images to begin.</div></div></div>';
     var files = [], results = [];
@@ -1812,7 +1814,7 @@ function mountBulkCompressor(container){
           var c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
           var x = c.getContext('2d'); if(fmt === 'image/jpeg'){ x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); }
           x.drawImage(im, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
-          c.toBlob(function(b){ if(!b) return rej(new Error('Your browser cannot encode ' + fmt)); res({blob:b, url:URL.createObjectURL(b), name:f.name.replace(/\.[^.]+$/, '') + '-compressed.' + (fmt === 'image/webp' ? 'webp' : 'jpg')}); }, fmt, q);
+          c.toBlob(function(b){ if(!b) return rej(new Error('Your browser cannot encode ' + fmt)); res({blob:b, url:URL.createObjectURL(b), name:(body.querySelector('#bc-prefix').value||'')+f.name.replace(/\.[^.]+$/, '')+(body.querySelector('#bc-suffix').value||'')+'.'+(fmt==='image/webp'?'webp':fmt==='image/png'?'png':'jpg')}); }, fmt, fmt==='image/png'?undefined:q);
         };
         im.src = url;
       });
@@ -3617,32 +3619,16 @@ PLAYABLES['qr-scanner'] = mountQrScanner;
    PDF merge and page-range extraction using pdf-lib in the browser.
    ================================================================== */
 function mountPdfTools(container){
-  mountEmbed(container, 'TOOL / PDF MERGE & SPLIT', function(body){
-    body.innerHTML = '<p class="tool-msg">Files are processed in your browser. PDF features load the open-source pdf-lib library from a CDN when first used.</p><div class="tool-row"><label class="field"><span class="field-label">Mode</span><select id="pdf-mode"><option value="merge">Merge PDFs</option><option value="split">Extract page range</option></select></label><label class="field"><span class="field-label">PDF files</span><input type="file" id="pdf-files" accept="application/pdf,.pdf" multiple></label></div><div id="pdf-file-list" class="tool-output">Choose one or more PDF files.</div><div class="tool-row" id="pdf-range-wrap" hidden><label class="field"><span class="field-label">Pages (e.g. 1-3, 5, 8-10)</span><input type="text" id="pdf-range" placeholder="1-3, 5"></label></div><div class="tool-row"><button type="button" class="game-btn" id="pdf-run">Create PDF</button></div><p class="tool-msg" id="pdf-status" role="status"></p>';
-    var $=function(s){return body.querySelector(s);}, files=[];
-    $('#pdf-mode').addEventListener('change',function(){$('#pdf-range-wrap').hidden=this.value!=='split';});
-    $('#pdf-files').addEventListener('change',function(){files=Array.from(this.files||[]);$('#pdf-file-list').textContent=files.length?files.map(function(f,i){return (i+1)+'. '+f.name+' ('+Math.round(f.size/1024)+' KB)';}).join('\n'):'Choose one or more PDF files.';});
-    function loadLib(){if(window.PDFLib)return Promise.resolve(window.PDFLib);return new Promise(function(resolve,reject){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';s.onload=function(){window.PDFLib?resolve(window.PDFLib):reject(new Error('PDF library did not load.'));};s.onerror=function(){reject(new Error('Could not load the PDF library. Check your connection or content blocker.'));};document.head.appendChild(s);});}
-    $('#pdf-run').addEventListener('click',async function(){
-      if(!files.length){$('#pdf-status').textContent='Choose at least one PDF first.';return;}
-      var mode=$('#pdf-mode').value;$('#pdf-run').disabled=true;$('#pdf-status').textContent='Processing…';
-      try{
-        var lib=await loadLib(), out=await lib.PDFDocument.create();
-        if(mode==='merge'){
-          for(var f of files){var src=await lib.PDFDocument.load(await f.arrayBuffer());var pages=await out.copyPages(src,src.getPageIndices());pages.forEach(function(pg){out.addPage(pg);});}
-          if(!out.getPageCount())throw new Error('No pages were found in the selected PDFs.');
-        }else{
-          if(files.length!==1)throw new Error('Choose exactly one PDF when extracting a page range.');
-          var src2=await lib.PDFDocument.load(await files[0].arrayBuffer()), count=src2.getPageCount(), indexes=new Set(), parts=$('#pdf-range').value.split(',');
-          parts.forEach(function(part){var m=part.trim().match(/^(\d+)(?:\s*-\s*(\d+))?$/);if(!m)throw new Error('Use page numbers and ranges such as 1-3, 5.');var a=Number(m[1]),b=Number(m[2]||m[1]);if(a<1||b<a||b>count)throw new Error('Page range is outside this PDF (1–'+count+').');for(var n=a;n<=b;n++)indexes.add(n-1);});
-          var selected=Array.from(indexes).sort(function(a,b){return a-b;});if(!selected.length)throw new Error('Enter at least one page.');
-          (await out.copyPages(src2,selected)).forEach(function(pg){out.addPage(pg);});
-        }
-        var bytes=await out.save(), base=mode==='merge'?'merged.pdf':(files[0].name.replace(/\.pdf$/i,'')+'-pages.pdf');
-        saveBlob(base,new Blob([bytes],{type:'application/pdf'}));$('#pdf-status').textContent='Created '+base+' ('+out.getPageCount()+' pages).';
-      }catch(e){$('#pdf-status').textContent=e.message||'Could not process these PDFs.';}
-      finally{$('#pdf-run').disabled=false;}
-    });
+  mountEmbed(container, 'TOOL / PDF TOOLKIT', function(body){
+    body.innerHTML = '<p class="tool-msg">Files are processed in your browser. The open-source pdf-lib library loads from a CDN when first used. Merge, split, reorder and rotate are supported. Structural optimisation does not re-encode embedded images, so a smaller file is not guaranteed.</p><div class="tool-row"><label class="field"><span class="field-label">Mode</span><select id="pdf-mode"><option value="merge">Merge PDFs</option><option value="split">Extract page range</option><option value="reorder">Reorder pages</option><option value="rotate">Rotate pages</option><option value="optimise">Optimise PDF structure</option></select></label><label class="field"><span class="field-label">PDF files</span><input type="file" id="pdf-files" accept="application/pdf,.pdf" multiple></label></div><div id="pdf-file-list" class="tool-output">Choose PDF files.</div><div class="tool-row" id="pdf-range-wrap" hidden><label class="field"><span class="field-label">Pages (e.g. 1-3, 5, 8-10)</span><input type="text" id="pdf-range" placeholder="1-3, 5"></label></div><div class="tool-row" id="pdf-order-wrap" hidden><label class="field"><span class="field-label">New page order (comma-separated, e.g. 3,1,2)</span><input type="text" id="pdf-order" placeholder="3,1,2"></label></div><div class="tool-row" id="pdf-rotate-wrap" hidden><label class="field"><span class="field-label">Rotation</span><select id="pdf-rotation"><option value="90">90° clockwise</option><option value="180">180°</option><option value="270">270° clockwise</option></select></label><label class="field"><span class="field-label">Pages to rotate (blank = all)</span><input type="text" id="pdf-rotate-pages" placeholder="1-3, 5"></label></div><div class="tool-row"><button type="button" class="game-btn" id="pdf-run">Create PDF</button></div><p class="tool-msg" id="pdf-status" role="status" aria-live="polite"></p>';
+    var $=function(s){return body.querySelector(s);},files=[];
+    function updateMode(){var m=$('#pdf-mode').value;$('#pdf-range-wrap').hidden=m!=='split';$('#pdf-order-wrap').hidden=m!=='reorder';$('#pdf-rotate-wrap').hidden=m!=='rotate';$('#pdf-files').multiple=m==='merge';}
+    $('#pdf-mode').addEventListener('change',updateMode);updateMode();
+    $('#pdf-files').addEventListener('change',function(){files=Array.from(this.files||[]);$('#pdf-file-list').textContent=files.length?files.map(function(f,i){return (i+1)+'. '+f.name+' ('+fmtSize(f.size)+')';}).join('\n'):'Choose PDF files.';});
+    function loadLib(){if(window.PDFLib)return Promise.resolve(window.PDFLib);return new Promise(function(resolve,reject){var sc=document.createElement('script');sc.src='https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';sc.onload=function(){window.PDFLib?resolve(window.PDFLib):reject(new Error('PDF library did not initialise.'));};sc.onerror=function(){reject(new Error('Could not load pdf-lib. Check your connection or content blocker.'));};document.head.appendChild(sc);});}
+    function parsePages(value,count,allIfBlank){var set=new Set();if(!value.trim()&&allIfBlank){for(var i=1;i<=count;i++)set.add(i-1);return Array.from(set);}if(!value.trim())throw new Error('Enter at least one page number.');value.split(',').forEach(function(part){var m=part.trim().match(/^(\d+)(?:\s*-\s*(\d+))?$/);if(!m)throw new Error('Use page numbers and ranges such as 1-3, 5.');var a=Number(m[1]),b=Number(m[2]||m[1]);if(a<1||b<a||b>count)throw new Error('Page range is outside this PDF (1–'+count+').');for(var n=a;n<=b;n++)set.add(n-1);});return Array.from(set).sort(function(a,b){return a-b;});}
+    $('#pdf-run').addEventListener('click',async function(){if(!files.length){$('#pdf-status').textContent='Choose at least one PDF first.';return;}var mode=$('#pdf-mode').value,btn=this;btn.disabled=true;$('#pdf-status').textContent='Processing…';try{var lib=await loadLib(),out=await lib.PDFDocument.create();if(mode==='merge'){for(var f of files){var src=await lib.PDFDocument.load(await f.arrayBuffer());(await out.copyPages(src,src.getPageIndices())).forEach(function(pg){out.addPage(pg);});}}else{if(files.length!==1)throw new Error('Choose exactly one PDF for this operation.');var src2=await lib.PDFDocument.load(await files[0].arrayBuffer()),count=src2.getPageCount();if(mode==='split'){var selected=parsePages($('#pdf-range').value,count,false);(await out.copyPages(src2,selected)).forEach(function(pg){out.addPage(pg);});}else if(mode==='reorder'){var order=$('#pdf-order').value.split(',').map(function(v){return Number(v.trim());});if(!order.length||order.some(function(v){return !Number.isInteger(v)||v<1||v>count;})||new Set(order).size!==order.length)throw new Error('Enter a valid page order without duplicates, e.g. 3,1,2. Pages may be omitted.');(await out.copyPages(src2,order.map(function(v){return v-1;}))).forEach(function(pg){out.addPage(pg);});}else if(mode==='rotate'){var pages=src2.getPages(),degrees=Number($('#pdf-rotation').value),targets=parsePages($('#pdf-rotate-pages').value,count,true);targets.forEach(function(i){var pg=pages[i];pg.setRotation(lib.degrees((pg.getRotation().angle+degrees)%360));});(await out.copyPages(src2,src2.getPageIndices())).forEach(function(pg){out.addPage(pg);});}else if(mode==='optimise'){(await out.copyPages(src2,src2.getPageIndices())).forEach(function(pg){out.addPage(pg);});}}
+      if(!out.getPageCount())throw new Error('No pages were selected.');var bytes=await out.save({useObjectStreams:true}),base=mode==='merge'?'merged.pdf':files[0].name.replace(/\.pdf$/i,'')+'-'+mode+'.pdf';saveBlob(base,new Blob([bytes],{type:'application/pdf'}));$('#pdf-status').textContent='Created '+base+' · '+out.getPageCount()+' page(s) · '+fmtSize(bytes.length)+'.';}catch(e){$('#pdf-status').textContent=e.message||'Could not process these PDFs.';}finally{btn.disabled=false;}});
   });
 }
 PLAYABLES['pdf-tools'] = mountPdfTools;
@@ -3718,10 +3704,11 @@ PLAYABLES['filename-cleaner'] = mountFilenameCleaner;
    ================================================================== */
 function mountImageMetadata(container){
   mountEmbed(container, 'TOOL / IMAGE METADATA', function(body){
-    body.innerHTML='<div class="field"><span class="field-label">Choose an image</span><input type="file" id="im-file" accept="image/*" data-nopersist></div><div class="tool-row"><label class="field"><span class="field-label">Clean export format</span><select id="im-format"><option value="image/png">PNG (lossless)</option><option value="image/jpeg">JPEG</option><option value="image/webp">WebP</option></select></label><label class="field"><span class="field-label">Quality (JPEG / WebP)</span><input type="range" id="im-quality" min="40" max="100" value="92"><span id="im-qv" class="hint">92%</span></label></div><div class="tool-row"><button type="button" class="game-btn" id="im-inspect">Inspect image</button><button type="button" class="game-btn secondary" id="im-clean" disabled>Export without embedded metadata</button></div><div id="im-status" class="tool-output" aria-live="polite">Choose an image to inspect its dimensions and basic file metadata.</div><canvas id="im-canvas" hidden></canvas><p class="tool-msg">Everything runs locally. Clean export redraws the image through a canvas, which strips embedded EXIF/IPTC/XMP metadata supported by the browser decoder. This tool reports basic file metadata, not every camera-specific EXIF field.</p>';
+    body.innerHTML='<div class="field"><span class="field-label">Choose an image</span><input type="file" id="im-file" accept="image/*" data-nopersist></div><div class="tool-row"><label class="field"><span class="field-label">Clean export format</span><select id="im-format"><option value="image/png">PNG (lossless)</option><option value="image/jpeg">JPEG</option><option value="image/webp">WebP</option></select></label><label class="field"><span class="field-label">Quality (JPEG / WebP)</span><input type="range" id="im-quality" min="40" max="100" value="92"><span id="im-qv" class="hint">92%</span></label></div><div class="tool-row"><button type="button" class="game-btn" id="im-inspect">Inspect image</button><button type="button" class="game-btn secondary" id="im-clean" disabled>Export without embedded metadata</button></div><div id="im-status" class="tool-output" aria-live="polite">Choose an image to inspect its dimensions and basic file metadata.</div><canvas id="im-canvas" hidden></canvas><p class="tool-msg">Everything runs locally. Clean export redraws the image through a canvas, which strips embedded EXIF/IPTC/XMP metadata supported by the browser decoder. Supported camera, lens, timestamp and GPS EXIF tags are shown when available; browser image decoding does not expose every metadata field.</p>';
     var $=function(s){return body.querySelector(s);}, file=null, image=null;
     $('#im-quality').addEventListener('input',function(){$('#im-qv').textContent=this.value+'%';});
-    function load(){file=$('#im-file').files[0]||null;image=null;$('#im-clean').disabled=true;if(!file){$('#im-status').textContent='Choose an image first.';return;}if(!file.type.startsWith('image/')){$('#im-status').textContent='That file is not recognised as an image.';return;}var url=URL.createObjectURL(file),img=new Image();img.onload=function(){image=img;$('#im-clean').disabled=false;$('#im-status').innerHTML='<dl class="metadata-list"><dt>File name</dt><dd>'+esc(file.name)+'</dd><dt>Format</dt><dd>'+esc(file.type||'Unknown')+'</dd><dt>File size</dt><dd>'+esc(fmtSize(file.size))+'</dd><dt>Dimensions</dt><dd>'+img.naturalWidth+' × '+img.naturalHeight+' px</dd><dt>Last modified</dt><dd>'+esc(file.lastModified?new Date(file.lastModified).toLocaleString():'Not available')+'</dd><dt>Embedded metadata</dt><dd>May be present; clean export removes supported embedded metadata</dd></dl>';URL.revokeObjectURL(url);};img.onerror=function(){URL.revokeObjectURL(url);$('#im-status').textContent='The browser could not decode this image format.';};img.src=url;}
+    function load(){file=$('#im-file').files[0]||null;image=null;$('#im-clean').disabled=true;if(!file){$('#im-status').textContent='Choose an image first.';return;}if(!file.type.startsWith('image/')){$('#im-status').textContent='That file is not recognised as an image.';return;}var url=URL.createObjectURL(file),img=new Image();img.onload=function(){image=img;$('#im-clean').disabled=false;$('#im-status').innerHTML='<dl class="metadata-list"><dt>File name</dt><dd>'+esc(file.name)+'</dd><dt>Format</dt><dd>'+esc(file.type||'Unknown')+'</dd><dt>File size</dt><dd>'+esc(fmtSize(file.size))+'</dd><dt>Dimensions</dt><dd>'+img.naturalWidth+' × '+img.naturalHeight+' px</dd><dt>Last modified</dt><dd>'+esc(file.lastModified?new Date(file.lastModified).toLocaleString():'Not available')+'</dd><dt>Embedded metadata</dt><dd id="im-exif">Reading camera and GPS metadata when supported…</dd></dl>';URL.revokeObjectURL(url);readExif(file);};img.onerror=function(){URL.revokeObjectURL(url);$('#im-status').textContent='The browser could not decode this image format.';};img.src=url;}
+    async function readExif(f){var target=$('#im-exif');try{if(!window.ExifReader){await new Promise(function(resolve,reject){var sc=document.createElement('script');sc.src='https://cdn.jsdelivr.net/npm/exifreader@4.25.0/dist/exif-reader.js';sc.onload=resolve;sc.onerror=function(){reject(new Error('Metadata reader could not be loaded.'));};document.head.appendChild(sc);});}var tags=window.ExifReader.load(await f.arrayBuffer()),pairs=[['Camera make',tags.Make],['Camera model',tags.Model],['Lens',tags.LensModel],['Captured',tags.DateTimeOriginal||tags.DateTimeDigitized],['Software',tags.Software],['GPS latitude',tags.GPSLatitude],['GPS longitude',tags.GPSLongitude]];var present=pairs.filter(function(p){return p[1]&&p[1].description;});target.innerHTML=present.length?present.map(function(p){return esc(p[0])+': '+esc(p[1].description);}).join('<br>'):'No readable EXIF camera, timestamp or GPS tags found. Some formats do not expose metadata to browsers.';}catch(e){target.textContent='EXIF reader unavailable or metadata unsupported. Basic file metadata is still shown.';}}
     $('#im-file').addEventListener('change',load);$('#im-inspect').addEventListener('click',load);
     $('#im-clean').addEventListener('click',function(){if(!image||!file)return;var canvas=$('#im-canvas'),ctx=canvas.getContext('2d'),type=$('#im-format').value;canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;if(type==='image/jpeg'){ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);}ctx.drawImage(image,0,0);canvas.toBlob(function(blob){if(!blob){$('#im-status').textContent='Could not export this image in the selected format.';return;}var ext=type==='image/jpeg'?'jpg':type==='image/webp'?'webp':'png',base=file.name.replace(/\.[^.]+$/,'');saveBlob(base+'-clean.'+ext,blob);$('#im-status').insertAdjacentHTML('beforeend','<p class="tool-msg">Clean copy exported as '+esc(ext.toUpperCase())+'. The original file was not changed.</p>');},type,Number($('#im-quality').value)/100);});
   });
@@ -3830,6 +3817,7 @@ function mountVideoTrimmer(container){
             '<label>End <input id="vt-t-e" class="vt-tin" value="0:00.00" spellcheck="false" aria-label="End time"></label>'+
             '<label>Length <input id="vt-t-d" class="vt-tin" value="0:00.00" spellcheck="false" aria-label="Clip length"></label>'+
             '<button type="button" class="game-btn secondary" id="vt-reset-trim">Reset trim</button>'+
+            '<button type="button" class="game-btn secondary" id="vt-reset-all">Reset all edits</button>'+
           '</div>'+
           '<div class="vt-panel">'+
             '<div class="vt-mode" role="group" aria-label="Compression mode">'+
@@ -3864,6 +3852,7 @@ function mountVideoTrimmer(container){
             '<div class="vt-out-info" id="vt-out-info"></div>'+
           '</div>'+
           '<div class="vt-run">'+
+            '<label class="field vt-filename"><span class="field-label">Output filename</span><input id="vt-filename" type="text" value="trimmed-video" maxlength="100"></label>'+
             '<button type="button" class="game-btn" id="vt-go">Trim &amp; compress</button>'+
             '<button type="button" class="game-btn secondary" id="vt-cancel" hidden>Cancel</button>'+
             '<span class="vt-hint">Encodes in real time. Keep this tab visible while it runs.</span>'+
@@ -3893,7 +3882,7 @@ function mountVideoTrimmer(container){
       preset:$('#vt-preset'), target:$('#vt-target'), res:$('#vt-res'), fps:$('#vt-fps'), audio:$('#vt-audio'), abr:$('#vt-abr'), fmt:$('#vt-fmt'),
       vbrR:$('#vt-vbr-r'), vbrN:$('#vt-vbr-n'), q:$('#vt-q'), outInfo:$('#vt-out-info'), warn:$('#vt-warn'),
       go:$('#vt-go'), cancel:$('#vt-cancel'), progress:$('#vt-progress'), pfill:$('#vt-pfill'), ptext:$('#vt-ptext'),
-      result:$('#vt-result'), rvideo:$('#vt-r-video'), dl:$('#vt-dl'), rsum:$('#vt-r-sum'), loop:$('#vt-loop'), vol:$('#vt-vol')
+      result:$('#vt-result'), rvideo:$('#vt-r-video'), dl:$('#vt-dl'), rsum:$('#vt-r-sum'), loop:$('#vt-loop'), vol:$('#vt-vol'), filename:$('#vt-filename')
     };
 
     /* ---------- helpers ---------- */
@@ -4090,6 +4079,14 @@ function mountVideoTrimmer(container){
       p[0].addEventListener('blur', drawTimeline);
     });
     $('#vt-reset-trim').addEventListener('click', function(){ S.start = 0; S.end = S.dur; update(); seek(0); });
+    $('#vt-reset-all').addEventListener('click', function(){
+      if(!window.confirm('Reset all trim and compression edits to their defaults? Your uploaded source video will stay loaded.')) return;
+      if(enc){ setMsg('Cancel the active export before resetting edits.', 'err'); return; }
+      pausePreview(); S.start=0; S.end=S.dur; S.playSel=false; el.loop.checked=false; el.vol.checked=true; el.video.muted=false;
+      el.preset.value='balanced'; el.target.value='25'; el.res.value='0'; el.filename.value='trimmed-video'; el.fps.value='0'; el.audio.value='keep'; el.abr.value='128'; el.abr.disabled=!S.hasAudio;
+      if(FORMATS.length) el.fmt.value=FORMATS[0].id; el.vbrR.value='500'; el.vbrN.value=Math.round(sliderToKbps(500));
+      setMode('preset'); saveSettings(); update(); seek(0); el.result.hidden=true; setMsg('All edits reset. Your source video is still loaded.','ok');
+    });
 
     /* ---------- preview playback ---------- */
     var raf = 0;
@@ -4441,7 +4438,7 @@ function mountVideoTrimmer(container){
     }
 
     function lockUi(on){
-      qsa2(body, '.vt-panel select, .vt-panel input, .vt-panel button, .vt-times input, .vt-times button, #vt-set-in, #vt-set-out, #vt-file').forEach(function(x){ x.disabled = on; });
+      qsa2(body, '.vt-panel select, .vt-panel input, .vt-panel button, .vt-times input, .vt-times button, .vt-run input, #vt-set-in, #vt-set-out, #vt-file').forEach(function(x){ x.disabled = on; });
       if(!on){ el.audio.disabled = !S.hasAudio; el.abr.disabled = el.audio.value === 'mute' || !S.hasAudio; setMode(S.mode); }
       el.tl.classList.toggle('locked', on);
     }
@@ -4451,7 +4448,7 @@ function mountVideoTrimmer(container){
       if(resultUrl) URL.revokeObjectURL(resultUrl);
       resultUrl = URL.createObjectURL(blob);
       lastResult = {blob:blob, fmt:fmt};
-      var base = S.file.name.replace(/\.[^.]+$/, ''), name = base + '_trimmed.' + fmt.ext;
+      var base = (el.filename.value||'trimmed-video').trim().replace(/[<>:"/\\|?*\x00-\x1F]/g,'-').replace(/\.[^.]+$/,'')||'trimmed-video', name = base + '.' + fmt.ext;
       el.rvideo.src = resultUrl;
       el.dl.href = resultUrl; el.dl.setAttribute('download', name);
       var orig = S.file.size, d = orig - blob.size, p = Math.round(d / orig * 100);
@@ -4480,6 +4477,7 @@ function mountVideoTrimmer(container){
   }, {persist:false});
 }
 PLAYABLES['video-trimmer'] = mountVideoTrimmer;
+
 
 (function(){
   var id = document.body.getAttribute('data-id'), slot = document.getElementById('embed-slot');

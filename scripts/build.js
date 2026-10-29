@@ -75,8 +75,8 @@ function page(o){
   var image = SITE_URL + (o.image || DEFAULT_OG);
   var desc = clip(o.desc, 200);
   var ogType = o.ogType || 'website';
-  var scripts = ['assets/js/data.js', 'assets/js/icons.js', 'assets/js/app.js'];
-  if(o.play){ scripts.push('assets/js/play.js'); scripts.push(o.bundle); }
+  var scripts = ['assets/js/data.js', 'assets/js/icons.js', 'assets/js/app.js', 'assets/js/custom-selects.js'];
+  if(o.play){ scripts.push('assets/js/play.js'); scripts.push(o.bundle); if(o.kind === 'tools' && ['audio-converter','storage-visualiser','api-request-tester','file-comparison'].indexOf(o.id) >= 0) scripts.push('assets/js/new-tools.js'); }
   var scriptTags = scripts.map(function(s){ return '<script src="' + root + s + '?v=' + ver(s) + '"></script>'; });
   var body = ['data-root="' + root + '"', 'data-page="' + o.page + '"', 'data-nav="' + o.nav + '"'];
   if(o.kind) body.push('data-kind="' + o.kind + '"');
@@ -172,6 +172,7 @@ items.forEach(function(item){
   var bundleRel = 'assets/js/' + item.kind + '.js';
   if(play){
     var bundle = fs.existsSync(path.join(ROOT_DIR, bundleRel)) ? read(bundleRel) : '';
+    if(item.kind === 'tools' && fs.existsSync(path.join(ROOT_DIR, 'assets/js/new-tools.js'))) bundle += read('assets/js/new-tools.js');
     if(bundle.indexOf("PLAYABLES['" + item.id + "']") < 0){
       warnings.push(file + ': marked playable but ' + bundleRel + " has no PLAYABLES['" + item.id + "'] entry");
       play = false;
