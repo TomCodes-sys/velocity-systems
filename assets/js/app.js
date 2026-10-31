@@ -119,6 +119,9 @@ function toastTick(now){
 }
 
 var settings = readLS('system-settings', DEFAULT_SETTINGS);
+/* themes that were retired because they looked almost identical to another one */
+var LEGACY_THEMES = {windows:'sky', minimal:'amoled', midnight:'ocean', slate:'amoled', future:'ocean', forest:'terminal', retro:'gruvbox'};
+if(LEGACY_THEMES[settings.theme]){ settings.theme = LEGACY_THEMES[settings.theme]; try{ storeSet('system-settings', JSON.stringify(settings)); }catch(e){} }
 var favorites = readLS('system-favorites', []);
 var recent = readLS('system-recent', []);
 
@@ -390,11 +393,16 @@ function renderShellOnce(){
         '<main id="app" tabindex="-1"></main>'+
         '<footer><span>Velocity Systems</span><span>Static archive · Local preferences</span></footer>'+
       '</div>'+
+      '<nav class="bottom-nav" id="bottom-nav" aria-label="Quick navigation">'+
+        [['home','Home','home'],['games','Games','gamepad'],['tools','Tools','wrench'],['library','Library','package']].map(function(l){ return '<a href="'+pageUrl(l[0])+'" class="bn-link" data-route="'+l[0]+'">'+icon(l[2],{size:21})+'<span>'+l[1]+'</span></a>'; }).join('')+
+        '<button type="button" class="bn-link" id="bn-more" aria-label="Open the full menu">'+icon('menu',{size:21})+'<span>More</span></button>'+
+      '</nav>'+
     '</div>';
   document.body.insertAdjacentHTML('afterbegin', shell);
 
   var sidebar = qs('#sidebar'), scrim = qs('#scrim'), menuBtn = qs('#menu-btn');
   menuBtn.addEventListener('click', function(){ sidebar.classList.add('is-open'); scrim.style.display='block'; });
+  qs('#bn-more').addEventListener('click', function(){ sidebar.classList.add('is-open'); scrim.style.display='block'; });
   scrim.addEventListener('click', function(){ sidebar.classList.remove('is-open'); scrim.style.display='none'; });
   qsa('.nav-link', sidebar).forEach(function(a){ a.addEventListener('click', function(){ sidebar.classList.remove('is-open'); scrim.style.display='none'; }); });
   qs('#skip-link').addEventListener('click', function(e){ e.preventDefault(); qs('#app').focus(); });
@@ -552,7 +560,7 @@ function renderSidebarBookmarks(){
 function updateNavActive(){
   var d = document.body.dataset;
   var current = d.nav || (d.page==='home' ? 'home' : d.kind) || '';
-  qsa('.nav-link').forEach(function(a){
+  qsa('.nav-link, .bn-link[data-route]').forEach(function(a){
     var on = a.getAttribute('data-route') === current;
     a.classList.toggle('active', on);
     if(on) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current');
@@ -989,18 +997,18 @@ function pageSearch(params){
 
 /* ---------- settings page ---------- */
 var THEME_LIST = [
-  ['light','Light'],['system','Follow system'],['paper','Paper'],['nordlight','Nord Light'],['windows','Windows'],
-  ['minimal','Minimal Dark'],['amoled','AMOLED'],['midnight','Midnight'],['slate','Slate'],
-  ['nord','Nord'],['dracula','Dracula'],['gruvbox','Gruvbox'],
-  ['cyber','Cyberpunk'],['retro','Retro'],['terminal','Terminal'],['glass','Glass'],['future','Futuristic'],
-  ['custom','Custom'],['ocean','Ocean'],['forest','Forest'],['rose','Rose'],['solar','Solar'],['grape','Grape'],
+  ['light','Light'],['system','Follow system'],['paper','Paper'],['nordlight','Nord Light'],
+  ['sky','Sky'],['mint','Mint'],['sunrise','Sunrise'],['coral','Coral'],['bubblegum','Bubblegum'],['lavender','Lavender'],
+  ['amoled','AMOLED'],['ocean','Ocean'],['nord','Nord'],['dracula','Dracula'],['gruvbox','Gruvbox'],
+  ['cyber','Cyberpunk'],['terminal','Terminal'],['glass','Glass'],['rose','Rose'],['solar','Solar'],['grape','Grape'],
+  ['custom','Custom'],
 ];
 var CHOICE_GROUPS = {accent:['blue','purple','red','green'], font:['sans','mono','serif'], density:['compact','comfortable','spacious'], radius:['sharp','soft','round'], icons:['lucide','solar','remix','emoji']};
 function pageSettings(){
   function themeButtons(){
     return THEME_LIST.map(function(t){
       var id=t[0], label=t[1];
-      return '<button data-theme-choice="'+id+'" class="'+(settings.theme===id?'selected':'')+'"><i></i><span>'+label+'</span><span class="theme-check">'+(settings.theme===id?icon('check',{size:15}):'')+'</span></button>';
+      return '<button data-theme-choice="'+id+'"'+(id==='custom'?'':' data-theme="'+id+'"')+' class="'+(settings.theme===id?'selected':'')+'"><i></i><span>'+label+'</span><span class="theme-check">'+(settings.theme===id?icon('check',{size:15}):'')+'</span></button>';
     }).join('');
   }
   function choiceRows(){

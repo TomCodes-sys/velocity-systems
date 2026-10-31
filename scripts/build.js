@@ -52,7 +52,7 @@ function ver(rel){
    Runs in <head> before first paint, so the saved theme is already applied when the page
    appears. Without it every page load flashed the default (dark) colours until app.js ran. */
 var THEME_INIT = "(function(){try{var s=JSON.parse(localStorage.getItem('system-settings'))||{},d=document.documentElement.dataset;" +
-  "d.theme=s.theme||'light';d.accent=s.accent||'blue';d.font=s.font||'sans';d.density=s.density||'compact';d.radius=s.radius||'sharp';" +
+  "var m={windows:'sky',minimal:'amoled',midnight:'ocean',slate:'amoled',future:'ocean',forest:'terminal',retro:'gruvbox'};d.theme=m[s.theme]||s.theme||'light';d.accent=s.accent||'blue';d.font=s.font||'sans';d.density=s.density||'compact';d.radius=s.radius||'sharp';" +
   "d.motion=s.animations===false?'off':'on';d.effects=s.effects===false?'off':'on';d.icons=s.icons||'lucide';d.rail=localStorage.getItem('vs-rail')==='collapsed'?'collapsed':'open';}catch(e){}})();";
 
 /* ---------- page copy ---------- */

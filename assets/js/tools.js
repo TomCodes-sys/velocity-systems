@@ -2417,8 +2417,12 @@ function mountQRGenerator(container){
         '</div>'+
         '<div class="qr-out"><div class="qr-preview" id="qr-preview"><canvas id="qr-canvas" aria-label="QR code preview"></canvas></div>'+
           '<p class="err-text" id="qr-err" role="alert"></p><p class="hint" id="qr-info"></p>'+
-          '<div class="tool-row" style="justify-content:center"><button class="game-btn" id="qr-png">Download PNG</button><button class="game-btn secondary" id="qr-svg">Download SVG</button><button class="game-btn secondary" id="qr-copy">Copy image</button></div></div>'+
-      '</div>';
+          '<div class="tool-row" style="justify-content:center"><button class="game-btn" id="qr-png">Download PNG</button><button class="game-btn secondary" id="qr-svg">Download SVG</button><button class="game-btn secondary" id="qr-copy">Copy image</button></div>'+
+          '<div class="qr-save"><div class="field"><label for="qr-name">Save to your library</label><input id="qr-name" maxlength="60" placeholder="Name it, e.g. Café Wi-Fi" autocomplete="off" data-nopersist></div>'+
+            '<div class="tool-row" style="justify-content:center"><button class="game-btn" id="qr-savebtn" type="button">Save to library</button><button class="game-btn secondary" id="qr-saveas" type="button" hidden>Save as new</button><button class="game-btn secondary" id="qr-stopedit" type="button" hidden>Stop editing</button></div>'+
+            '<p class="hint" id="qr-editing" role="status"></p></div></div>'+
+      '</div>'+
+      '<section class="qr-lib" aria-labelledby="qr-lib-h"><div class="qr-lib-head"><h3 id="qr-lib-h">Saved QR codes <span id="qr-libcount"></span></h3><span class="hint">Stored in this browser only. Wi-Fi passwords are saved as typed.</span></div><div class="qr-grid" id="qr-grid"></div></section>';
     var $ = function(s){ return body.querySelector(s); };
     var logo = null;
 
@@ -2553,11 +2557,15 @@ function mountQRGenerator(container){
     $('#qr-logo').addEventListener('change', function(){
       var f = this.files && this.files[0]; if(!f){ return; }
       var url = URL.createObjectURL(f), im = new Image();
-      im.onload = function(){ logo = im; update(); };
+      im.onload = function(){
+        logo = im;
+        try{ var k = Math.min(1, 256 / Math.max(im.width, im.height)), lc = document.createElement('canvas'); lc.width = Math.max(1, Math.round(im.width * k)); lc.height = Math.max(1, Math.round(im.height * k)); lc.getContext('2d').drawImage(im, 0, 0, lc.width, lc.height); logoData = lc.toDataURL('image/png'); }catch(e){ logoData = null; }
+        update();
+      };
       im.onerror = function(){ notify('That image couldn’t be read', 'err'); URL.revokeObjectURL(url); };
       im.src = url;
     });
-    $('#qr-logoclear').addEventListener('click', function(){ logo = null; $('#qr-logo').value = ''; var nm = body.querySelector('.file-name'); if(nm) nm.textContent = 'or drop a file here'; update(); });
+    $('#qr-logoclear').addEventListener('click', function(){ logo = null; logoData = null; $('#qr-logo').value = ''; var nm = body.querySelector('.file-name'); if(nm) nm.textContent = 'or drop a file here'; update(); });
     function big(){ var cv = document.createElement('canvas'); renderCanvas(cv, cur.m, cur.o, +$('#qr-size').value); return cv; }
     $('#qr-png').addEventListener('click', function(){ if(!cur) return; big().toBlob(function(b){ saveBlob('qr-code.png', b); }, 'image/png'); });
     $('#qr-svg').addEventListener('click', function(){ if(!cur) return; saveBlob('qr-code.svg', new Blob([renderSvg(cur.m, cur.o, +$('#qr-size').value)], {type: 'image/svg+xml'})); });
@@ -2566,6 +2574,100 @@ function mountQRGenerator(container){
       if(!(navigator.clipboard && window.ClipboardItem)){ notify('Copying images isn’t supported here. Use Download PNG.', 'warn'); return; }
       big().toBlob(function(b){ navigator.clipboard.write([new ClipboardItem({'image/png': b})]).then(function(){ notify('QR code copied', 'ok'); }, function(){ notify('Couldn’t copy. Use Download PNG.', 'err'); }); }, 'image/png');
     });
+    /* ---- saved QR codes: stored in IndexedDB on this device, editable later ---- */
+    var logoData = null, editingId = null, library = [], dbq = null;
+    function qdb(){
+      if(dbq) return dbq;
+      dbq = new Promise(function(res, rej){
+        if(!window.indexedDB){ rej(new Error('Browser storage is not available')); return; }
+        var r = indexedDB.open('vs-qr-library', 1);
+        r.onupgradeneeded = function(){ r.result.createObjectStore('codes', {keyPath:'id'}); };
+        r.onsuccess = function(){ res(r.result); }; r.onerror = function(){ rej(r.error); };
+      });
+      return dbq;
+    }
+    function qtx(mode, fn){
+      return qdb().then(function(d){ return new Promise(function(res, rej){
+        var tx = d.transaction('codes', mode), out; tx.oncomplete = function(){ res(out); }; tx.onerror = tx.onabort = function(){ rej(tx.error || new Error('Storage write failed')); };
+        fn(tx.objectStore('codes'), function(v){ out = v; });
+      }); });
+    }
+    function qAll(){ return qtx('readonly', function(s, set){ var r = s.getAll(); r.onsuccess = function(){ set(r.result); }; }); }
+    function qPut(rec){ return qtx('readwrite', function(s){ s.put(rec); }); }
+    function qDel(id){ return qtx('readwrite', function(s){ s.delete(id); }); }
+    function capture(){
+      var f = {};
+      body.querySelectorAll('#qr-fields input, #qr-fields textarea, #qr-fields select, .qr-opts input, .qr-opts select').forEach(function(e){
+        if(!e.id || e.type === 'file') return;
+        f[e.id] = e.type === 'checkbox' ? e.checked : e.value;
+      });
+      return f;
+    }
+    function subtitle(){
+      switch($('#qr-type').value){
+        case 'wifi': return v('qr-ssid'); case 'email': return v('qr-eto'); case 'sms': return v('qr-snum'); case 'phone': return v('qr-pnum'); case 'vcard': return v('qr-vn');
+        default: return (($('#qr-text') && $('#qr-text').value) || '').trim().slice(0, 60);
+      }
+    }
+    function dataUrlOf(cv){ try{ return cv.toDataURL('image/png'); }catch(e){ return ''; } }
+    function thumbOf(){ var cv = document.createElement('canvas'); renderCanvas(cv, cur.m, cur.o, 192); return dataUrlOf(cv); }
+    function fmtDate(t){ try{ return new Date(t).toLocaleDateString(undefined, {day:'numeric', month:'short', year:'numeric'}); }catch(e){ return ''; } }
+    function setEditing(id, name){
+      editingId = id;
+      $('#qr-savebtn').textContent = id ? 'Save changes' : 'Save to library';
+      $('#qr-saveas').hidden = $('#qr-stopedit').hidden = !id;
+      $('#qr-editing').textContent = id ? 'Editing “' + name + '”. Change anything above, then save.' : '';
+    }
+    function saveCode(asNew){
+      if(!cur){ notify('Fill in the QR code first.', 'warn'); return; }
+      var name = $('#qr-name').value.trim() || subtitle().slice(0, 40) || 'Untitled QR code', now = Date.now(), old = !asNew && editingId ? library.filter(function(r){ return r.id === editingId; })[0] : null;
+      var rec = {id: old ? old.id : 'qr-' + now.toString(36) + Math.random().toString(36).slice(2, 6), name: name, type: $('#qr-type').value, sub: subtitle(), fields: capture(), logo: logoData || null,
+        thumb: thumbOf(), png: dataUrlOf(big()), created: old ? old.created : now, updated: now};
+      qPut(rec).then(function(){ setEditing(rec.id, name); $('#qr-name').value = name; notify(old ? 'Changes saved' : 'Saved to your library', 'ok'); return loadLib(); })
+        .catch(function(e){ notify('Couldn’t save: ' + (e && e.name === 'QuotaExceededError' ? 'browser storage is full.' : 'browser storage is unavailable.'), 'err'); });
+    }
+    function loadLib(){
+      return qAll().then(function(rs){ library = (rs || []).sort(function(a, b){ return b.updated - a.updated; }); drawLib(); }).catch(function(){ library = []; drawLib(true); });
+    }
+    function drawLib(failed){
+      var g = $('#qr-grid'); g.textContent = '';
+      $('#qr-libcount').textContent = library.length ? '(' + library.length + ')' : '';
+      if(!library.length){ var e = document.createElement('p'); e.className = 'hint'; e.textContent = failed ? 'Saving isn’t available here (browser storage is blocked).' : 'Nothing saved yet. Design a QR code, name it and press “Save to library”.'; g.appendChild(e); return; }
+      library.forEach(function(r){
+        var card = document.createElement('div'); card.className = 'qr-card' + (r.id === editingId ? ' is-editing' : '');
+        var im = document.createElement('img'); im.src = r.thumb; im.alt = 'QR code: ' + r.name; im.width = im.height = 96;
+        var nm = document.createElement('b'); nm.textContent = r.name; nm.title = r.name;
+        var sub = document.createElement('small'); sub.textContent = (TYPES[r.type] || 'QR code') + (r.sub ? ' · ' + r.sub : ''); sub.title = sub.textContent;
+        var dt = document.createElement('small'); dt.textContent = 'Updated ' + fmtDate(r.updated);
+        var row = document.createElement('div'); row.className = 'qr-card-actions';
+        function btn(label, cls, fn, aria){ var b = document.createElement('button'); b.type = 'button'; b.className = 'game-btn ' + cls; b.textContent = label; b.setAttribute('aria-label', aria || label + ' ' + r.name); b.addEventListener('click', fn); row.appendChild(b); }
+        btn('Edit', '', function(){ editCode(r); });
+        btn('PNG', 'secondary', function(){ fetch(r.png).then(function(x){ return x.blob(); }).then(function(b){ saveBlob(safeName(r.name) + '.png', b); }); }, 'Download PNG of ' + r.name);
+        btn('Delete', 'secondary', function(){ if(!window.confirm('Delete “' + r.name + '” from your library?')) return; qDel(r.id).then(function(){ if(editingId === r.id) setEditing(null); return loadLib(); }); });
+        card.appendChild(im); card.appendChild(nm); card.appendChild(sub); card.appendChild(dt); card.appendChild(row); g.appendChild(card);
+      });
+    }
+    function safeName(n){ return String(n).replace(/[<>:"/\\|?*\x00-\x1F]/g, '-').trim() || 'qr-code'; }
+    function setField(id, val){
+      var e = $('#' + id); if(!e || e.type === 'file') return;
+      if(e.type === 'checkbox') e.checked = !!val; else e.value = val;
+      e.dispatchEvent(new Event('input', {bubbles:true}));
+    }
+    function editCode(r){
+      $('#qr-type').value = r.type; $('#qr-type').dispatchEvent(new Event('input', {bubbles:true}));
+      $('#qr-fields').innerHTML = FORMS[r.type]; enhanceFileInputs($('#qr-fields'));
+      Object.keys(r.fields || {}).forEach(function(id){ setField(id, r.fields[id]); });
+      $('#qr-name').value = r.name; setEditing(r.id, r.name);
+      logoData = r.logo || null;
+      if(logoData){ var im = new Image(); im.onload = function(){ logo = im; update(); }; im.src = logoData; } else { logo = null; update(); }
+      update(); drawLib();
+      $('#qr-preview').scrollIntoView({block:'nearest', behavior:'smooth'});
+      notify('Loaded “' + r.name + '” for editing', 'ok');
+    }
+    $('#qr-savebtn').addEventListener('click', function(){ saveCode(false); });
+    $('#qr-saveas').addEventListener('click', function(){ saveCode(true); });
+    $('#qr-stopedit').addEventListener('click', function(){ setEditing(null); $('#qr-name').value = ''; drawLib(); });
+    loadLib();
     window.addEventListener('resize', update);
     setType();
     setTimeout(update, 40);   // restored field values have landed by now
@@ -3771,6 +3873,7 @@ PLAYABLES['subnet-calculator'] = mountSubnetCalculator;
 function mountVideoTrimmer(container){
   mountEmbed(container, 'TOOL / VIDEO TRIMMER &amp; COMPRESSOR', function(body){
     var PRESETS = {
+      original: {label:'Original quality', bpp:0, abr:128},
       high:     {label:'High',     bpp:0.120, abr:192},
       balanced: {label:'Balanced', bpp:0.070, abr:128},
       small:    {label:'Small',    bpp:0.040, abr:96},
@@ -3783,18 +3886,36 @@ function mountVideoTrimmer(container){
     var MAX_HIST = 100;            // undo steps kept
     var EXPORT_CAP = 300 * 1048576, MAX_RECORDS = 40;   // stored exports: total bytes / records
     var WAVE_LIMIT = 600 * 1048576;                      // largest file we will decode into memory
-    var DEF_NAME = 'trimmed-video', DEF_ANAME = 'extracted-audio';
+    var DEF_NAME = 'trimmed-video';
     var ACCEPT = 'video/*,.mkv,.mov,.mp4,.webm,.m4v,.avi,.ogv';
     var BUILTIN = [
-      {id:'b-default', name:'Default (Balanced)',          s:{mode:'preset', preset:'balanced', res:'0',   fps:'0',  audio:'keep', abr:'128'}},
+      {id:'b-default', name:'Default (keep original quality)', s:{mode:'preset', preset:'original', res:'0',   fps:'0',  audio:'keep', abr:'128'}},
+      {id:'b-balanced',name:'Balanced (smaller file)',      s:{mode:'preset', preset:'balanced', res:'0',   fps:'0',  audio:'keep', abr:'128'}},
       {id:'b-high',    name:'High quality (source size)',   s:{mode:'preset', preset:'high',     res:'0',   fps:'0',  audio:'keep', abr:'192'}},
       {id:'b-small',   name:'Small file (720p, 30 fps)',    s:{mode:'preset', preset:'small',    res:'720', fps:'30', audio:'keep', abr:'96'}},
       {id:'b-10mb',    name:'Fit under 10 MB (720p)',       s:{mode:'target', target:'10',        res:'720', fps:'30', audio:'keep', abr:'96'}},
       {id:'b-tiny',    name:'Tiny preview (360p, 15 fps)',  s:{mode:'preset', preset:'tiny',     res:'360', fps:'15', audio:'keep', abr:'64'}}
     ];
 
+    function svg(d, fill){ return '<svg class="vt-i" width="16" height="16" viewBox="0 0 24 24" fill="' + (fill ? 'currentColor' : 'none') + '" stroke="' + (fill ? 'none' : 'currentColor') + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>'; }
+    var I = {
+      play:  svg('<path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5z"/>', true),
+      pause: svg('<rect x="6" y="4" width="4.5" height="16" rx="1"/><rect x="13.5" y="4" width="4.5" height="16" rx="1"/>', true),
+      left:  svg('<path d="m15 18-6-6 6-6"/>'), right: svg('<path d="m9 18 6-6-6-6"/>'),
+      plus:  svg('<path d="M12 5v14M5 12h14"/>'), minus: svg('<path d="M5 12h14"/>'),
+      undo:  svg('<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>'), redo: svg('<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>'),
+      help:  svg('<circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>'),
+      swap:  svg('<path d="M3 7h13l-3-3"/><path d="M21 17H8l3 3"/>'), trash: svg('<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m6 6 1 14h10l1-14"/>'),
+      x:     svg('<path d="M18 6 6 18M6 6l12 12"/>'),
+      inpoint:  svg('<path d="M5 4v16"/><path d="M9 12h11"/><path d="m16 8 4 4-4 4"/>'), outpoint: svg('<path d="M19 4v16"/><path d="M15 12H4"/><path d="m8 8-4 4 4 4"/>'),
+      selplay:  svg('<path d="M4 5v14"/><path d="M20 5v14"/><path d="M9 7.5v9a.8.8 0 0 0 1.2.7l6-4.5a.8.8 0 0 0 0-1.4l-6-4.5A.8.8 0 0 0 9 7.5z" />')
+    };
+    function setPlayBtn(btn, playing){ btn.innerHTML = (playing ? I.pause : I.play) + '<span>' + (playing ? 'Pause' : 'Play') + '</span>'; btn.setAttribute('data-state', playing ? 'playing' : 'paused'); }
+
     body.innerHTML = `
 <div class="vt">
+  <div class="vt-top"><span class="vt-hint">Trim, crop and compress video on your device. Nothing is uploaded.</span>
+    <button type="button" class="game-btn secondary vt-help-btn" id="vt-help" aria-haspopup="dialog" title="Open the quick guide and keyboard shortcuts">${I.help}<span>Help</span></button></div>
   <div class="file-wrap" id="vt-drop"><input type="file" id="vt-file" accept="${ACCEPT}" aria-label="Choose a video file"></div>
   <input type="file" id="vt-pick" class="vt-sr" tabindex="-1" aria-hidden="true" data-plain accept="${ACCEPT}">
   <div class="vt-empty" id="vt-empty">Choose or drop a video. Nothing is uploaded; trimming and compression happen on your device.</div>
@@ -3805,8 +3926,8 @@ function mountVideoTrimmer(container){
         <span class="vt-chip" id="vt-fstatus" role="status" aria-live="polite"></span>
       </div>
       <div class="vt-fileactions">
-        <button type="button" class="game-btn secondary vt-edit" id="vt-replace" title="Pick another video to edit instead of this one">Choose a different video</button>
-        <button type="button" class="game-btn danger vt-edit" id="vt-delete" title="Remove this video from the editor and delete its saved recovery copy from this device">Delete video</button>
+        <button type="button" class="game-btn secondary vt-edit" id="vt-replace" title="Pick another video to edit instead of this one">${I.swap}<span>Choose a different video</span></button>
+        <button type="button" class="game-btn danger vt-edit" id="vt-delete" title="Remove this video from the editor and delete its saved recovery copy from this device">${I.trash}<span>Delete video</span></button>
       </div>
     </div>
     <div class="vt-stats" aria-live="polite">
@@ -3829,30 +3950,31 @@ function mountVideoTrimmer(container){
       </div>
     </div></div>
     <div class="vt-transport">
-      <button type="button" class="game-btn" id="vt-play">Play</button>
-      <button type="button" class="game-btn secondary" id="vt-prev" title="Back one frame (←)" aria-label="Back one frame">◀ Frame</button>
-      <button type="button" class="game-btn secondary" id="vt-next" title="Forward one frame (→)" aria-label="Forward one frame">Frame ▶</button>
-      <button type="button" class="game-btn secondary vt-edit" id="vt-set-in" title="Set start at the playhead (I)">Set start</button>
-      <button type="button" class="game-btn secondary vt-edit" id="vt-set-out" title="Set end at the playhead (O). The frame at the end time is not included.">Set end</button>
-      <button type="button" class="game-btn secondary" id="vt-sel" title="Play only the selection">Play selection</button>
-      <label class="vt-inline"><input type="checkbox" id="vt-loop"> Loop</label>
-      <label class="vt-inline"><input type="checkbox" id="vt-vol" checked> Sound</label>
-      <label class="vt-inline" title="Preview speed only. The exported video always plays at normal speed.">Speed
-        <select id="vt-speed" aria-label="Preview playback speed (preview only)"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label>
+      <button type="button" class="game-btn vt-play" id="vt-play" aria-label="Play or pause"></button>
+      <div class="vt-seg" role="group" aria-label="Step the preview by one frame">
+        <button type="button" id="vt-prev" title="Back one frame (←)" aria-label="Back one frame">${I.left}</button><span>1 frame</span><button type="button" id="vt-next" title="Forward one frame (→)" aria-label="Forward one frame">${I.right}</button>
+      </div>
+      <button type="button" class="game-btn secondary vt-edit" id="vt-set-in" title="Set the start at the playhead (I)">${I.inpoint}<span>Set start</span></button>
+      <button type="button" class="game-btn secondary vt-edit" id="vt-set-out" title="Set the end at the playhead (O). The frame at the end time is not included.">${I.outpoint}<span>Set end</span></button>
+      <button type="button" class="game-btn secondary" id="vt-sel" title="Play only the selected range">${I.selplay}<span>Play selection</span></button>
+      <div class="vt-opts">
+        <label class="vt-check"><input type="checkbox" id="vt-loop"><span>Loop</span></label>
+        <label class="vt-check"><input type="checkbox" id="vt-vol" checked><span>Sound</span></label>
+        <label class="vt-speed" title="Preview speed only. The exported video always plays at normal speed."><span>Speed</span>
+          <select id="vt-speed" aria-label="Preview playback speed (preview only)"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label>
+      </div>
       <span class="vt-time" id="vt-now">0:00.00</span>
     </div>
     <div class="vt-frameinfo" id="vt-frameinfo" aria-live="off"></div>
     <div class="vt-toolbar vt-edit" role="toolbar" aria-label="Timeline tools">
-      <button type="button" class="game-btn secondary" id="vt-undo" title="Undo (Ctrl+Z / ⌘Z)" aria-label="Undo">↶ Undo</button>
-      <button type="button" class="game-btn secondary" id="vt-redo" title="Redo (Ctrl+Y / ⌘⇧Z)" aria-label="Redo">↷ Redo</button>
-      <span class="vt-sep" aria-hidden="true"></span>
-      <button type="button" class="game-btn secondary" id="vt-zoom-out" title="Zoom timeline out (Ctrl+scroll)" aria-label="Zoom timeline out">−</button>
-      <button type="button" class="game-btn secondary" id="vt-zoom-in" title="Zoom timeline in (Ctrl+scroll)" aria-label="Zoom timeline in">+</button>
-      <button type="button" class="game-btn secondary" id="vt-zoom-fit" title="Fit the whole video in view" aria-label="Fit whole video">Fit</button>
-      <span class="vt-zlab" id="vt-zoom-lab" aria-live="polite">1×</span>
-      <span class="vt-sep" aria-hidden="true"></span>
-      <label class="vt-inline" title="Show the audio waveform under the timeline"><input type="checkbox" id="vt-wave-on"> Waveform</label>
-      <label class="vt-inline" title="Snap start/end to frame boundaries (needs a detected frame rate)"><input type="checkbox" id="vt-snap" checked> Snap to frames</label>
+      <div class="vt-seg" role="group" aria-label="Undo and redo">
+        <button type="button" id="vt-undo" title="Undo (Ctrl+Z / ⌘Z)" aria-label="Undo">${I.undo}<span>Undo</span></button><button type="button" id="vt-redo" title="Redo (Ctrl+Y / ⌘⇧Z)" aria-label="Redo">${I.redo}<span>Redo</span></button>
+      </div>
+      <div class="vt-seg" role="group" aria-label="Timeline zoom">
+        <button type="button" id="vt-zoom-out" title="Zoom timeline out (Ctrl+scroll)" aria-label="Zoom timeline out">${I.minus}</button><span id="vt-zoom-lab" aria-live="polite">1×</span><button type="button" id="vt-zoom-in" title="Zoom timeline in (Ctrl+scroll)" aria-label="Zoom timeline in">${I.plus}</button><button type="button" id="vt-zoom-fit" title="Fit the whole video in view" aria-label="Fit whole video"><span>Fit</span></button>
+      </div>
+      <label class="vt-check" title="Show the audio waveform under the timeline"><input type="checkbox" id="vt-wave-on"><span>Waveform</span></label>
+      <label class="vt-check" title="Snap start/end to frame boundaries (needs a detected frame rate)"><input type="checkbox" id="vt-snap" checked><span>Snap to frames</span></label>
     </div>
     <canvas class="vt-ruler" id="vt-ruler" aria-hidden="true" title="Click to move the playhead. Drag to pan when zoomed."></canvas>
     <div class="vt-tlwrap" id="vt-tlwrap"><div class="vt-tlsizer" id="vt-sizer">
@@ -3868,15 +3990,16 @@ function mountVideoTrimmer(container){
     <canvas class="vt-wave" id="vt-wave" hidden aria-hidden="true" title="Audio waveform. Drag to pan when zoomed."></canvas>
     <div class="vt-wavemsg" id="vt-wavemsg" role="status" hidden></div>
     <div class="vt-times vt-edit">
-      <div class="vt-tg"><label>Start <input id="vt-t-s" class="vt-tin" value="0:00.00" spellcheck="false" aria-label="Start time"></label>
-        <button type="button" class="vt-mini" id="vt-s-m" title="Start earlier by one frame" aria-label="Start back one frame">−1f</button>
-        <button type="button" class="vt-mini" id="vt-s-p" title="Start later by one frame" aria-label="Start forward one frame">+1f</button></div>
-      <div class="vt-tg"><label>End <input id="vt-t-e" class="vt-tin" value="0:00.00" spellcheck="false" aria-label="End time"></label>
-        <button type="button" class="vt-mini" id="vt-e-m" title="End earlier by one frame" aria-label="End back one frame">−1f</button>
-        <button type="button" class="vt-mini" id="vt-e-p" title="End later by one frame" aria-label="End forward one frame">+1f</button></div>
-      <label>Length <input id="vt-t-d" class="vt-tin" value="0:00.00" spellcheck="false" aria-label="Clip length"></label>
-      <button type="button" class="game-btn secondary" id="vt-reset-trim">Reset trim</button>
-      <button type="button" class="game-btn secondary" id="vt-reset-all" title="Return every trim, crop and export setting to its default">Reset all edits</button>
+      <div class="vt-timefield"><label class="vt-tlabel" for="vt-t-s">Start</label>
+        <input id="vt-t-s" class="vt-tin" value="0:00.00" spellcheck="false" inputmode="decimal" autocomplete="off" title="Type a time, or scroll / press ↑↓ to nudge (Shift = 1 s, Alt = 0.1 s)">
+        <div class="vt-seg vt-seg-sm" role="group" aria-label="Nudge the start by one frame"><button type="button" id="vt-s-m" title="Move the start one frame earlier" aria-label="Start one frame earlier">${I.left}</button><span>1 frame</span><button type="button" id="vt-s-p" title="Move the start one frame later" aria-label="Start one frame later">${I.right}</button></div></div>
+      <div class="vt-timefield"><label class="vt-tlabel" for="vt-t-e">End</label>
+        <input id="vt-t-e" class="vt-tin" value="0:00.00" spellcheck="false" inputmode="decimal" autocomplete="off" title="Type a time, or scroll / press ↑↓ to nudge (Shift = 1 s, Alt = 0.1 s)">
+        <div class="vt-seg vt-seg-sm" role="group" aria-label="Nudge the end by one frame"><button type="button" id="vt-e-m" title="Move the end one frame earlier" aria-label="End one frame earlier">${I.left}</button><span>1 frame</span><button type="button" id="vt-e-p" title="Move the end one frame later" aria-label="End one frame later">${I.right}</button></div></div>
+      <div class="vt-timefield"><label class="vt-tlabel" for="vt-t-d">Length</label>
+        <input id="vt-t-d" class="vt-tin" value="0:00.00" spellcheck="false" inputmode="decimal" autocomplete="off" title="Type a length, or scroll / press ↑↓ to change it (Shift = 1 s, Alt = 0.1 s)"></div>
+      <div class="vt-timebtns"><button type="button" class="game-btn secondary" id="vt-reset-trim">Reset trim</button>
+      <button type="button" class="game-btn secondary" id="vt-reset-all" title="Return every trim, crop and export setting to its default">Reset all edits</button></div>
     </div>
 
     <details class="vt-sec vt-edit" id="vt-sec-frame"><summary>Crop &amp; rotate <em id="vt-frame-sum"></em></summary>
@@ -3909,7 +4032,7 @@ function mountVideoTrimmer(container){
             <button type="button" data-mode="target">Target file size</button>
           </div>
           <div class="vt-grid">
-            <label class="vt-f" data-for="preset">Quality<select id="vt-preset" aria-label="Quality preset">${Object.keys(PRESETS).map(function(k){ return '<option value="'+k+'"'+(k==='balanced'?' selected':'')+'>'+PRESETS[k].label+'</option>'; }).join('')}</select></label>
+            <label class="vt-f" data-for="preset">Quality<select id="vt-preset" aria-label="Quality preset">${Object.keys(PRESETS).map(function(k){ return '<option value="'+k+'"'+(k==='original'?' selected':'')+'>'+PRESETS[k].label+'</option>'; }).join('')}</select></label>
             <label class="vt-f" data-for="target">Target size (MB)<input type="number" id="vt-target" min="0.1" step="0.1" value="25" aria-label="Target size in megabytes"></label>
             <label class="vt-f">Resolution<select id="vt-res" aria-label="Output resolution"><option value="0">Source</option><option value="1080">1080p</option><option value="720">720p</option><option value="480">480p</option><option value="360">360p</option><option value="240">240p</option></select></label>
             <label class="vt-f">Frame rate<select id="vt-fps" aria-label="Frame rate cap"><option value="0">Source</option><option value="60">60 fps</option><option value="30">30 fps</option><option value="24">24 fps</option><option value="15">15 fps</option><option value="10">10 fps</option></select></label>
@@ -3954,8 +4077,8 @@ function mountVideoTrimmer(container){
     </details>
 
     <div class="vt-run">
-      <label class="field vt-filename vt-edit"><span class="field-label">Output filename</span><input id="vt-filename" type="text" value="${DEF_NAME}" maxlength="100"></label>
-      <button type="button" class="game-btn" id="vt-go">Trim &amp; compress</button>
+      <label class="field vt-filename vt-edit"><span class="field-label">Output filename</span><input id="vt-filename" type="text" value="" placeholder="Same as the original" maxlength="100" title="Leave empty to keep the original file name"></label>
+      <button type="button" class="game-btn vt-go" id="vt-go">Trim &amp; compress</button>
       <button type="button" class="game-btn secondary" id="vt-cancel" hidden>Cancel</button>
       <span class="vt-hint" id="vt-run-hint">Encodes in real time. Keep this tab visible while it runs.</span>
     </div>
@@ -3972,15 +4095,15 @@ function mountVideoTrimmer(container){
         </div>
         <div class="vt-cmp-stage"><video id="vt-c-orig" playsinline preload="metadata" hidden></video><video id="vt-r-video" playsinline></video><span class="vt-badge" id="vt-c-badge"></span></div>
         <div class="vt-cmp-ctl">
-          <button type="button" class="game-btn secondary" id="vt-c-play">Play</button>
+          <button type="button" class="game-btn secondary vt-play" id="vt-c-play" aria-label="Play or pause the comparison"></button>
           <input type="range" id="vt-c-seek" min="0" max="1000" value="0" step="1" aria-label="Seek the comparison preview">
           <span class="vt-time2" id="vt-c-time">0:00.00</span>
         </div>
       </div>
       <audio id="vt-r-audio" controls hidden></audio>
       <div class="vt-result-actions">
-        <a class="game-btn" id="vt-dl" download>Download</a>
-        <button type="button" class="game-btn secondary" id="vt-reedit">Edit this result</button>
+        <a class="game-btn vt-dl" id="vt-dl" download>Download</a>
+        <button type="button" class="game-btn secondary" id="vt-reedit">${I.swap}<span>Edit this result</span></button>
       </div>
     </div>
   </div>
@@ -3989,14 +4112,40 @@ function mountVideoTrimmer(container){
     <div class="vt-secbody">
       <div id="vt-hist-list"></div>
       <div class="vt-hist-foot"><span class="vt-hint" id="vt-hist-note"></span>
-        <button type="button" class="game-btn secondary" id="vt-hist-clear">Clear history</button></div>
+        <button type="button" class="game-btn secondary vt-danger-soft" id="vt-hist-clear">${I.trash}<span>Clear history</span></button></div>
     </div>
   </details>
+  <div class="vt-modal" id="vt-helpm" hidden role="dialog" aria-modal="true" aria-labelledby="vt-help-title">
+    <div class="vt-modal-card" tabindex="-1">
+      <div class="vt-modal-head"><h3 id="vt-help-title">Video editor guide</h3><button type="button" class="game-btn secondary vt-x" id="vt-help-close" aria-label="Close the guide">${I.x}</button></div>
+      <div class="vt-modal-body">
+        <h4>Basics</h4>
+        <p>Pick a video and it opens in the editor. Everything runs in your browser; the video is never uploaded. A copy is kept on this device so a refresh does not lose it. “Delete video” removes that copy.</p>
+        <h4>Trim</h4>
+        <p>Drag the two handles on the timeline, or type times in <b>Start</b>, <b>End</b> and <b>Length</b>. Scroll over a time box (or press ↑ ↓) to nudge it by one frame; hold <kbd>Shift</kbd> for 1 s or <kbd>Alt</kbd> for 0.1 s. The <b>‹ 1 frame ›</b> buttons move a boundary by exactly one frame. The frame at the end time is not included.</p>
+        <h4>Timeline</h4>
+        <p>Use − / + (or <kbd>Ctrl</kbd>+scroll) to zoom, <b>Fit</b> to see everything, and drag the ruler to pan. Turn on <b>Waveform</b> to see the audio.</p>
+        <h4>Crop &amp; rotate</h4>
+        <p>Open “Crop &amp; rotate”, choose a ratio and drag the box. Rotate in 90° steps. The preview shows exactly what will be exported.</p>
+        <h4>Export</h4>
+        <p>By default the video is re-encoded at its <b>original quality</b> (same resolution, frame rate and bitrate-per-pixel). Pick a smaller preset, a bitrate or a target file size only if you want it smaller. Exports run in real time, so keep this tab visible. Choose <b>Audio only</b> to extract sound. Leave the file name empty to keep the original name.</p>
+        <h4>Keyboard shortcuts</h4>
+        <ul class="vt-keys">
+          <li><kbd>Space</kbd> play / pause</li><li><kbd>←</kbd> <kbd>→</kbd> one frame back / forward</li>
+          <li><kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd> one second</li><li><kbd>I</kbd> / <kbd>O</kbd> set start / end at the playhead</li>
+          <li><kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Z</kbd> undo</li><li><kbd>Ctrl</kbd>+<kbd>Y</kbd> or <kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo</li>
+          <li><kbd>Ctrl</kbd>+scroll zoom the timeline</li><li><kbd>Esc</kbd> close this guide</li>
+        </ul>
+        <h4>Good to know</h4>
+        <p>Cut points are accurate to about a frame but not guaranteed frame-exact, because the browser records the clip while it plays. Speed in the preview does not change the export.</p>
+      </div>
+    </div>
+  </div>
 </div>`;
 
     var $ = function(s){ return body.querySelector(s); };
     var el = {};
-    ('file pick drop empty main filebar fname fmeta fstatus replace delete stage view video crop cbox ratios rotL rotR rotLab cropInfo cropReset frameSum secFrame secExport ' +
+    ('help helpm helpClose file pick drop empty main filebar fname fmeta fstatus replace delete stage view video crop cbox ratios rotL rotR rotLab cropInfo cropReset frameSum secFrame secExport ' +
      'play prev next setIn setOut sel loop vol speed now frameinfo undo redo zoomOut zoomIn zoomFit zoomLab waveOn snap ruler tlwrap sizer tl thumbs dimL dimR selbox hS hE head wave wavemsg ' +
      'tS tE tD sM sP eM eP resetTrim resetAll kind panelVideo panelAudio modes preset target res fps audio abr fmt chips vbrR vbrN q outInfo warn afmt aabr aabrWrap audioNote ' +
      'presetSel presetApply presetSave presetRename presetDelete presetForm presetName presetOk presetCancel presetMsg filename go cancel runHint progress pfill ptext ' +
@@ -4052,6 +4201,7 @@ function mountVideoTrimmer(container){
       setTimeout(function(){ URL.revokeObjectURL(u); }, 30000);
     }
     function safeBase(name, fallback){ return (String(name || '').trim().replace(/[<>:"/\\|?*\x00-\x1F]/g, '-').replace(/\.[^.]+$/, '') || fallback); }
+    function origBase(){ return S.file ? safeBase(S.file.name, DEF_NAME) : DEF_NAME; }
     function nextTick(){ return new Promise(function(r){ setTimeout(r, 0); }); }
 
     /* ---------- state ---------- */
@@ -4204,6 +4354,10 @@ function mountVideoTrimmer(container){
         if(vbr < MIN_VBR) short = true;
       } else if(S.mode === 'custom'){
         vbr = +el.vbrN.value || MIN_VBR;
+      } else if(el.preset.value === 'original'){
+        // Same bits per pixel and per frame as the source, so resolution, frame rate and crop keep the quality you started with.
+        var srcKbps = Math.max(MIN_VBR, S.file.size * 8 / S.dur / 1000 - (S.hasAudio ? 128 : 0));
+        vbr = srcKbps * (ow * oh) / (S.w * S.h) * (ofps / Math.max(1, S.fps));
       } else {
         vbr = ow * oh * ofps * PRESETS[el.preset.value].bpp / 1000;
       }
@@ -4218,7 +4372,7 @@ function mountVideoTrimmer(container){
       var clip = Math.max(MIN_CLIP, S.end - S.start), f = curAFormat(), wav = !!(f && f.wav), kb = wav ? 0 : +el.aabr.value;
       return {kind:'audio', clip:clip, wav:wav, abr:kb, bytes:wav ? 44 + clip * 44100 * 2 * 2 : kb * 1000 / 8 * clip * OVERHEAD, w:0, h:0, trimOnly:S.file.size * clip / S.dur};
     }
-    function qualityLabel(bpp){ return bpp < 0.02 ? 'Very low quality' : bpp < 0.04 ? 'Low quality' : bpp < 0.07 ? 'Medium quality' : bpp < 0.11 ? 'Good quality' : 'High quality'; }
+    function qualityLabel(bpp){ if(el.preset.value === 'original' && S.mode === 'preset') return 'Same as source'; return bpp < 0.02 ? 'Very low quality' : bpp < 0.04 ? 'Low quality' : bpp < 0.07 ? 'Medium quality' : bpp < 0.11 ? 'Good quality' : 'High quality'; }
 
     /* ---------- snapshots, "has anything changed?" and undo/redo ---------- */
     function snap(){
@@ -4236,7 +4390,7 @@ function mountVideoTrimmer(container){
       return n;
     }
     function defaultSnap(){
-      return {s:0, e:r4(S.dur), kind:'video', mode:'preset', preset:'balanced', target:'25', res:'0', fps:'0', audio:'keep', abr:'128', fmt:FORMATS[0] ? FORMATS[0].id : '',
+      return {s:0, e:r4(S.dur), kind:'video', mode:'preset', preset:'original', target:'25', res:'0', fps:'0', audio:'keep', abr:'128', fmt:FORMATS[0] ? FORMATS[0].id : '',
         vbr:null, afmt:AFORMATS[0] ? AFORMATS[0].id : '', aabr:'128', crop:null, rot:0, ratio:'orig'};
     }
     function normJs(sn){ return JSON.stringify(norm(sn)); }
@@ -4391,6 +4545,11 @@ function mountVideoTrimmer(container){
       for(var i = 0; i < c.length; i++) if(c[i] >= minSec) return c[i];
       return c[c.length - 1];
     }
+    function rulerLabel(t, dec){
+      var k = Math.pow(10, dec); t = Math.round(t * k) / k;
+      var h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), sec = t - h * 3600 - m * 60, ss = (sec < 10 ? '0' : '') + sec.toFixed(dec);
+      return h ? h + ':' + String(m).padStart(2, '0') + ':' + ss : m + ':' + ss;
+    }
     function cssVar(n, f){ return (getComputedStyle(body).getPropertyValue(n) || '').trim() || f; }
     function sizeCanvas(cv, h){
       var dpr = window.devicePixelRatio || 1, w = Math.max(1, el.tlwrap.clientWidth);
@@ -4404,19 +4563,26 @@ function mountVideoTrimmer(container){
       if(!S.dur || el.main.hidden) return;
       var muted = cssVar('--muted', '#888'), line = cssVar('--line', '#333'), accent = cssVar('--accent', '#6b98e6');
       /* ruler */
-      var R = sizeCanvas(el.ruler, 22), g = R.g, tw = trackW(), pps = tw / S.dur, step = niceStep(80 / pps);
+      var R = sizeCanvas(el.ruler, 24), g = R.g, tw = trackW(), pps = tw / S.dur, step = niceStep(56 / pps), dec = step >= 1 ? 0 : step >= 0.1 ? 1 : 2;
       g.fillStyle = muted; g.strokeStyle = line; g.font = '10px ui-monospace, Menlo, monospace'; g.textBaseline = 'top'; g.lineWidth = 1;
-      var t0 = x2t(0), t1 = x2t(R.w), first = Math.ceil(t0 / step - 1e-9) * step;
+      var t0 = x2t(0), t1 = x2t(R.w), minor = step / 5;
       g.beginPath();
       if(S.fpsKnown && pps / S.fps >= 5){
         var f0 = Math.max(0, Math.floor(t0 * S.fps)), f1 = Math.min(Math.ceil(S.dur * S.fps), Math.ceil(t1 * S.fps));
-        for(var f = f0; f <= f1; f++){ var fx = Math.round(t2x(f / S.fps)) + 0.5; g.moveTo(fx, 17); g.lineTo(fx, 22); }
+        for(var f = f0; f <= f1; f++){ var fx = Math.round(t2x(f / S.fps)) + 0.5; g.moveTo(fx, 21); g.lineTo(fx, 24); }
       }
-      for(var t = first; t <= t1 + 1e-9 && t <= S.dur + 1e-9; t += step){
-        var x = Math.round(t2x(t)) + 0.5; g.moveTo(x, 8); g.lineTo(x, 22);
-        g.fillText(step < 1 ? fmtTime(t) : fmtTime(t, true), x + 3, 1);
+      if(minor * pps >= 6){
+        for(var k = Math.floor(t0 / minor); k * minor <= t1 + 1e-9 && k * minor <= S.dur + 1e-9; k++){
+          if(k % 5 === 0 || k < 0) continue;
+          var mx = Math.round(t2x(k * minor)) + 0.5; g.moveTo(mx, 17); g.lineTo(mx, 24);
+        }
+      }
+      for(var t = Math.ceil(t0 / step - 1e-9) * step; t <= t1 + 1e-9 && t <= S.dur + 1e-9; t += step){
+        var x = Math.round(t2x(t)) + 0.5; g.moveTo(x, 11); g.lineTo(x, 24);
       }
       g.stroke();
+      g.fillStyle = muted;
+      for(var t2 = Math.ceil(t0 / step - 1e-9) * step; t2 <= t1 + 1e-9 && t2 <= S.dur + 1e-9; t2 += step) g.fillText(rulerLabel(t2, dec), Math.round(t2x(t2)) + 4, 0);
       /* waveform */
       if(!el.waveOn.checked || el.wave.hidden) return;
       var V = sizeCanvas(el.wave, 46), gv = V.g;
@@ -4583,6 +4749,26 @@ function mountVideoTrimmer(container){
       p[0].addEventListener('keydown', function(e){ if(e.key === 'Enter'){ p[0].blur(); } });
       p[0].addEventListener('blur', drawTimeline);
     });
+    function wireTimeField(inp, which){
+      var acc = 0;
+      function bump(dir, ev){
+        var st = ev && ev.shiftKey ? 1 : (ev && ev.altKey ? 0.1 : 1 / S.fps);
+        if(which === 's'){ setStart(S.start + dir * st, true); seek(S.start); }
+        else if(which === 'e'){ setEnd(S.end + dir * st); seek(Math.max(0, S.end - 1 / S.fps)); }
+        else setEnd(S.end + dir * st);
+        pushHist('trim-key');
+      }
+      inp.addEventListener('wheel', function(e){
+        if(enc || !S.dur) return;
+        e.preventDefault();
+        var d = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+        if(!d) return;
+        if(Math.abs(d) >= 50){ acc = 0; bump(d < 0 ? 1 : -1, e); }                      // a mouse-wheel notch is one step
+        else { acc += d; if(Math.abs(acc) >= 30){ bump(acc < 0 ? 1 : -1, e); acc = 0; } }   // trackpads send many small deltas
+      }, {passive:false});
+      inp.addEventListener('keydown', function(e){ if(e.key === 'ArrowUp' || e.key === 'ArrowDown'){ e.preventDefault(); bump(e.key === 'ArrowUp' ? 1 : -1, e); } });
+    }
+    wireTimeField(el.tS, 's'); wireTimeField(el.tE, 'e'); wireTimeField(el.tD, 'd');
     function nudge(which, dir){
       var f = 1 / S.fps;
       if(which === 's'){ setStart(Math.round(S.start * S.fps) / S.fps + dir * f, true); seek(S.start); }
@@ -4598,7 +4784,7 @@ function mountVideoTrimmer(container){
       pausePreview(); el.loop.checked = false; el.vol.checked = true; el.video.muted = false; setSpeed(1);
       applying = true; applyDefaults(); applying = false;
       layoutView(); markRatios(); pushHist('reset'); seek(0);
-      el.filename.value = DEF_NAME;
+      el.filename.value = '';
       setMsg('All edits reset. Your source video is still loaded.', 'ok');
     });
     function applyDefaults(){
@@ -4770,9 +4956,10 @@ function mountVideoTrimmer(container){
       if(!v.paused || v.seeking) drawFrameInfo();
       raf = requestAnimationFrame(tick);
     }
-    el.video.addEventListener('play', function(){ el.play.textContent = 'Pause'; });
-    el.video.addEventListener('pause', function(){ el.play.textContent = 'Play'; drawFrameInfo(); });
-    el.video.addEventListener('ended', function(){ el.play.textContent = 'Play'; });
+    setPlayBtn(el.play, false); setPlayBtn(el.cPlay, false);
+    el.video.addEventListener('play', function(){ setPlayBtn(el.play, true); });
+    el.video.addEventListener('pause', function(){ setPlayBtn(el.play, false); drawFrameInfo(); });
+    el.video.addEventListener('ended', function(){ setPlayBtn(el.play, false); });
     el.video.addEventListener('seeked', drawFrameInfo);
     function togglePlay(fromStart){
       var v = el.video;
@@ -4846,9 +5033,6 @@ function mountVideoTrimmer(container){
         var k = b.getAttribute('data-kind');
         if(k === S.kind || (k === 'audio' && !AFORMATS.length)) return;
         S.kind = k;
-        var fn = el.filename.value.trim();
-        if(k === 'audio' && (!fn || fn === DEF_NAME)) el.filename.value = DEF_ANAME;
-        if(k === 'video' && (!fn || fn === DEF_ANAME)) el.filename.value = DEF_NAME;
         pushHist('kind');
       });
     });
@@ -4946,7 +5130,7 @@ function mountVideoTrimmer(container){
       ['preset', 'res', 'fps', 'audio', 'abr', 'fmt', 'afmt', 'aabr'].forEach(function(k){ setSel(el[k], d[k]); });
       el.target.value = d.target; el.vbrR.value = '500'; el.vbrN.value = Math.round(sliderToKbps(500));
       el.loop.checked = false; setSpeed(1);
-      el.filename.value = DEF_NAME;
+      el.filename.value = ''; el.filename.placeholder = origBase();
       S.mode = 'preset'; S.kind = 'video';
       applying = false;
     }
@@ -5111,6 +5295,42 @@ function mountVideoTrimmer(container){
         return blob;
       }).catch(function(){ return blob; });
     }
+    /* The level in the H.264 codec string tells hardware encoders how big a frame to expect, so match it to the output size. */
+    function mimeFor(fmt, w, h){
+      if(fmt.id !== 'mp4-h264') return fmt.mime;
+      var px = w * h, lv = px <= 921600 ? '1f' : px <= 2097152 ? '28' : px <= 9437184 ? '33' : '34', cands = ['avc1.6400' + lv, 'avc1.4d00' + lv, 'avc1.42E0' + lv];
+      for(var i = 0; i < cands.length; i++){ var m = 'video/mp4;codecs=' + cands[i] + ',mp4a.40.2'; try{ if(MediaRecorder.isTypeSupported(m)) return m; }catch(e){} }
+      return fmt.mime;
+    }
+    function lumaOf(v){
+      var c = document.createElement('canvas'); c.width = c.height = 24;
+      var g = c.getContext('2d', {willReadFrequently:true}); g.drawImage(v, 0, 0, 24, 24);
+      var d = g.getImageData(0, 0, 24, 24).data, t = 0;
+      for(var i = 0; i < d.length; i += 4) t += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      return t / (d.length / 4);
+    }
+    function frameLuma(url, time){
+      return new Promise(function(res){
+        var v = document.createElement('video'), done = false, tm = 0;
+        function fin(x){ if(done) return; done = true; clearTimeout(tm); v.onseeked = v.onloadeddata = v.onerror = null; v.removeAttribute('src'); try{ v.load(); }catch(e){} res(x); }
+        v.muted = true; v.preload = 'auto'; v.playsInline = true;
+        tm = setTimeout(function(){ fin(null); }, 8000);
+        v.onerror = function(){ fin(null); };
+        v.onloadeddata = function(){ var d = v.duration; v.currentTime = isFinite(d) ? Math.min(time, Math.max(0, d - 0.1)) : time; };
+        v.onseeked = function(){ try{ fin(lumaOf(v)); }catch(e){ fin(null); } };
+        v.src = url;
+      });
+    }
+    /* true = looks fine, false = the export is black although the source frame is not, null = could not tell */
+    function verifyOutput(blob, ref){
+      var u = URL.createObjectURL(blob), mid = ref.clip * 0.5;
+      return Promise.all([frameLuma(u, mid), frameLuma(S.url, ref.start + mid)]).then(function(r){
+        URL.revokeObjectURL(u);
+        if(window.__vtForceBlack){ window.__vtForceBlack = false; r[0] = 0; }      // test hook
+        if(r[0] == null || r[1] == null) return null;
+        return !(r[0] < 2.5 && r[1] > 10);
+      });
+    }
     function encUiStart(job){
       enc = job;
       pausePreview(); el.result.hidden = true; releaseCompare();
@@ -5126,11 +5346,17 @@ function mountVideoTrimmer(container){
       el.ptext.textContent = Math.round(frac * 100) + '% · ' + fmtTime(es, true) + ' elapsed' + (isFinite(left) ? ' · ~' + fmtTime(left, true) + ' left' : '') +
         (bytes != null ? ' · ' + fmtBytes(bytes) + ' so far' + (frac > 0.1 ? ' (projected ' + fmtBytes(bytes / frac) + ')' : '') : '');
     }
-    function startEncode(){
+    function startEncode(fb){
+      fb = fb || 0;                    // 1 = safer retry after a black result: WebM, sizes in multiples of 16
       if(enc || !S.file) return;
       if(S.kind === 'audio'){ var af = curAFormat(); if(!af){ setMsg('No audio export format is supported here.', 'err'); return; } return af.wav ? exportWav(af) : exportAudioRT(af); }
       var c = calc(), fmt = curFormat();
       if(!fmt){ setMsg('No supported output format.', 'err'); return; }
+      if(fb){
+        fmt = FORMATS.filter(function(f){ return f.ext === 'webm'; })[0] || fmt;
+        c.w = Math.max(16, Math.round(c.w / 16) * 16); c.h = Math.max(16, Math.round(c.h / 16) * 16);
+      }
+      var mime = mimeFor(fmt, c.w, c.h);
       var g = c.g, rot = S.rot, plain = !S.crop && !rot;
       var v = document.createElement('video');
       v.playsInline = true; v.preload = 'auto'; v.src = S.url;
@@ -5186,7 +5412,7 @@ function mountVideoTrimmer(container){
             dest.stream.getAudioTracks().forEach(function(t){ stream.addTrack(t); });
             if(actx.state === 'suspended') actx.resume();
           }
-          var opts = {mimeType:fmt.mime, videoBitsPerSecond:c.vbr * 1000};
+          var opts = {mimeType:mime, videoBitsPerSecond:c.vbr * 1000};
           if(!c.mute) opts.audioBitsPerSecond = c.abr * 1000;
           rec = new MediaRecorder(stream, opts);
         }catch(err){ failEnc('Could not start the encoder: ' + (err && err.message || err)); return; }
@@ -5195,9 +5421,17 @@ function mountVideoTrimmer(container){
         rec.onstop = function(){
           if(aborted) return;
           if(!bytes){ failEnc('The encoder produced no data. Try another format or a shorter range.'); return; }
-          var raw = new Blob(chunks, {type:fmt.mime.split(';')[0]});
+          var raw = new Blob(chunks, {type:mime.split(';')[0]});
           var p = fmt.ext === 'webm' ? patchWebmDuration(raw, c.clip) : Promise.resolve(raw);
-          p.then(function(blob){ cleanup(); el.progress.hidden = true; showResult(blob, {ext:fmt.ext, kind:'video', c:c, spec:spec}); });
+          el.ptext.textContent = 'Checking the result…';
+          p.then(function(blob){
+            return verifyOutput(blob, {start:S.start, clip:c.clip}).then(function(good){
+              cleanup(); el.progress.hidden = true;
+              if(good === false && !fb){ setMsg('The first export came out black in this browser, so it is being re-encoded with safer settings (WebM, adjusted size)…', 'err'); setTimeout(function(){ startEncode(1); }, 60); return; }
+              showResult(blob, {ext:fmt.ext, kind:'video', c:c, spec:spec});
+              if(good === false) setMsg('This export still looks black. Try another format, or use Reset crop & rotation and export again.', 'err');
+            });
+          });
         };
         t0 = Date.now();
         rec.start(400);
@@ -5301,14 +5535,14 @@ function mountVideoTrimmer(container){
         })();
       }).catch(function(e){ fail('This browser could not decode the audio of this video (it may have no audio track or use an unsupported codec).'); });
     }
-    el.go.addEventListener('click', startEncode);
+    el.go.addEventListener('click', function(){ startEncode(0); });
     el.cancel.addEventListener('click', function(){ if(enc) enc.abort(); });
     qsa2(body, 'input, select').forEach(function(x){ x.addEventListener('keydown', function(e){ if(e.key === 'Enter' && x.id === 'vt-filename'){ e.preventDefault(); } }); });
 
     /* ---------- result + original/exported comparison ---------- */
     var cmp = {v:'out', start:0, outDur:0, raf:0};
     function cmpActive(){ return cmp.v === 'orig' ? el.cOrig : el.rVideo; }
-    function cmpPauseAll(){ try{ el.cOrig.pause(); el.rVideo.pause(); }catch(e){} el.cPlay.textContent = 'Play'; }
+    function cmpPauseAll(){ try{ el.cOrig.pause(); el.rVideo.pause(); }catch(e){} setPlayBtn(el.cPlay, false); }
     function cmpT(){ var a = cmpActive(); return clamp(cmp.v === 'orig' ? a.currentTime - cmp.start : a.currentTime, 0, cmp.outDur); }
     function cmpSeek(ct){
       ct = clamp(ct, 0, cmp.outDur);
@@ -5340,10 +5574,10 @@ function mountVideoTrimmer(container){
       var a = cmpActive();
       if(cmpT() >= cmp.outDur - 0.03) cmpSeek(0);
       var p = a.play(); if(p && p.catch) p.catch(function(){});
-      el.cPlay.textContent = 'Pause'; cancelAnimationFrame(cmp.raf);
+      setPlayBtn(el.cPlay, true); cancelAnimationFrame(cmp.raf);
       (function loop(){
         var t = cmpT(); cmpDraw(t);
-        if(t >= cmp.outDur - 0.01 || a.ended){ a.pause(); el.cPlay.textContent = 'Play'; return; }
+        if(t >= cmp.outDur - 0.01 || a.ended){ a.pause(); setPlayBtn(el.cPlay, false); return; }
         if(a.paused) return;
         cmp.raf = requestAnimationFrame(loop);
       })();
@@ -5351,7 +5585,7 @@ function mountVideoTrimmer(container){
     el.cPlay.addEventListener('click', function(){ if(!lastResult) return; if(cmpActive().paused) cmpPlay(); else { cmpPauseAll(); } });
     el.cSeek.addEventListener('input', function(){ cmpSeek(+el.cSeek.value / 1000 * cmp.outDur); });
     qsa2(el.cmpBar, 'button').forEach(function(b){ b.addEventListener('click', function(){ setCmpView(b.getAttribute('data-v')); }); });
-    [el.cOrig, el.rVideo].forEach(function(v){ v.addEventListener('click', function(){ el.cPlay.click(); }); v.addEventListener('ended', function(){ el.cPlay.textContent = 'Play'; }); });
+    [el.cOrig, el.rVideo].forEach(function(v){ v.addEventListener('click', function(){ el.cPlay.click(); }); v.addEventListener('ended', function(){ setPlayBtn(el.cPlay, false); }); });
     el.rVideo.addEventListener('loadedmetadata', function(){
       var v = el.rVideo;
       if(v.duration === Infinity){ v.currentTime = 1e101; v.ontimeupdate = function(){ v.ontimeupdate = null; v.currentTime = 0; }; }
@@ -5361,7 +5595,7 @@ function mountVideoTrimmer(container){
       if(resultUrl) URL.revokeObjectURL(resultUrl);
       resultUrl = URL.createObjectURL(blob);
       var c = info.c, audio = info.kind === 'audio';
-      var base = safeBase(el.filename.value, audio ? DEF_ANAME : DEF_NAME), name = base + '.' + info.ext;
+      var base = safeBase(el.filename.value, origBase()), name = base + '.' + info.ext;
       lastResult = {blob:blob, ext:info.ext, kind:info.kind, c:c, name:name, key:info.spec.snapKey, desc:info.spec.desc, start:info.spec.start, end:info.spec.end, mime:blob.type};
       var orig = S.file.size, d = orig - blob.size, p = Math.round(d / orig * 100);
       el.rSum.textContent = 'Actual size ' + fmtBytes(blob.size) + ' (' + (d >= 0 ? p + '% smaller than' : (-p) + '% larger than') + ' the original ' + fmtBytes(orig) + ') · estimate was ≈ ' + fmtBytes(c.bytes) +
@@ -5370,7 +5604,7 @@ function mountVideoTrimmer(container){
       el.dl.textContent = 'Download ' + fmtBytes(blob.size) + ' (' + info.ext.toUpperCase() + ')';
       el.compare.hidden = audio; el.rAudio.hidden = !audio; el.reedit.hidden = audio;
       if(audio){ el.rAudio.src = resultUrl; }
-      else { cmp.v = 'out'; cmp.start = info.spec.start; cmp.outDur = c.clip; el.cOrig.src = S.url; el.rVideo.src = resultUrl; el.cOrig.hidden = true; el.rVideo.hidden = false; el.cOrig.muted = true; el.rVideo.muted = false; cmpBadge(); cmpDraw(0); el.cPlay.textContent = 'Play'; }
+      else { cmp.v = 'out'; cmp.start = info.spec.start; cmp.outDur = c.clip; el.cOrig.src = S.url; el.rVideo.src = resultUrl; el.cOrig.hidden = true; el.rVideo.hidden = false; el.cOrig.muted = true; el.rVideo.muted = false; cmpBadge(); cmpDraw(0); setPlayBtn(el.cPlay, false); }
       el.result.hidden = false;
       var good = d >= 0;
       setMsg(good ? 'Finished. File is ' + fmtBytes(blob.size) + '.' : 'Finished, but the file is larger than the original. Lower the quality and run again.', good ? 'ok' : 'err');
@@ -5446,6 +5680,42 @@ function mountVideoTrimmer(container){
       Promise.all([dbClear('exports'), dbClear('blobs')]).catch(function(){}).then(renderHist);
     });
 
+    /* ---------- smooth open/close for the collapsible sections ---------- */
+    function slideDetails(d){
+      var sum = d.querySelector(':scope > summary'), anim = null;
+      d.classList.toggle('is-open', d.open);
+      d.addEventListener('toggle', function(){ d.classList.toggle('is-open', d.open); });
+      sum.addEventListener('click', function(e){
+        e.preventDefault();
+        var motion = document.documentElement.dataset.motion !== 'off' && !(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) && d.animate;
+        if(anim){ anim.cancel(); anim = null; }
+        if(!motion){ d.open = !d.open; return; }
+        var from = d.offsetHeight, opening = !d.open;
+        if(opening){ d.open = true; d.classList.add('is-open'); } else d.classList.remove('is-open');
+        var border = d.offsetHeight - d.clientHeight, to = opening ? d.offsetHeight : sum.offsetHeight + border;
+        d.style.overflow = 'hidden';
+        anim = d.animate({height:[from + 'px', to + 'px']}, {duration:260, easing:'cubic-bezier(.2,.75,.25,1)'});
+        anim.onfinish = anim.oncancel = function(){ d.style.overflow = ''; if(!opening) d.open = false; anim = null; };
+      });
+    }
+    qsa2(body, 'details.vt-sec').forEach(slideDetails);
+
+    /* ---------- help dialog ---------- */
+    var helpPrev = null;
+    function helpKey(e){
+      if(e.key === 'Escape'){ e.preventDefault(); e.stopPropagation(); closeHelp(); return; }
+      if(e.key !== 'Tab') return;
+      var f = qsa2(el.helpm, 'button, [href], input, select, [tabindex]:not([tabindex="-1"])').filter(function(x){ return !x.disabled; });
+      if(!f.length){ e.preventDefault(); return; }
+      var first = f[0], last = f[f.length - 1];
+      if(e.shiftKey && (document.activeElement === first || document.activeElement === el.helpm.firstElementChild)){ e.preventDefault(); last.focus(); }
+      else if(!e.shiftKey && document.activeElement === last){ e.preventDefault(); first.focus(); }
+    }
+    function openHelp(){ helpPrev = document.activeElement; el.helpm.hidden = false; el.helpm.firstElementChild.focus(); document.addEventListener('keydown', helpKey, true); }
+    function closeHelp(){ el.helpm.hidden = true; document.removeEventListener('keydown', helpKey, true); if(helpPrev && helpPrev.focus) helpPrev.focus(); }
+    el.help.addEventListener('click', openHelp); el.helpClose.addEventListener('click', closeHelp);
+    el.helpm.addEventListener('mousedown', function(e){ if(e.target === el.helpm) closeHelp(); });
+
     /* ---------- start ---------- */
     function onResize(){ if(!S.file) return; layoutView(); drawOverlays(); }
     window.addEventListener('resize', onResize);
@@ -5453,7 +5723,7 @@ function mountVideoTrimmer(container){
     window.addEventListener('pageshow', onPageShow);
     onUnmount('video-trimmer', function(){
       if(enc) enc.abort(true);
-      detachBU(); document.removeEventListener('keydown', onDocKey); window.removeEventListener('resize', onResize); window.removeEventListener('pageshow', onPageShow);
+      detachBU(); document.removeEventListener('keydown', onDocKey); document.removeEventListener('keydown', helpKey, true); window.removeEventListener('resize', onResize); window.removeEventListener('pageshow', onPageShow);
       unloadVideo({keepUi:true});
     });
 
