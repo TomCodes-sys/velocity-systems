@@ -37,9 +37,7 @@ function attr(tag, name) {
 }
 function checkPage(page) {
   const html = fs.readFileSync(page.full, 'utf8');
-  for (const meta of ['<title\\b', '<meta[^>]+name=["\\']description["\\']', '<link[^>]+rel=["\\']canonical["\\']']) {
-    if (!new RegExp(meta, 'i').test(html)) issue('warning', page.rel, 'Missing metadata: ' + meta);
-  }
+  const metadataChecks = [[/<title\\b/i, 'title'], [/<meta[^>]+name=[\"']description[\"']/i, 'description'], [/<link[^>]+rel=[\"']canonical[\"']/i, 'canonical URL']];\n  metadataChecks.forEach(function(check){ if(!check[0].test(html)) issue('warning', page.rel, 'Missing metadata: ' + check[1]); });
   if (!/<meta[^>]+name=["']viewport["']/i.test(html)) issue('warning', page.rel, 'Missing viewport meta tag');
   const tags = html.match(/<(?:a|link|script|img|source|video|audio)[^>]*>/gi) || [];
   for (const tag of tags) {
