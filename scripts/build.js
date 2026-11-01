@@ -179,7 +179,7 @@ items.forEach(function(item){
     }
   }
   var desc = item.description;
-  if(item.kind === 'tools') desc += ' Free, runs in your browser — nothing is uploaded.';
+  if(item.kind === 'tools') desc += item.privacy === 'external' ? ' Uses external services; requests are sent to third-party providers.' : item.privacy === 'upload' ? ' Sends selected data to a remote service.' : ' Free, runs in your browser — files are not uploaded.';
   if(item.kind === 'games') desc += ' Free to play in your browser.';
 
   var ld;
