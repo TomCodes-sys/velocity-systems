@@ -6483,7 +6483,7 @@ function mountWebsiteToExe(container){
         '<p class="hint">The token is used only in this page session and is not saved. Give it Actions read/write access to the Velocity Systems repository. The build clones the public source repository; it does not modify it.</p>'+
       '</section>'+
       '<section id="w2e-local" hidden>'+
-        '<p class="tool-msg">Choose the website folder on your computer. The tool packages its files with an Electron build script. Run Build-EXE.bat on Windows to create the actual .exe locally; your source files are not uploaded.</p>'+
+        '<p class="tool-msg">Choose the website folder on your computer. The tool packages its files with an Electron build script. Run Build-EXE.bat on Windows to create the actual .exe locally; your source files are not uploaded. You will need <a href="https://nodejs.org/en/download/" target="_blank" rel="noopener noreferrer">Node.js 20 or later</a> installed.</p>'+
         '<div class="field"><label for="w2e-local-folder">Select website folder (must contain index.html)</label><input id="w2e-local-folder" type="file" webkitdirectory directory multiple></div>'+
         '<div class="tool-grid two">'+
           '<div class="field"><label for="w2e-local-name">Application name</label><input id="w2e-local-name" value="My Website App" maxlength="60"></div>'+
@@ -6492,7 +6492,7 @@ function mountWebsiteToExe(container){
           '<div class="field"><label for="w2e-local-height">Window height</label><input id="w2e-local-height" type="number" min="480" max="2160" value="800"></div>'+
         '</div>'+
         '<div class="tool-row"><button class="game-btn" id="w2e-local-build" type="button">Download local EXE build kit</button></div>'+
-        '<p class="hint">Requires Windows and Node.js 20 or later. The ZIP contains your selected site and a one-click batch file that builds the portable EXE into the dist folder.</p>'+
+        '<p class="hint">Requires Windows and Node.js 20 or later. <a href="https://nodejs.org/en/download/" target="_blank" rel="noopener noreferrer">Download Node.js (official website)</a>. The ZIP contains your selected site and a one-click batch file that builds the portable EXE into the dist folder.</p>'+
       '</section>'+
       '<div id="w2e-status" class="tool-output" role="status" aria-live="polite">Choose a source type to begin.</div>';
     var $=function(id){return body.querySelector('#'+id);};
@@ -6553,7 +6553,7 @@ function mountWebsiteToExe(container){
         var pkg={name:slug,version:'1.0.0',description:'Desktop wrapper for '+name,main:'main.js',scripts:{dist:'electron-builder --win portable --x64'},devDependencies:{electron:'^33.0.0','electron-builder':'^25.1.8'},build:{appId:'com.velocitysystems.'+slug,productName:name,files:['main.js','site/**/*','package.json','build/icon.ico'],directories:{output:'dist'},win:{target:['portable']},portable:{artifactName:slug+'-portable.exe'}}};
         if(iconFile)pkg.build.win.icon='build/icon.ico';
         var bat=['@echo off','cd /d "%~dp0"','where node >nul 2>nul || (echo Install Node.js 20 or later first.& pause & exit /b 1)','echo Installing Electron build dependencies...','npm install','if errorlevel 1 (echo Dependency installation failed.& pause & exit /b 1)','echo Building portable Windows EXE...','npm run dist','if errorlevel 1 (echo Build failed. Check the error above.& pause & exit /b 1)','echo.','echo Finished. Your EXE is in the dist folder.','pause'].join('\r\n')+'\r\n';
-        zipFiles.push({name:'package.json',data:enc.encode(JSON.stringify(pkg,null,2))},{name:'main.js',data:enc.encode(mainJs)},{name:'Build-EXE.bat',data:enc.encode(bat)},{name:'README.txt',data:enc.encode('1. Extract this ZIP to a normal folder.\\r\\n2. Install Node.js 20 or later on Windows.\\r\\n3. Double-click Build-EXE.bat.\\r\\n4. The portable Windows executable will be created in dist.\\r\\n\\r\\nThe website files are stored in site/. The original folder is not modified.\\r\\n')});
+        zipFiles.push({name:'package.json',data:enc.encode(JSON.stringify(pkg,null,2))},{name:'main.js',data:enc.encode(mainJs)},{name:'Build-EXE.bat',data:enc.encode(bat)},{name:'README.txt',data:enc.encode('1. Extract this ZIP to a normal folder.\\r\\n2. Install Node.js 20 or later from https://nodejs.org/en/download/.\\r\\n3. Double-click Build-EXE.bat.\\r\\n4. The portable Windows executable will be created in dist.\\r\\n\\r\\nThe website files are stored in site/. The original folder is not modified.\\r\\n')});
         if(iconFile)zipFiles.push({name:'build/icon.ico',data:new Uint8Array(await iconFile.arrayBuffer())});
         for(var i=0;i<siteFiles.length;i++){
           var f=siteFiles[i],rel=(f.webkitRelativePath||f.name).split('/').slice(1).join('/');
