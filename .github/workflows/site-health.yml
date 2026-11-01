@@ -16,5 +16,11 @@ jobs:
           node-version: 20
       - name: Generate current static pages
         run: node scripts/build.js
-      - name: Check JavaScript syntax and site references
+      - name: Install browser test runner
+        run: npm install --no-save playwright
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Check syntax, references, runtime errors and layout
         run: node scripts/site-health-check.js
+        env:
+          VS_HEALTH_BROWSER: '1'
