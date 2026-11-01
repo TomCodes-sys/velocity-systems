@@ -493,7 +493,7 @@ function mountCountdown(container){
         '<div class="field"><label for="cd-s">Seconds</label><input id="cd-s" type="number" min="0" max="59" value="0"></div></div>'+
       '<div id="cd-date" class="tool-grid" hidden><div class="field"><label for="cd-target">Count down to</label><input id="cd-target" type="datetime-local"></div></div>'+
       '<div class="cd-display" id="cd-disp" role="timer" aria-live="off">00:00:00</div><p class="hint" id="cd-note" style="text-align:center"></p>'+
-      '<div class="tool-row" style="justify-content:center"><button class="game-btn" id="cd-start">Start</button><button class="game-btn secondary" id="cd-reset">Reset</button><label><input type="checkbox" id="cd-sound" checked> Sound at zero</label></div>';
+      '<div class="tool-row" style="justify-content:center"><button class="game-btn" id="cd-start">Start</button><button class="game-btn secondary" id="cd-pause" hidden>Pause</button><button class="game-btn secondary" id="cd-reset">Reset</button><label><input type="checkbox" id="cd-sound" checked> Sound at zero</label></div>';
     var $ = function(s){ return body.querySelector(s); };
     var KEY = 'vs-countdown', st = lsGet(KEY, null), iv = null, fired = false;
 
@@ -517,13 +517,13 @@ function mountCountdown(container){
     }
     function tick(){
       if(!st){ return; }
-      var left = st.end - Date.now();
+      var left = st.paused ? st.remaining : st.end - Date.now();
       $('#cd-disp').textContent = fmt(left);
       document.title = fmt(left) + ' · Countdown';
       if(left <= 0){
         clearInterval(iv); iv = null;
         $('#cd-disp').classList.add('done'); $('#cd-note').textContent = 'Time’s up.';
-        $('#cd-start').textContent = 'Start';
+        $('#cd-start').textContent = 'Start'; $('#cd-pause').hidden = true;
         if(!fired){ fired = true; if($('#cd-sound').checked) beep(); notify('Countdown finished', 'ok', {force:true}); }
         st = null; lsSet(KEY, null);
       }
@@ -540,11 +540,11 @@ function mountCountdown(container){
       }
       st = {end:end}; lsSet(KEY, st); fired = false;
       $('#cd-disp').classList.remove('done'); $('#cd-note').textContent = 'Ends ' + new Date(end).toLocaleString();
-      $('#cd-start').textContent = 'Restart';
+      $('#cd-start').textContent = 'Restart'; $('#cd-pause').hidden = false; $('#cd-pause').textContent = 'Pause';
       clearInterval(iv); iv = setInterval(tick, 250); tick();
     }
     function reset(){
-      clearInterval(iv); iv = null; st = null; lsSet(KEY, null); fired = false; document.title = document.title.replace(/^[\d: d]+ · Countdown$/, 'Countdown Timer');
+      clearInterval(iv); iv = null; st = null; lsSet(KEY, null); fired = false; $('#cd-pause').hidden = true; document.title = document.title.replace(/^[\d: d]+ · Countdown$/, 'Countdown Timer');
       $('#cd-disp').textContent = '00:00:00'; $('#cd-disp').classList.remove('done'); $('#cd-note').textContent = ''; $('#cd-start').textContent = 'Start';
     }
     $('#cd-seg').addEventListener('click', function(e){
@@ -552,11 +552,24 @@ function mountCountdown(container){
       $('#cd-mode').value = b.getAttribute('data-m'); $('#cd-mode').dispatchEvent(new Event('change', {bubbles:true})); sync();
     });
     $('#cd-mode').addEventListener('change', sync);
-    $('#cd-start').addEventListener('click', start); $('#cd-reset').addEventListener('click', reset);
+    function togglePause(){
+      if(!st) return;
+      if(!st.paused){
+        st.remaining = Math.max(0, st.end - Date.now()); st.paused = true;
+        clearInterval(iv); iv = null; lsSet(KEY, st);
+        $('#cd-pause').textContent = 'Resume'; $('#cd-note').textContent = 'Paused — ' + fmt(st.remaining) + ' remaining'; tick();
+      } else {
+        st.end = Date.now() + st.remaining; st.paused = false; lsSet(KEY, st);
+        $('#cd-pause').textContent = 'Pause'; $('#cd-note').textContent = 'Ends ' + new Date(st.end).toLocaleString();
+        iv = setInterval(tick, 250); tick();
+      }
+    }
+    $('#cd-start').addEventListener('click', start); $('#cd-pause').addEventListener('click', togglePause); $('#cd-reset').addEventListener('click', reset);
     onUnmount(body, function(){ clearInterval(iv); });
     sync();
     if(st && st.end){
-      if(st.end > Date.now()){ $('#cd-note').textContent = 'Ends ' + new Date(st.end).toLocaleString(); $('#cd-start').textContent = 'Restart'; iv = setInterval(tick, 250); tick(); }
+      if(st.paused){ $('#cd-note').textContent = 'Paused — ' + fmt(st.remaining) + ' remaining'; $('#cd-start').textContent = 'Restart'; $('#cd-pause').hidden = false; $('#cd-pause').textContent = 'Resume'; tick(); }
+      else if(st.end > Date.now()){ $('#cd-note').textContent = 'Ends ' + new Date(st.end).toLocaleString(); $('#cd-start').textContent = 'Restart'; $('#cd-pause').hidden = false; iv = setInterval(tick, 250); tick(); }
       else { st = null; lsSet(KEY, null); }
     }
   });
@@ -694,13 +707,19 @@ function mountDeviceInfo(container){
       ['Online', nav.onLine ? 'Yes' : 'No'], ['Cookies enabled', nav.cookieEnabled ? 'Yes' : 'No'],
       ['Touch support', nav.maxTouchPoints>0 ? 'Yes ('+nav.maxTouchPoints+' pts)' : 'No'],
     ];
-    function render(publicIp){
+    function render(publicIp, publicIpv6){
       body.innerHTML = '<div class="di-wrap">'+
-        (publicIp ? '<div class="di-ip"><b>Public IP:</b> '+esc(publicIp)+'</div>' : '<div class="tool-msg">Public IP unavailable (offline or blocked)</div>')+
+        (publicIp ? '<div class="di-ip"><b>Public IPv4:</b> <span id="di-ip4">'+esc(publicIp)+'</span> <button type="button" class="game-btn secondary" id="di-copy4">Copy</button></div>' : '<div class="tool-msg">Public IPv4 unavailable (offline or blocked)</div>')+
+        (publicIpv6 ? '<div class="di-ip"><b>Public IPv6:</b> <span id="di-ip6">'+esc(publicIpv6)+'</span> <button type="button" class="game-btn secondary" id="di-copy6">Copy</button></div>' : '<div class="tool-msg">Public IPv6 unavailable or not supported by this connection</div>')+
+        '<p class="hint">Public IP addresses are requested from ipify, an external service. Your browser sends the request directly to that provider.</p>'+
         '<div class="di-grid">'+rows.map(function(r){ return '<div class="di-row"><span>'+r[0]+'</span><b>'+esc(String(r[1]))+'</b></div>'; }).join('')+'</div>'+
       '</div>';
+      [['di-copy4',publicIp],['di-copy6',publicIpv6]].forEach(function(x){ var b=body.querySelector('#'+x[0]); if(b) b.addEventListener('click',function(){ if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(x[1]).then(function(){notify('IP address copied','ok');}).catch(function(){notify('Clipboard access was blocked','warn');}); else notify('Clipboard is not supported in this browser','warn'); }); });
     }
-    fetch('https://api.ipify.org?format=json').then(function(r){ return r.json(); }).then(function(d){ render(d.ip); }).catch(function(){ render(null); });
+    Promise.all([
+      fetch('https://api.ipify.org?format=json').then(function(r){ if(!r.ok) throw new Error('IPv4 lookup failed'); return r.json(); }).then(function(d){ return d.ip; }).catch(function(){ return null; }),
+      fetch('https://api6.ipify.org?format=json').then(function(r){ if(!r.ok) throw new Error('IPv6 lookup failed'); return r.json(); }).then(function(d){ return d.ip; }).catch(function(){ return null; })
+    ]).then(function(ips){ render(ips[0],ips[1]); });
   });
 }
 PLAYABLES['device-info'] = mountDeviceInfo;
