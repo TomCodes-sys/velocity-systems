@@ -50,7 +50,8 @@ function checkCssAssets() {
       const raw=m[2].trim();
       if(!raw||/^(?:data:|https?:|\/\/|#|blob:)/i.test(raw))continue;
       let clean;try{clean=decodeURIComponent(raw.split(/[?#]/)[0]);}catch(e){issue('error',path.relative(root,file),'Invalid CSS asset URL: '+raw);continue;}
-      const target=path.resolve(path.dirname(file),clean);
+      if(clean.charAt(0)==='#')continue;
+      const target=path.resolve(clean.startsWith('/')?root:path.dirname(file),clean.startsWith('/')?clean.slice(1):clean);
       if(target!==root&&!target.startsWith(root+path.sep)){issue('error',path.relative(root,file),'CSS asset path escapes site root: '+raw);continue;}
       if(!fs.existsSync(target))issue('error',path.relative(root,file),'Missing CSS asset: '+raw);
     }
