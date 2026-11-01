@@ -118,6 +118,37 @@ function toastTick(now){
   _toastRaf = running ? requestAnimationFrame(toastTick) : null;
 }
 
+/* Fonts: system stacks need nothing; Google ones are fetched only when chosen (or while browsing the picker) */
+var FONT_DEFS = {
+  sans:{label:'Geist', note:'Default', stack:"Geist,'Geist Variable',system-ui,sans-serif"},
+  system:{label:'System UI', note:'Your device font', stack:"system-ui,-apple-system,'Segoe UI',Roboto,sans-serif"},
+  inter:{label:'Inter', g:'Inter:wght@400;500;600;700', stack:"Inter,system-ui,sans-serif"},
+  dmsans:{label:'DM Sans', g:'DM+Sans:wght@400;500;600;700', stack:"'DM Sans',system-ui,sans-serif"},
+  grotesk:{label:'Space Grotesk', g:'Space+Grotesk:wght@400;500;600;700', stack:"'Space Grotesk',system-ui,sans-serif"},
+  outfit:{label:'Outfit', g:'Outfit:wght@400;500;600;700', stack:"Outfit,system-ui,sans-serif"},
+  lexend:{label:'Lexend', note:'Easy to read', g:'Lexend:wght@400;500;600;700', stack:"Lexend,system-ui,sans-serif"},
+  atkinson:{label:'Atkinson Hyperlegible', note:'Low vision friendly', g:'Atkinson+Hyperlegible:wght@400;700', stack:"'Atkinson Hyperlegible',system-ui,sans-serif"},
+  plex:{label:'IBM Plex Sans', g:'IBM+Plex+Sans:wght@400;500;600;700', stack:"'IBM Plex Sans',system-ui,sans-serif"},
+  poppins:{label:'Poppins', g:'Poppins:wght@400;500;600;700', stack:"Poppins,system-ui,sans-serif"},
+  nunito:{label:'Nunito', note:'Rounded', g:'Nunito:wght@400;500;600;700', stack:"Nunito,ui-rounded,system-ui,sans-serif"},
+  comic:{label:'Comic Neue', note:'Casual', g:'Comic+Neue:wght@400;700', stack:"'Comic Neue','Comic Sans MS',cursive"},
+  serif:{label:'Georgia', note:'Classic serif', stack:"Georgia,serif"},
+  lora:{label:'Lora', g:'Lora:wght@400;500;600;700', stack:"Lora,Georgia,serif"},
+  merriweather:{label:'Merriweather', g:'Merriweather:wght@400;700', stack:"Merriweather,Georgia,serif"},
+  playfair:{label:'Playfair Display', g:'Playfair+Display:wght@400;500;600;700', stack:"'Playfair Display',Georgia,serif"},
+  robotoslab:{label:'Roboto Slab', note:'Slab serif', g:'Roboto+Slab:wght@400;500;600;700', stack:"'Roboto Slab',Georgia,serif"},
+  mono:{label:'Mono', note:'Monospace', stack:"var(--font-mono)"},
+  jetbrains:{label:'JetBrains Mono', note:'Code', g:'JetBrains+Mono:wght@400;500;600;700', stack:"'JetBrains Mono',ui-monospace,monospace"},
+  firacode:{label:'Fira Code', note:'Code', g:'Fira+Code:wght@400;500;600;700', stack:"'Fira Code',ui-monospace,monospace"}
+};
+var _fontLinks = {};
+function loadFonts(ids){
+  var fam = ids.map(function(id){ return FONT_DEFS[id] && FONT_DEFS[id].g; }).filter(function(g){ return g && !_fontLinks[g]; });
+  if(!fam.length) return;
+  fam.forEach(function(g){ _fontLinks[g] = 1; });
+  var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = 'https://fonts.googleapis.com/css2?' + fam.map(function(g){ return 'family=' + g; }).join('&') + '&display=swap';
+  document.head.appendChild(l);
+}
 var settings = readLS('system-settings', DEFAULT_SETTINGS);
 /* themes that were retired because they looked almost identical to another one */
 var LEGACY_THEMES = {windows:'sky', minimal:'amoled', midnight:'ocean', slate:'amoled', future:'ocean', forest:'terminal', retro:'gruvbox'};
@@ -144,6 +175,8 @@ function recordView(id){
 }
 function applyTheme(){
   var d = document.documentElement.dataset;
+  if(!FONT_DEFS[settings.font]) settings.font = 'sans';
+  loadFonts([settings.font]);
   d.theme = settings.theme; d.accent = settings.accent; d.font = settings.font;
   d.density = settings.density; d.radius = settings.radius;
   d.motion = settings.animations ? 'on' : 'off';
@@ -1003,7 +1036,7 @@ var THEME_LIST = [
   ['cyber','Cyberpunk'],['terminal','Terminal'],['glass','Glass'],['rose','Rose'],['solar','Solar'],['grape','Grape'],
   ['custom','Custom'],
 ];
-var CHOICE_GROUPS = {accent:['blue','purple','red','green'], font:['sans','mono','serif'], density:['compact','comfortable','spacious'], radius:['sharp','soft','round'], icons:['lucide','solar','remix','emoji']};
+var CHOICE_GROUPS = {accent:['blue','purple','red','green'], font:Object.keys(FONT_DEFS), density:['compact','comfortable','spacious'], radius:['sharp','soft','round'], icons:['lucide','solar','remix','emoji']};
 function pageSettings(){
   function themeButtons(){
     return THEME_LIST.map(function(t){
@@ -1013,6 +1046,13 @@ function pageSettings(){
   }
   function choiceRows(){
     return Object.keys(CHOICE_GROUPS).map(function(key){
+      if(key === 'font'){
+        loadFonts(Object.keys(FONT_DEFS));       // so every option can preview in its own typeface
+        return '<div class="setting-row font-row"><label>font</label><div class="font-grid" role="group" aria-label="Font">'+CHOICE_GROUPS.font.map(function(v){
+          var f = FONT_DEFS[v];
+          return '<button data-choice-key="font" data-choice-val="'+v+'" class="'+(settings.font===v?'selected':'')+'" style="font-family:'+f.stack.replace(/"/g,"'")+'"><b>Aa</b><span>'+f.label+'</span>'+(f.note?'<small>'+f.note+'</small>':'')+'</button>';
+        }).join('')+'</div></div>';
+      }
       return '<div class="setting-row"><label>'+key+'</label><div>'+CHOICE_GROUPS[key].map(function(v){
         return '<button data-choice-key="'+key+'" data-choice-val="'+v+'" class="'+(settings[key]===v?'selected':'')+'">'+v+'</button>';
       }).join('')+'</div></div>';

@@ -2675,6 +2675,590 @@ function mountQRGenerator(container){
 }
 PLAYABLES['qr-generator'] = mountQRGenerator;
 
+/* ---------------- Barcode generator: encoders (pure functions, no DOM) ----------------
+   Every encoder returns {mods: '1011…' (1 = bar module, 0 = space), quiet: modules of quiet zone, …layout hints}
+   or throws an Error whose message is safe to show to people. */
+var BARCODE = (function(){
+  function fail(m){ var e = new Error(m); e.user = true; throw e; }
+  function rep(ch, n){ var s = ''; for(var i = 0; i < n; i++) s += ch; return s; }
+  /* '212222' → bars/spaces of those module widths, starting with a bar */
+  function runs(widths){ var out = '', bar = true; for(var i = 0; i < widths.length; i++){ out += rep(bar ? '1' : '0', +widths[i]); bar = !bar; } return out; }
+  /* 'nnwwn…' → same, with narrow/wide module widths, starting with a bar */
+  function nw(pattern, n, w){ var out = '', bar = true; for(var i = 0; i < pattern.length; i++){ out += rep(bar ? '1' : '0', pattern[i] === 'w' ? w : n); bar = !bar; } return out; }
+  function digitsOnly(s, label){ if(!/^\d+$/.test(s)) fail(label + ' can only contain the digits 0–9.'); return s; }
+
+  /* ---- Code 128 ---- */
+  var C128 = ['212222','222122','222221','121223','121322','131222','122213','122312','132212','221213','221312','231212','112232','122132','122231','113222','123122','123221','223211','221132','221231','213212','223112','312131','311222','321122','321221','312212','322112','322211','212123','212321','232121','111323','131123','131321','112313','132113','132311','211313','231113','231311','112133','112331','132131','113123','113321','133121','313121','211331','231131','213113','213311','213131','311123','311321','331121','312113','312311','332111','314111','221411','431111','111224','111422','121124','121421','141122','141221','112214','112412','122114','122411','142112','142211','241211','221114','413111','241112','134111','111242','121142','121241','114212','124112','124211','411212','421112','421211','212141','214121','412121','111143','111341','131141','114113','114311','411113','411311','113141','114131','311141','411131','211412','211214','211232','2331112'];
+  function code128(text, mode){
+    if(!text) fail('Enter some text to encode.');
+    var i, c, len = text.length;
+    for(i = 0; i < len; i++){ if(text.charCodeAt(i) > 127) fail('Code 128 supports plain ASCII only. “' + text[i] + '” is not allowed.'); }
+    var isD = function(p){ return p < len && text[p] >= '0' && text[p] <= '9'; };
+    var run = function(p){ var n = 0; while(isD(p + n)) n++; return n; };
+    var codes = [], set = null, pos = 0;
+    mode = mode || 'auto';
+    if(mode === 'C'){
+      if(!/^\d+$/.test(text) || len % 2) fail('Code 128 subset C needs an even number of digits.');
+      codes.push(105); for(pos = 0; pos < len; pos += 2) codes.push(+text.substr(pos, 2));
+    } else {
+      if(mode === 'A'){ for(i = 0; i < len; i++) if(text.charCodeAt(i) > 95) fail('Subset A has no lowercase letters. Use Auto or B.'); }
+      if(mode === 'B'){ for(i = 0; i < len; i++) if(text.charCodeAt(i) < 32) fail('Subset B has no control characters. Use Auto or A.'); }
+      var forced = mode === 'A' || mode === 'B' ? mode : null;
+      while(pos < len){
+        var r = run(pos);
+        if(!forced){
+          var wantC = set === 'C' ? r >= 2 : (r >= 4 || (pos === 0 && r === len && r >= 2));
+          if(wantC && set !== 'C'){ codes.push(set === null ? 105 : 99); set = 'C'; }
+          if(set === 'C' && r < 2){ set = text.charCodeAt(pos) < 32 ? 'A' : 'B'; codes.push(set === 'A' ? 101 : 100); }
+        }
+        if(set === null){ set = forced || (text.charCodeAt(pos) < 32 ? 'A' : 'B'); codes.push(set === 'A' ? 103 : 104); }
+        if(set === 'C'){ codes.push(+text.substr(pos, 2)); pos += 2; continue; }
+        c = text.charCodeAt(pos);
+        if(!forced){
+          if(set === 'B' && c < 32){ set = 'A'; codes.push(101); }
+          else if(set === 'A' && c > 95){ set = 'B'; codes.push(100); }
+        }
+        codes.push(set === 'A' ? (c < 32 ? c + 64 : c - 32) : c - 32); pos++;
+      }
+    }
+    var sum = codes[0];
+    for(i = 1; i < codes.length; i++) sum += codes[i] * i;
+    codes.push(sum % 103, 106);
+    var mods = ''; codes.forEach(function(k){ mods += runs(C128[k]); });
+    return {mods:mods, quiet:10, text:text, kind:'plain'};
+  }
+
+  /* ---- Code 39 (+ extended ASCII, optional mod-43 check digit) ---- */
+  var C39 = {'0':'nnnwwnwnn','1':'wnnwnnnnw','2':'nnwwnnnnw','3':'wnwwnnnnn','4':'nnnwwnnnw','5':'wnnwwnnnn','6':'nnwwwnnnn','7':'nnnwnnwnw','8':'wnnwnnwnn','9':'nnwwnnwnn','A':'wnnnnwnnw','B':'nnwnnwnnw','C':'wnwnnwnnn','D':'nnnnwwnnw','E':'wnnnwwnnn','F':'nnwnwwnnn','G':'nnnnnwwnw','H':'wnnnnwwnn','I':'nnwnnwwnn','J':'nnnnwwwnn','K':'wnnnnnnww','L':'nnwnnnnww','M':'wnwnnnnwn','N':'nnnnwnnww','O':'wnnnwnnwn','P':'nnwnwnnwn','Q':'nnnnnnwww','R':'wnnnnnwwn','S':'nnwnnnwwn','T':'nnnnwnwwn','U':'wwnnnnnnw','V':'nwwnnnnnw','W':'wwwnnnnnn','X':'nwnnwnnnw','Y':'wwnnwnnnn','Z':'nwwnwnnnn','-':'nwnnnnwnw','.':'wwnnnnwnn',' ':'nwwnnnwnn','*':'nwnnwnwnn','$':'nwnwnwnnn','/':'nwnwnnnwn','+':'nwnnnwnwn','%':'nnnwnwnwn'};
+  var C39SET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%';
+  function c39ext(ch){
+    var c = ch.charCodeAt(0), A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    if(c === 0) return '%U';
+    if(c <= 26) return '$' + A[c - 1];
+    if(c <= 31) return '%' + 'ABCDE'[c - 27];
+    var map = {'!':'/A','"':'/B','#':'/C','&':'/F','\'':'/G','(':'/H',')':'/I','*':'/J',',':'/L',':':'/Z',';':'%F','<':'%G','=':'%H','>':'%I','?':'%J','@':'%V','[':'%K','\\':'%L',']':'%M','^':'%N','_':'%O','`':'%W','{':'%P','|':'%Q','}':'%R','~':'%S'};
+    if(map[ch]) return map[ch];
+    if(c === 127) return '%T';
+    if(c >= 97 && c <= 122) return '+' + A[c - 97];
+    return ch;
+  }
+  function code39(text, o){
+    o = o || {};
+    if(!text) fail('Enter some text to encode.');
+    var data = '', i;
+    if(o.extended){
+      for(i = 0; i < text.length; i++){ if(text.charCodeAt(i) > 127) fail('Full ASCII mode cannot encode “' + text[i] + '”.'); data += c39ext(text[i]); }
+    } else {
+      data = text.toUpperCase();
+      for(i = 0; i < data.length; i++) if(C39SET.indexOf(data[i]) < 0) fail('Code 39 supports 0–9, A–Z, space and - . $ / + %. “' + text[i] + '” is not allowed (tick “Full ASCII” to allow lowercase and symbols).');
+    }
+    var shown = text, full = data;
+    if(o.check){ var s = 0; for(i = 0; i < data.length; i++) s += C39SET.indexOf(data[i]); var cd = C39SET[s % 43]; full += cd; shown += (o.extended ? '' : '') + cd; }
+    var mods = '', all = '*' + full + '*';
+    for(i = 0; i < all.length; i++){ mods += nw(C39[all[i]], 1, 3); if(i < all.length - 1) mods += '0'; }
+    return {mods:mods, quiet:10, text:o.check ? text + ' [' + full.slice(-1) + ']' : text, kind:'plain'};
+  }
+
+  /* ---- Codabar ---- */
+  var CBAR = {'0':'nnnnnww','1':'nnnnwwn','2':'nnnwnnw','3':'wwnnnnn','4':'nnwnnwn','5':'wnnnnwn','6':'nwnnnnw','7':'nwnnwnn','8':'nwwnnnn','9':'wnnwnnn','-':'nnnwwnn','$':'nnwwnnn',':':'wnnnwnw','/':'wnwnnnw','.':'wnwnwnn','+':'nnwnwnw','A':'nnwwnwn','B':'nwnwnnw','C':'nnnwnww','D':'nnnwwwn'};
+  function codabar(text, o){
+    o = o || {};
+    if(!text) fail('Enter some digits to encode.');
+    for(var i = 0; i < text.length; i++) if('0123456789-$:/.+'.indexOf(text[i]) < 0) fail('Codabar supports 0–9 and - $ : / . + only. “' + text[i] + '” is not allowed.');
+    var st = o.start || 'A', sp = o.stop || st, all = st + text + sp, mods = '';
+    for(i = 0; i < all.length; i++){ mods += nw(CBAR[all[i]], 1, 3); if(i < all.length - 1) mods += '0'; }
+    return {mods:mods, quiet:10, text:st + text + sp, kind:'plain'};
+  }
+
+  /* ---- Interleaved 2 of 5 and ITF-14 ---- */
+  var ITF = ['nnwwn','wnnnw','nwnnw','wwnnn','nnwnw','wnwnn','nwwnn','nnnww','wnnwn','nwnwn'];
+  function itfBody(digits){
+    var mods = '1010';
+    for(var i = 0; i < digits.length; i += 2){
+      var a = ITF[+digits[i]], b = ITF[+digits[i + 1]];
+      for(var k = 0; k < 5; k++){ mods += rep('1', a[k] === 'w' ? 3 : 1) + rep('0', b[k] === 'w' ? 3 : 1); }
+    }
+    return mods + '11101';
+  }
+  function itf(text, o){
+    o = o || {};
+    digitsOnly(text, 'Interleaved 2 of 5');
+    if(text.length % 2){ if(o.pad) text = '0' + text; else fail('Interleaved 2 of 5 needs an even number of digits (' + text.length + ' entered). Add a leading 0, or tick “Pad with a leading zero”.'); }
+    return {mods:itfBody(text), quiet:10, text:text, kind:'plain'};
+  }
+  function gtinCheck(d13){ var s = 0; for(var i = 0; i < d13.length; i++) s += +d13[i] * (((d13.length - i) % 2) ? 3 : 1); return (10 - s % 10) % 10; }
+  function itf14(text){
+    digitsOnly(text, 'ITF-14');
+    if(text.length === 13) text += gtinCheck(text);
+    else if(text.length === 14){ var cd = gtinCheck(text.slice(0, 13)); if(+text[13] !== cd) fail('Check digit mismatch: the last digit should be ' + cd + ' for these 13 digits.'); }
+    else fail('ITF-14 needs 13 digits (the check digit is added for you) or 14 digits. You entered ' + text.length + '.');
+    return {mods:itfBody(text), quiet:10, text:text, kind:'itf14', bearer:true};
+  }
+
+  /* ---- EAN / UPC family ---- */
+  var L = ['0001101','0011001','0010011','0111101','0100011','0110001','0101111','0111011','0110111','0001011'];
+  var R = L.map(function(s){ return s.replace(/[01]/g, function(b){ return b === '1' ? '0' : '1'; }); });
+  var G = R.map(function(s){ return s.split('').reverse().join(''); });
+  var EAN_PAR = ['LLLLLL','LLGLGG','LLGGLG','LLGGGL','LGLLGG','LGGLLG','LGGGLL','LGLGLG','LGLGGL','LGGLGL'];
+  var UPCE_PAR = ['EEEOOO','EEOEOO','EEOOEO','EEOOOE','EOEEOO','EOOEEO','EOOOEE','EOEOEO','EOEOOE','EOOEOE'];
+  function checkFor(d, firstWeight3){ var s = 0; for(var i = 0; i < d.length; i++){ var w3 = firstWeight3 ? i % 2 === 0 : i % 2 === 1; s += +d[i] * (w3 ? 3 : 1); } return (10 - s % 10) % 10; }
+  function fixCheck(text, bodyLen, firstWeight3, name){
+    digitsOnly(text, name);
+    if(text.length === bodyLen) return text + checkFor(text, firstWeight3);
+    if(text.length === bodyLen + 1){ var cd = checkFor(text.slice(0, bodyLen), firstWeight3); if(+text[bodyLen] !== cd) fail('Check digit mismatch: the last digit should be ' + cd + '. Enter just the first ' + bodyLen + ' digits and it is added for you.'); return text; }
+    fail(name + ' needs ' + bodyLen + ' digits (the check digit is added for you) or ' + (bodyLen + 1) + ' with the check digit. You entered ' + text.length + '.');
+  }
+  function addon(text){
+    digitsOnly(text, 'The add-on');
+    var mods = '1011', i, par, pat;
+    if(text.length === 2){ par = ['LL','LG','GL','GG'][+text % 4]; }
+    else if(text.length === 5){
+      var s = 3 * (+text[0] + +text[2] + +text[4]) + 9 * (+text[1] + +text[3]);
+      par = ['GGLLL','GLGLL','GLLGL','GLLLG','LGGLL','LLGGL','LLLGG','LGLGL','LGLLG','LLGLG'][s % 10];
+    } else fail('The add-on must be 2 or 5 digits (e.g. a 5-digit price code on books).');
+    for(i = 0; i < text.length; i++){ pat = par[i] === 'L' ? L[+text[i]] : G[+text[i]]; mods += pat + (i < text.length - 1 ? '01' : ''); }
+    return mods;
+  }
+  function withAddon(res, add){
+    if(!add) return res;
+    res.addon = add; res.addonMods = addon(add); return res;
+  }
+  function ean13(text, addOn){
+    var d = fixCheck(text, 12, false, 'EAN-13'), par = EAN_PAR[+d[0]], mods = '101', i;
+    for(i = 1; i <= 6; i++) mods += (par[i - 1] === 'L' ? L : G)[+d[i]];
+    mods += '01010';
+    for(i = 7; i <= 12; i++) mods += R[+d[i]];
+    mods += '101';
+    return withAddon({mods:mods, quiet:11, text:d, kind:'ean13', digits:d}, addOn);
+  }
+  function ean8(text){
+    var d = fixCheck(text, 7, true, 'EAN-8'), mods = '101', i;
+    for(i = 0; i < 4; i++) mods += L[+d[i]];
+    mods += '01010';
+    for(i = 4; i < 8; i++) mods += R[+d[i]];
+    return {mods:mods + '101', quiet:7, text:d, kind:'ean8', digits:d};
+  }
+  function upcA(text, addOn){
+    var d = fixCheck(text, 11, true, 'UPC-A'), mods = '101', i;
+    for(i = 0; i < 6; i++) mods += L[+d[i]];
+    mods += '01010';
+    for(i = 6; i < 12; i++) mods += R[+d[i]];
+    return withAddon({mods:mods + '101', quiet:9, text:d, kind:'upca', digits:d}, addOn);
+  }
+  function upcEExpand(e6, ns){
+    var d = e6.split(''), last = +d[5], a;
+    if(last <= 2) a = d[0] + d[1] + d[5] + '0000' + d[2] + d[3] + d[4];
+    else if(last === 3) a = d[0] + d[1] + d[2] + '00000' + d[3] + d[4];
+    else if(last === 4) a = d[0] + d[1] + d[2] + d[3] + '00000' + d[4];
+    else a = d[0] + d[1] + d[2] + d[3] + d[4] + '0000' + d[5];
+    return String(ns) + a;
+  }
+  function upcECompress(a11){
+    var m = a11.slice(1, 6), p = a11.slice(6, 11), ns = a11[0];
+    if(ns !== '0' && ns !== '1') return null;
+    if(/^[012]00$/.test(m.slice(2)) && p.slice(0, 2) === '00') return m.slice(0, 2) + p.slice(2) + m[2];
+    if(m.slice(3) === '00' && p.slice(0, 3) === '000') return m.slice(0, 3) + p.slice(3) + '3';
+    if(m[4] === '0' && p.slice(0, 4) === '0000') return m.slice(0, 4) + p[4] + '4';
+    if(p.slice(0, 4) === '0000' && +p[4] >= 5) return m + p[4];
+    return null;
+  }
+  function upcE(text){
+    digitsOnly(text, 'UPC-E');
+    var ns = 0, e6, cd;
+    if(text.length === 11 || text.length === 12){
+      var a11 = text.slice(0, 11), e = upcECompress(a11);
+      if(!e) fail('That UPC-A number cannot be compressed to UPC-E (only manufacturer codes ending in 000, 100, 200, 00 or 0 with matching zero runs can).');
+      ns = +a11[0]; e6 = e; cd = checkFor(a11, true);
+      if(text.length === 12 && +text[11] !== cd) fail('Check digit mismatch: the last digit should be ' + cd + '.');
+    } else if(text.length === 6){ e6 = text; cd = checkFor(upcEExpand(e6, 0), true); }
+    else if(text.length === 7 || text.length === 8){
+      if(text[0] !== '0' && text[0] !== '1') fail('UPC-E numbers start with 0 or 1.');
+      ns = +text[0]; e6 = text.slice(1, 7); cd = checkFor(upcEExpand(e6, ns), true);
+      if(text.length === 8 && +text[7] !== cd) fail('Check digit mismatch: the last digit should be ' + cd + '.');
+    } else fail('UPC-E needs 6, 7 or 8 digits (or a compressible 11/12-digit UPC-A). You entered ' + text.length + '.');
+    var par = UPCE_PAR[cd], mods = '101', i;
+    if(ns === 1) par = par.replace(/[EO]/g, function(c){ return c === 'E' ? 'O' : 'E'; });
+    for(i = 0; i < 6; i++) mods += (par[i] === 'O' ? L : G)[+e6[i]];
+    return {mods:mods + '010101', quiet:9, text:ns + e6 + cd, kind:'upce', digits:ns + e6 + cd};
+  }
+  function isbn(text, addOn){
+    var t = text.replace(/[\s-]/g, '').toUpperCase();
+    if(/^\d{9}[\dX]$/.test(t)){
+      var s = 0; for(var i = 0; i < 9; i++) s += (10 - i) * +t[i];
+      s += t[9] === 'X' ? 10 : +t[9];
+      if(s % 11) fail('That ISBN-10 has an invalid check digit.');
+      t = '978' + t.slice(0, 9);
+    } else if(/^97[89]\d{10}$/.test(t)) { /* ok */ }
+    else if(/^97[89]\d{9}$/.test(t)) { /* 12 digits, check added */ }
+    else fail('Enter an ISBN-10 or ISBN-13 (hyphens are fine), e.g. 978-0-306-40615-7.');
+    var r = ean13(t, addOn); r.text = r.digits; return r;
+  }
+
+  /* ---- MSI Plessey ---- */
+  function msi(text, o){
+    o = o || {};
+    digitsOnly(text, 'MSI');
+    var d = text;
+    if(o.check !== false){
+      var odd = '', even = 0, i, k = 0;
+      for(i = d.length - 1; i >= 0; i--, k++){ if(k % 2 === 0) odd = d[i] + odd; else even += +d[i]; }
+      var dbl = String(+odd * 2), s = even; for(i = 0; i < dbl.length; i++) s += +dbl[i];
+      d += (10 - s % 10) % 10;
+    }
+    var mods = '110';
+    for(var j = 0; j < d.length; j++){ var bits = ('0000' + (+d[j]).toString(2)).slice(-4); for(var b = 0; b < 4; b++) mods += bits[b] === '1' ? '110' : '100'; }
+    return {mods:mods + '1001', quiet:12, text:d, kind:'plain'};
+  }
+
+  /* ---- Pharmacode ---- */
+  function pharmacode(text){
+    digitsOnly(text, 'Pharmacode');
+    var n = +text;
+    if(n < 3 || n > 131070) fail('Pharmacode numbers run from 3 to 131070.');
+    var bars = [];
+    while(n > 0){ if(n % 2){ bars.push(1); n = (n - 1) / 2; } else { bars.push(3); n = (n - 2) / 2; } }
+    bars.reverse();
+    return {mods:bars.map(function(w){ return rep('1', w); }).join('00'), quiet:6, text:text, kind:'plain'};
+  }
+
+  var FORMATS = {
+    code128:  {label:'Code 128',          group:'General purpose', sample:'Hello-2025', hint:'Any ASCII text. The most compact general-purpose barcode; picks the best of subsets A/B/C automatically.'},
+    code39:   {label:'Code 39',           group:'General purpose', sample:'CODE-39', hint:'Capital letters, digits, space and - . $ / + %. Tick Full ASCII for lowercase and symbols.'},
+    ean13:    {label:'EAN-13',            group:'Retail', sample:'590123412345', hint:'12 digits; the 13th (check) digit is added for you. Used on products worldwide.'},
+    ean8:     {label:'EAN-8',             group:'Retail', sample:'9638507', hint:'7 digits plus an automatic check digit. For small packages.'},
+    upca:     {label:'UPC-A',             group:'Retail', sample:'03600029145', hint:'11 digits plus an automatic check digit. Used on products in the US and Canada.'},
+    upce:     {label:'UPC-E',             group:'Retail', sample:'0123456', hint:'6–8 digits, or an 11/12-digit UPC-A that can be shortened. Compact UPC for small packages.'},
+    isbn:     {label:'ISBN-13 (books)',   group:'Retail', sample:'978-0-306-40615-7', hint:'ISBN-10 or ISBN-13, hyphens allowed. Add a 5-digit price add-on if you need one.'},
+    itf14:    {label:'ITF-14 (cartons)',  group:'Logistics', sample:'1234567890123', hint:'13 digits plus an automatic check digit, with the standard bearer frame, for shipping cartons.'},
+    itf:      {label:'Interleaved 2 of 5',group:'Logistics', sample:'12345670', hint:'Digits only, in pairs. Dense and common in warehouses.'},
+    codabar:  {label:'Codabar',           group:'Logistics', sample:'123456', hint:'Digits and - $ : / . + with start/stop letters A–D. Libraries, blood banks, couriers.'},
+    msi:      {label:'MSI Plessey',       group:'Logistics', sample:'123456', hint:'Digits with an optional Mod-10 check digit. Shelf labels and inventory.'},
+    pharma:   {label:'Pharmacode',        group:'Logistics', sample:'1234', hint:'A number from 3 to 131070. Used on pharmaceutical packaging.'}
+  };
+  function encode(format, text, o){
+    o = o || {}; text = String(text == null ? '' : text);
+    switch(format){
+      case 'code128': return code128(text, o.sub);
+      case 'code39': return code39(text, o);
+      case 'ean13': return ean13(text.replace(/\s/g, ''), o.addon);
+      case 'ean8': return ean8(text.replace(/\s/g, ''));
+      case 'upca': return upcA(text.replace(/\s/g, ''), o.addon);
+      case 'upce': return upcE(text.replace(/\s/g, ''));
+      case 'isbn': return isbn(text, o.addon);
+      case 'itf14': return itf14(text.replace(/\s/g, ''));
+      case 'itf': return itf(text.replace(/\s/g, ''), o);
+      case 'codabar': return codabar(text, o);
+      case 'msi': return msi(text.replace(/\s/g, ''), o);
+      case 'pharma': return pharmacode(text.replace(/\s/g, ''));
+    }
+    fail('Unknown barcode format.');
+  }
+  return {encode:encode, FORMATS:FORMATS};
+})();
+
+/* ---------------- Barcode generator ---------------- */
+function mountBarcodeGenerator(container){
+  mountEmbed(container, 'TOOL / BARCODE GENERATOR', function(body){
+    var FMT = BARCODE.FORMATS, groups = {};
+    Object.keys(FMT).forEach(function(k){ (groups[FMT[k].group] = groups[FMT[k].group] || []).push(k); });
+    var FONTS = {sans:"Geist, system-ui, Arial, sans-serif", mono:"ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", serif:"Georgia, 'Times New Roman', serif", narrow:"'Arial Narrow', 'Roboto Condensed', Arial, sans-serif"};
+    var RANDOM_LEN = {ean13:12, ean8:7, upca:11, upce:6, isbn:12, itf14:13, itf:10, codabar:8, msi:8, pharma:4};
+    function opt(v, l, sel){ return '<option value="' + v + '"' + (sel ? ' selected' : '') + '>' + l + '</option>'; }
+    body.innerHTML =
+      '<div class="qr-layout bc">' +
+        '<div class="qr-form">' +
+          '<div class="field"><label for="bc-format">Barcode type</label><select id="bc-format">' + Object.keys(groups).map(function(g){ return '<optgroup label="' + g + '">' + groups[g].map(function(k){ return opt(k, FMT[k].label, k === 'code128'); }).join('') + '</optgroup>'; }).join('') + '</select><p class="hint" id="bc-hint"></p></div>' +
+          '<div class="field"><div class="bc-labelrow"><label for="bc-value" id="bc-vlabel">Value</label><label class="bc-inline"><input type="checkbox" id="bc-batch"> Batch (one per line)</label></div>' +
+            '<textarea id="bc-value" rows="1" spellcheck="false" autocomplete="off" placeholder="Type or paste the value"></textarea>' +
+            '<div class="tool-row"><button class="game-btn secondary" type="button" id="bc-sample">Sample</button><button class="game-btn secondary" type="button" id="bc-random">Random</button><span class="hint" id="bc-check"></span></div></div>' +
+          '<div class="tool-grid two" id="bc-specific">' +
+            '<div class="field" data-f="code128"><label for="bc-sub">Character set</label><select id="bc-sub">' + opt('auto', 'Auto (smallest)', true) + opt('A', 'Set A (capitals, control)') + opt('B', 'Set B (upper and lower case)') + opt('C', 'Set C (digit pairs)') + '</select></div>' +
+            '<div class="field" data-f="code39"><label>Code 39 options</label><label class="bc-inline"><input type="checkbox" id="bc-c39ext"> Full ASCII</label><label class="bc-inline"><input type="checkbox" id="bc-c39chk"> Add check character</label></div>' +
+            '<div class="field" data-f="codabar"><label for="bc-cbs">Start / stop letters</label><div class="tool-row"><select id="bc-cbs">' + opt('A', 'A', true) + opt('B', 'B') + opt('C', 'C') + opt('D', 'D') + '</select><select id="bc-cbe" aria-label="Stop letter">' + opt('A', 'A', true) + opt('B', 'B') + opt('C', 'C') + opt('D', 'D') + '</select></div></div>' +
+            '<div class="field" data-f="itf"><label>Interleaved 2 of 5</label><label class="bc-inline"><input type="checkbox" id="bc-itfpad" checked> Pad with a leading zero if odd</label></div>' +
+            '<div class="field" data-f="msi"><label>MSI options</label><label class="bc-inline"><input type="checkbox" id="bc-msichk" checked> Add Mod-10 check digit</label></div>' +
+            '<div class="field" data-f="itf14"><label>ITF-14</label><label class="bc-inline"><input type="checkbox" id="bc-bearer" checked> Bearer frame</label></div>' +
+            '<div class="field" data-f="ean13 upca isbn"><label for="bc-addon">Add-on digits (optional)</label><input id="bc-addon" inputmode="numeric" maxlength="5" placeholder="2 or 5 digits" autocomplete="off"></div>' +
+          '</div>' +
+          '<div class="qr-opts">' +
+            '<div class="tool-grid two"><div class="field"><label for="bc-fg">Bars</label><input id="bc-fg" type="color" class="big" value="#000000"></div><div class="field"><label for="bc-bg">Background</label><input id="bc-bg" type="color" class="big" value="#ffffff"></div></div>' +
+            '<div class="tool-row"><label class="bc-inline"><input type="checkbox" id="bc-trans"> Transparent background</label><label class="bc-inline"><input type="checkbox" id="bc-text" checked> Show text under bars</label></div>' +
+            '<div class="tool-grid two">' +
+              '<div class="field"><label for="bc-mw">Bar width <span id="bc-mwv">2</span> px</label><input id="bc-mw" type="range" min="1" max="8" step="0.5" value="2"></div>' +
+              '<div class="field"><label for="bc-h">Bar height <span id="bc-hv">100</span> px</label><input id="bc-h" type="range" min="30" max="300" step="5" value="100"></div>' +
+              '<div class="field"><label for="bc-margin">Margin <span id="bc-mv">12</span> px</label><input id="bc-margin" type="range" min="0" max="60" value="12"></div>' +
+              '<div class="field"><label for="bc-fs">Text size <span id="bc-fv">14</span> px</label><input id="bc-fs" type="range" min="8" max="36" value="14"></div>' +
+              '<div class="field"><label for="bc-font">Text font</label><select id="bc-font">' + opt('sans', 'Sans-serif', true) + opt('mono', 'Monospace') + opt('serif', 'Serif') + opt('narrow', 'Condensed') + '</select></div>' +
+              '<div class="field"><label for="bc-rot">Rotation</label><select id="bc-rot">' + opt('0', 'None', true) + opt('90', '90°') + opt('180', '180°') + opt('270', '270°') + '</select></div>' +
+            '</div>' +
+            '<div class="field"><label for="bc-label">Custom text under the bars (optional)</label><input id="bc-label" placeholder="Leave empty to show the encoded value" autocomplete="off"></div>' +
+            '<div class="field"><label for="bc-scale">PNG download size</label><select id="bc-scale">' + opt('1', '1× (as shown)') + opt('2', '2×') + opt('3', '3× (print quality)', true) + opt('4', '4×') + opt('6', '6×') + '</select></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="qr-out">' +
+          '<div class="qr-preview bc-preview" id="bc-preview"><canvas id="bc-canvas" aria-label="Barcode preview"></canvas></div>' +
+          '<div class="bc-batchgrid" id="bc-grid" hidden></div>' +
+          '<p class="err-text" id="bc-err" role="alert"></p><p class="hint" id="bc-info"></p><p class="hint" id="bc-warn"></p>' +
+          '<div class="tool-row" style="justify-content:center"><button class="game-btn" id="bc-png" type="button">Download PNG</button><button class="game-btn secondary" id="bc-svg" type="button">Download SVG</button><button class="game-btn secondary" id="bc-copy" type="button">Copy image</button></div>' +
+          '<div class="tool-row" style="justify-content:center" id="bc-batchbtns" hidden><button class="game-btn secondary" id="bc-zip" type="button">All as ZIP (PNG)</button><button class="game-btn secondary" id="bc-zipsvg" type="button">All as ZIP (SVG)</button><button class="game-btn secondary" id="bc-sheet" type="button">Contact sheet (PNG)</button></div>' +
+          '<div class="qr-save"><div class="field"><label for="bc-name">Save to your library</label><input id="bc-name" maxlength="60" placeholder="Name it, e.g. Shelf label A12" autocomplete="off" data-nopersist></div>' +
+            '<div class="tool-row" style="justify-content:center"><button class="game-btn" id="bc-savebtn" type="button">Save to library</button><button class="game-btn secondary" id="bc-saveas" type="button" hidden>Save as new</button><button class="game-btn secondary" id="bc-stopedit" type="button" hidden>Stop editing</button></div>' +
+            '<p class="hint" id="bc-editing" role="status"></p></div>' +
+        '</div>' +
+      '</div>' +
+      '<section class="qr-lib" aria-labelledby="bc-lib-h"><div class="qr-lib-head"><h3 id="bc-lib-h">Saved barcodes <span id="bc-libcount"></span></h3><span class="hint">Stored in this browser only.</span></div><div class="qr-grid" id="bc-libgrid"></div></section>';
+    var $ = function(s){ return body.querySelector(s); }, V = function(id){ return $('#' + id).value; }, C = function(id){ return $('#' + id).checked; };
+    var cur = null, items = [];
+
+    function options(){
+      var f = V('bc-format'), o = {};
+      if(f === 'code128') o.sub = V('bc-sub');
+      if(f === 'code39'){ o.extended = C('bc-c39ext'); o.check = C('bc-c39chk'); }
+      if(f === 'codabar'){ o.start = V('bc-cbs'); o.stop = V('bc-cbe'); }
+      if(f === 'itf') o.pad = C('bc-itfpad');
+      if(f === 'msi') o.check = C('bc-msichk');
+      if(f === 'ean13' || f === 'upca' || f === 'isbn') o.addon = V('bc-addon').replace(/\s/g, '');
+      return o;
+    }
+    function style(){
+      return {mw:+V('bc-mw'), h:+V('bc-h'), margin:+V('bc-margin'), fs:+V('bc-fs'), text:C('bc-text'), font:FONTS[V('bc-font')], fg:V('bc-fg'), bg:V('bc-bg'), trans:C('bc-trans'), rot:+V('bc-rot'), bearer:C('bc-bearer'), label:V('bc-label').trim()};
+    }
+    var C2 = document.createElement('canvas').getContext('2d');
+    function textW(s, size, font){ C2.font = size + 'px ' + font; return C2.measureText(s).width; }
+
+    /* geometry in CSS px: bars, text and (for rotation) the final size */
+    function layout(res, st){
+      var mw = st.mw, M = st.margin, kind = res.kind, retail = /^(ean13|ean8|upca|upce)$/.test(kind), fs = st.fs;
+      var tb = st.text ? Math.ceil(fs * 1.2) + (retail ? 2 : 6) : 0, bearer = (res.bearer && st.bearer) ? Math.max(2, Math.round(mw * 4)) : 0;
+      var topPad = (res.addon && st.text) ? fs + 6 : 0, quiet = res.quiet * mw;
+      var mainW = res.mods.length * mw, gap = res.addon ? Math.max(9 * mw, fs * 0.9 + 6) : 0, addW = res.addon ? res.addonMods.length * mw : 0;
+      var W = M * 2 + bearer * 2 + quiet * 2 + mainW + (res.addon ? gap + addW : 0);
+      var x0 = M + bearer + quiet, y0 = M + bearer + topPad, H = st.h;
+      var barH = retail ? H : H, totalH = M * 2 + bearer * 2 + topPad + (retail ? H : H + tb);
+      var guards = {}, i;
+      function mark(a, b){ for(i = a; i < b; i++) guards[i] = 1; }
+      if(retail && st.text){
+        if(kind === 'ean13'){ mark(0, 3); mark(45, 50); mark(92, 95); }
+        else if(kind === 'ean8'){ mark(0, 3); mark(31, 36); mark(64, 67); }
+        else if(kind === 'upca'){ mark(0, 10); mark(45, 50); mark(85, 95); }
+        else if(kind === 'upce'){ mark(0, 3); mark(45, 51); }
+      }
+      var rects = [], r = res.mods, k = 0, textRect = null;
+      while(k < r.length){
+        if(r[k] === '1'){
+          var j = k, g = false; while(j < r.length && r[j] === '1'){ if(guards[j]) g = true; j++; }
+          var bh = (retail && st.text && !g) ? H - tb : H;
+          // a run can mix guard and normal modules only at the edges; split by module for exactness
+          if(retail && st.text){ for(var m = k; m < j; m++){ var gh = guards[m] ? H : H - tb; if(rects.length && rects[rects.length - 1].m === m - 1 && rects[rects.length - 1].h === gh){ rects[rects.length - 1].w += mw; rects[rects.length - 1].m = m; } else rects.push({x:x0 + m * mw, y:y0, w:mw, h:gh, m:m}); } }
+          else rects.push({x:x0 + k * mw, y:y0, w:(j - k) * mw, h:bh});
+          k = j;
+        } else k++;
+      }
+      if(res.addon){
+        var ax = x0 + mainW + gap, ar = res.addonMods; k = 0;
+        while(k < ar.length){ if(ar[k] === '1'){ var j2 = k; while(j2 < ar.length && ar[j2] === '1') j2++; rects.push({x:ax + k * mw, y:y0, w:(j2 - k) * mw, h:retail ? H - tb : H}); k = j2; } else k++; }
+      }
+      var texts = [];
+      if(st.text){
+        var by = y0 + (retail ? H : H + tb) - (retail ? 2 : 5);                 // text baseline
+        var label = st.label;
+        function spread(str, from, to){ var n = str.length, span = (to - from) / n; for(var q = 0; q < n; q++) texts.push({s:str[q], x:from + (q + 0.5) * span, y:by, a:'middle'}); }
+        if(label){ texts.push({s:label, x:x0 + mainW / 2, y:by, a:'middle', fit:mainW + quiet}); }
+        else if(retail){
+          var d = res.digits;
+          if(kind === 'ean13'){ texts.push({s:d[0], x:x0 - 2 * mw, y:by, a:'end'}); spread(d.slice(1, 7), x0 + 3 * mw, x0 + 45 * mw); spread(d.slice(7), x0 + 50 * mw, x0 + 92 * mw); }
+          else if(kind === 'ean8'){ spread(d.slice(0, 4), x0 + 3 * mw, x0 + 31 * mw); spread(d.slice(4), x0 + 36 * mw, x0 + 64 * mw); }
+          else if(kind === 'upca'){ texts.push({s:d[0], x:x0 - 2 * mw, y:by, a:'end'}); spread(d.slice(1, 6), x0 + 10 * mw, x0 + 45 * mw); spread(d.slice(6, 11), x0 + 50 * mw, x0 + 85 * mw); texts.push({s:d[11], x:x0 + mainW + 2 * mw, y:by, a:'start'}); }
+          else if(kind === 'upce'){ texts.push({s:d[0], x:x0 - 2 * mw, y:by, a:'end'}); spread(d.slice(1, 7), x0 + 3 * mw, x0 + 45 * mw); texts.push({s:d[7], x:x0 + mainW + 2 * mw, y:by, a:'start'}); }
+        } else texts.push({s:res.text, x:x0 + mainW / 2, y:by, a:'middle', fit:mainW + quiet * 1.6});
+        if(res.addon) { var ax2 = x0 + mainW + gap; texts.push({s:res.addon, x:ax2 + addW / 2, y:y0 - 4, a:'middle'}); }
+      }
+      var frame = null;
+      if(bearer) frame = {x:M, y:M, w:W - 2 * M, h:totalH - 2 * M, t:bearer};
+      return {W:W, H:totalH, rects:rects, texts:texts, frame:frame, st:st};
+    }
+    function fitSize(t, st){ if(t.fit){ var w = textW(t.s, st.fs, st.font); if(w > t.fit) return Math.max(6, st.fs * t.fit / w); } return st.fs; }
+    function rotDims(L){ return (L.st.rot % 180) ? {W:L.H, H:L.W} : {W:L.W, H:L.H}; }
+
+    function drawLayout(cv, L, scale){
+      var rd = rotDims(L), st = L.st, s = scale || 1;
+      cv.width = Math.round(rd.W * s); cv.height = Math.round(rd.H * s);
+      var g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height);
+      if(!st.trans){ g.fillStyle = st.bg; g.fillRect(0, 0, cv.width, cv.height); }
+      g.save();
+      if(st.rot === 90){ g.translate(cv.width, 0); g.rotate(Math.PI / 2); } else if(st.rot === 180){ g.translate(cv.width, cv.height); g.rotate(Math.PI); } else if(st.rot === 270){ g.translate(0, cv.height); g.rotate(-Math.PI / 2); }
+      g.fillStyle = st.fg;
+      L.rects.forEach(function(r){ var x1 = Math.round(r.x * s), x2 = Math.round((r.x + r.w) * s), y1 = Math.round(r.y * s), y2 = Math.round((r.y + r.h) * s); g.fillRect(x1, y1, Math.max(1, x2 - x1), y2 - y1); });
+      if(L.frame){ var f = L.frame, t = f.t * s; g.fillRect(f.x * s, f.y * s, f.w * s, t); g.fillRect(f.x * s, (f.y + f.h) * s - t, f.w * s, t); g.fillRect(f.x * s, f.y * s, t, f.h * s); g.fillRect((f.x + f.w) * s - t, f.y * s, t, f.h * s); }
+      g.textBaseline = 'alphabetic';
+      L.texts.forEach(function(t){ var size = fitSize(t, st); g.font = (size * s) + 'px ' + st.font; g.textAlign = t.a === 'middle' ? 'center' : t.a; g.fillText(t.s, t.x * s, t.y * s); });
+      g.restore();
+    }
+    function xmlEsc(x){ return String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+    function layoutSvg(L){
+      var st = L.st, rd = rotDims(L), n = function(v){ return +v.toFixed(3); };
+      var d = L.rects.map(function(r){ return 'M' + n(r.x) + ' ' + n(r.y) + 'h' + n(r.w) + 'v' + n(r.h) + 'h' + n(-r.w) + 'z'; }).join('');
+      if(L.frame){ var f = L.frame; d += 'M' + n(f.x) + ' ' + n(f.y) + 'h' + n(f.w) + 'v' + n(f.t) + 'h' + n(-f.w) + 'zM' + n(f.x) + ' ' + n(f.y + f.h - f.t) + 'h' + n(f.w) + 'v' + n(f.t) + 'h' + n(-f.w) + 'zM' + n(f.x) + ' ' + n(f.y) + 'h' + n(f.t) + 'v' + n(f.h) + 'h' + n(-f.t) + 'zM' + n(f.x + f.w - f.t) + ' ' + n(f.y) + 'h' + n(f.t) + 'v' + n(f.h) + 'h' + n(-f.t) + 'z'; }
+      var tr = st.rot === 90 ? ' transform="translate(' + n(rd.W) + ' 0) rotate(90)"' : st.rot === 180 ? ' transform="translate(' + n(rd.W) + ' ' + n(rd.H) + ') rotate(180)"' : st.rot === 270 ? ' transform="translate(0 ' + n(rd.H) + ') rotate(270)"' : '';
+      var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + n(rd.W) + '" height="' + n(rd.H) + '" viewBox="0 0 ' + n(rd.W) + ' ' + n(rd.H) + '">';
+      if(!st.trans) svg += '<rect width="100%" height="100%" fill="' + xmlEsc(st.bg) + '"/>';
+      svg += '<g' + tr + '><path d="' + d + '" fill="' + xmlEsc(st.fg) + '"/>';
+      L.texts.forEach(function(t){ svg += '<text x="' + n(t.x) + '" y="' + n(t.y) + '" font-size="' + n(fitSize(t, st)) + '" font-family="' + xmlEsc(st.font) + '" text-anchor="' + t.a + '" fill="' + xmlEsc(st.fg) + '">' + xmlEsc(t.s) + '</text>'; });
+      return svg + '</g></svg>';
+    }
+    function lum(hex){ var c = [1, 3, 5].map(function(i){ var v = parseInt(hex.slice(i, i + 2), 16) / 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; }
+    function contrast(a, b){ var x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }
+
+    function update(){
+      var f = V('bc-format'), st = style(), batch = C('bc-batch');
+      $('#bc-hint').textContent = FMT[f].hint;
+      body.querySelectorAll('#bc-specific [data-f]').forEach(function(e){ e.hidden = e.getAttribute('data-f').split(' ').indexOf(f) < 0; });
+      $('#bc-mwv').textContent = V('bc-mw'); $('#bc-hv').textContent = V('bc-h'); $('#bc-mv').textContent = V('bc-margin'); $('#bc-fv').textContent = V('bc-fs');
+      $('#bc-value').rows = batch ? 6 : 1;
+      $('#bc-vlabel').textContent = batch ? 'Values (one barcode per line, up to 100)' : 'Value';
+      $('#bc-bg').disabled = st.trans;
+      var lines = (batch ? V('bc-value').split(/\r?\n/) : [V('bc-value')]).map(function(s){ return s.trim(); }).filter(function(s, i, a){ return s || (!batch && i === 0); }).slice(0, 100);
+      var o = options(), errs = [];
+      items = [];
+      lines.forEach(function(t, idx){
+        try{ var res = BARCODE.encode(f, t, o); items.push({value:t, res:res, L:layout(res, st)}); }
+        catch(e){ if(e.user) errs.push(batch ? 'Line ' + (idx + 1) + ': ' + e.message : e.message); else throw e; }
+      });
+      cur = items[0] || null;
+      $('#bc-err').textContent = errs.slice(0, 3).join('  ') + (errs.length > 3 ? '  (+' + (errs.length - 3) + ' more)' : '');
+      var cv = $('#bc-canvas');
+      $('#bc-grid').hidden = !batch; $('#bc-batchbtns').hidden = !batch || !items.length; $('#bc-preview').hidden = batch && items.length > 1;
+      if(cur){
+        drawLayout(cv, cur.L, Math.min(2, Math.max(1, 520 / Math.max(cur.L.W, cur.L.H))) * (window.devicePixelRatio > 1 ? 1 : 1));
+        cv.style.width = Math.min(rotDims(cur.L).W, 520) + 'px'; cv.style.height = 'auto';
+        var rd = rotDims(cur.L), mmw = rd.W / 96 * 25.4;
+        $('#bc-info').textContent = (batch && items.length > 1 ? items.length + ' barcodes · first: ' : '') + (cur.res.text !== cur.value && !batch ? 'Encodes ' + cur.res.text + ' · ' : '') + Math.round(rd.W) + ' × ' + Math.round(rd.H) + ' px (≈ ' + mmw.toFixed(0) + ' × ' + (rd.H / 96 * 25.4).toFixed(0) + ' mm at 96 dpi)';
+        var ci = $('#bc-check'); ci.textContent = /^(ean13|ean8|upca|isbn|itf14)$/.test(f) && cur.res.digits ? 'Check digit: ' + cur.res.digits.slice(-1) : (f === 'itf14' ? 'Check digit: ' + cur.res.text.slice(-1) : '');
+      } else {
+        cv.width = 2; cv.height = 2; cv.style.width = '0px'; $('#bc-info').textContent = ''; $('#bc-check').textContent = '';
+      }
+      var warn = [], cr = st.trans ? 21 : contrast(st.fg, st.bg);
+      if(cr < 3) warn.push('Low contrast: this may not scan. Use dark bars on a light background.');
+      else if(!st.trans && lum(st.fg) > lum(st.bg)) warn.push('Light bars on a dark background are unreliable for many scanners.');
+      if(cur && st.mw < 1.5) warn.push('Very thin bars; use at least 2 px per bar if you will print this small.');
+      $('#bc-warn').textContent = warn.join(' ');
+      if(batch){
+        var grid = $('#bc-grid'); grid.textContent = '';
+        items.slice(0, 48).forEach(function(it){
+          var cell = document.createElement('figure'), c = document.createElement('canvas'); drawLayout(c, it.L, 1);
+          c.style.width = '100%'; c.style.height = 'auto';
+          var cap = document.createElement('figcaption'); cap.textContent = it.value; cell.appendChild(c); cell.appendChild(cap); grid.appendChild(cell);
+        });
+        if(items.length > 48){ var more = document.createElement('p'); more.className = 'hint'; more.textContent = 'Showing 48 of ' + items.length + '. Downloads include all of them.'; grid.appendChild(more); }
+      }
+    }
+    function fileBase(it){ return (it.value || 'barcode').replace(/[<>:"/\\|?*\x00-\x1F]/g, '-').slice(0, 40) || 'barcode'; }
+    function pngBlob(it, scale, cb){ var c = document.createElement('canvas'); drawLayout(c, it.L, scale); c.toBlob(cb, 'image/png'); }
+    function scaleNow(){ return +V('bc-scale') || 3; }
+    $('#bc-png').addEventListener('click', function(){ if(!cur){ notify('Fix the value first.', 'warn'); return; } pngBlob(cur, scaleNow(), function(b){ saveBlob(fileBase(cur) + '.png', b); }); });
+    $('#bc-svg').addEventListener('click', function(){ if(!cur){ notify('Fix the value first.', 'warn'); return; } saveBlob(fileBase(cur) + '.svg', new Blob([layoutSvg(cur.L)], {type:'image/svg+xml'})); });
+    $('#bc-copy').addEventListener('click', function(){
+      if(!cur){ notify('Fix the value first.', 'warn'); return; }
+      pngBlob(cur, scaleNow(), function(b){
+        if(!navigator.clipboard || !window.ClipboardItem){ notify('Copying images isn’t supported in this browser. Use Download PNG.', 'warn'); return; }
+        navigator.clipboard.write([new ClipboardItem({'image/png':b})]).then(function(){ notify('Image copied', 'ok'); }, function(){ notify('Copy was blocked. Use Download PNG.', 'warn'); });
+      });
+    });
+    function zipAll(kind){
+      var done = 0, files = [], used = {}, enc = new TextEncoder();
+      items.forEach(function(it, i){
+        var name = fileBase(it), n = used[name] = (used[name] || 0) + 1; if(n > 1) name += '-' + n;
+        if(kind === 'svg'){ files.push({name:name + '.svg', data:enc.encode(layoutSvg(it.L))}); if(++done === items.length) finish(); }
+        else pngBlob(it, scaleNow(), function(b){ b.arrayBuffer().then(function(ab){ files[i] = {name:name + '.png', data:new Uint8Array(ab)}; if(++done === items.length) finish(); }); });
+      });
+      function finish(){ saveBlob('barcodes-' + V('bc-format') + '.zip', makeZip(files.filter(Boolean))); }
+    }
+    $('#bc-zip').addEventListener('click', function(){ if(items.length) zipAll('png'); });
+    $('#bc-zipsvg').addEventListener('click', function(){ if(items.length) zipAll('svg'); });
+    $('#bc-sheet').addEventListener('click', function(){
+      if(!items.length) return;
+      var s = 2, cols = Math.min(items.length, 3), pad = 24, cw = 0, ch = 0;
+      items.forEach(function(it){ var d = rotDims(it.L); cw = Math.max(cw, d.W); ch = Math.max(ch, d.H); });
+      var rows = Math.ceil(items.length / cols), c = document.createElement('canvas'); c.width = (cols * (cw + pad) + pad) * s; c.height = (rows * (ch + pad) + pad) * s;
+      var g = c.getContext('2d'); g.fillStyle = '#ffffff'; g.fillRect(0, 0, c.width, c.height);
+      items.forEach(function(it, i){ var t = document.createElement('canvas'); drawLayout(t, it.L, s); g.drawImage(t, (pad + (i % cols) * (cw + pad)) * s, (pad + Math.floor(i / cols) * (ch + pad)) * s); });
+      c.toBlob(function(b){ saveBlob('barcode-sheet.png', b); }, 'image/png');
+    });
+    $('#bc-sample').addEventListener('click', function(){ $('#bc-value').value = FMT[V('bc-format')].sample; fire(); });
+    $('#bc-random').addEventListener('click', function(){
+      var f = V('bc-format'), n = RANDOM_LEN[f], s = '', i;
+      if(n){ for(i = 0; i < n; i++) s += Math.floor(Math.random() * 10); if(f === 'isbn') s = '978' + s.slice(3); if(f === 'upce') s = '0' + s.slice(1); if(f === 'pharma') s = String(3 + Math.floor(Math.random() * 99990)); }
+      else { var ch = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; for(i = 0; i < 10; i++) s += ch[Math.floor(Math.random() * ch.length)]; }
+      $('#bc-value').value = s; fire();
+    });
+    function fire(){ $('#bc-value').dispatchEvent(new Event('input', {bubbles:true})); }
+    $('#bc-format').addEventListener('change', function(){ if(!V('bc-value').trim()) $('#bc-value').value = FMT[V('bc-format')].sample; });
+    body.addEventListener('input', update); body.addEventListener('change', update);
+
+    /* ---- saved barcodes (IndexedDB on this device, editable later) ---- */
+    var editingId = null, library = [], dbq = null;
+    function qdb(){
+      if(dbq) return dbq;
+      dbq = new Promise(function(res, rej){
+        if(!window.indexedDB){ rej(new Error('Browser storage is not available')); return; }
+        var r = indexedDB.open('vs-barcode-library', 1);
+        r.onupgradeneeded = function(){ r.result.createObjectStore('codes', {keyPath:'id'}); };
+        r.onsuccess = function(){ res(r.result); }; r.onerror = function(){ rej(r.error); };
+      });
+      return dbq;
+    }
+    function qtx(mode, fn){ return qdb().then(function(d){ return new Promise(function(res, rej){ var tx = d.transaction('codes', mode), out; tx.oncomplete = function(){ res(out); }; tx.onerror = tx.onabort = function(){ rej(tx.error || new Error('Storage write failed')); }; fn(tx.objectStore('codes'), function(v){ out = v; }); }); }); }
+    function qAll(){ return qtx('readonly', function(s, set){ var r = s.getAll(); r.onsuccess = function(){ set(r.result); }; }); }
+    function qPut(rec){ return qtx('readwrite', function(s){ s.put(rec); }); }
+    function qDel(id){ return qtx('readwrite', function(s){ s.delete(id); }); }
+    function capture(){ var f = {}; body.querySelectorAll('.qr-form input, .qr-form select, .qr-form textarea').forEach(function(e){ if(!e.id) return; f[e.id] = e.type === 'checkbox' ? e.checked : e.value; }); return f; }
+    function setEditing(id, name){
+      editingId = id; $('#bc-savebtn').textContent = id ? 'Save changes' : 'Save to library'; $('#bc-saveas').hidden = $('#bc-stopedit').hidden = !id;
+      $('#bc-editing').textContent = id ? 'Editing “' + name + '”. Change anything, then save.' : '';
+    }
+    function thumbOf(){ var c = document.createElement('canvas'); drawLayout(c, cur.L, Math.min(1, 220 / cur.L.W)); try{ return c.toDataURL('image/png'); }catch(e){ return ''; } }
+    function saveCode(asNew){
+      if(!cur){ notify('Fix the value first.', 'warn'); return; }
+      var now = Date.now(), name = V('bc-name').trim() || cur.value.slice(0, 40) || 'Untitled barcode', old = !asNew && editingId ? library.filter(function(r){ return r.id === editingId; })[0] : null;
+      var rec = {id:old ? old.id : 'bc-' + now.toString(36) + Math.random().toString(36).slice(2, 6), name:name, format:V('bc-format'), sub:cur.value.split(/\r?\n/)[0].slice(0, 40), fields:capture(), thumb:thumbOf(), created:old ? old.created : now, updated:now};
+      qPut(rec).then(function(){ setEditing(rec.id, name); $('#bc-name').value = name; notify(old ? 'Changes saved' : 'Saved to your library', 'ok'); return loadLib(); })
+        .catch(function(e){ notify('Couldn’t save: ' + (e && e.name === 'QuotaExceededError' ? 'browser storage is full.' : 'browser storage is unavailable.'), 'err'); });
+    }
+    function loadLib(){ return qAll().then(function(rs){ library = (rs || []).sort(function(a, b){ return b.updated - a.updated; }); drawLib(); }).catch(function(){ library = []; drawLib(true); }); }
+    function drawLib(failed){
+      var g = $('#bc-libgrid'); g.textContent = ''; $('#bc-libcount').textContent = library.length ? '(' + library.length + ')' : '';
+      if(!library.length){ var e = document.createElement('p'); e.className = 'hint'; e.textContent = failed ? 'Saving isn’t available here (browser storage is blocked).' : 'Nothing saved yet. Make a barcode, name it and press “Save to library”.'; g.appendChild(e); return; }
+      library.forEach(function(r){
+        var card = document.createElement('div'); card.className = 'qr-card' + (r.id === editingId ? ' is-editing' : '');
+        var im = document.createElement('img'); im.src = r.thumb; im.alt = 'Barcode: ' + r.name; im.className = 'bc-thumb';
+        var nm = document.createElement('b'); nm.textContent = r.name; nm.title = r.name;
+        var sub = document.createElement('small'); sub.textContent = (FMT[r.format] ? FMT[r.format].label : 'Barcode') + (r.sub ? ' · ' + r.sub : ''); sub.title = sub.textContent;
+        var dt = document.createElement('small'); dt.textContent = 'Updated ' + (function(){ try{ return new Date(r.updated).toLocaleDateString(undefined, {day:'numeric', month:'short', year:'numeric'}); }catch(x){ return ''; } })();
+        var row = document.createElement('div'); row.className = 'qr-card-actions';
+        function btn(label, cls, fn){ var b = document.createElement('button'); b.type = 'button'; b.className = 'game-btn ' + cls; b.textContent = label; b.setAttribute('aria-label', label + ' ' + r.name); b.addEventListener('click', fn); row.appendChild(b); }
+        btn('Edit', '', function(){ editCode(r); });
+        btn('Delete', 'secondary', function(){ if(!window.confirm('Delete “' + r.name + '” from your library?')) return; qDel(r.id).then(function(){ if(editingId === r.id) setEditing(null); return loadLib(); }); });
+        card.appendChild(im); card.appendChild(nm); card.appendChild(sub); card.appendChild(dt); card.appendChild(row); g.appendChild(card);
+      });
+    }
+    function editCode(r){
+      Object.keys(r.fields || {}).forEach(function(id){ var e = $('#' + id); if(!e) return; if(e.type === 'checkbox') e.checked = !!r.fields[id]; else e.value = r.fields[id]; e.dispatchEvent(new Event('input', {bubbles:true})); });
+      $('#bc-name').value = r.name; setEditing(r.id, r.name); update(); drawLib();
+      $('#bc-preview').scrollIntoView({block:'nearest', behavior:'smooth'}); notify('Loaded “' + r.name + '” for editing', 'ok');
+    }
+    $('#bc-savebtn').addEventListener('click', function(){ saveCode(false); });
+    $('#bc-saveas').addEventListener('click', function(){ saveCode(true); });
+    $('#bc-stopedit').addEventListener('click', function(){ setEditing(null); $('#bc-name').value = ''; drawLib(); });
+    if(!V('bc-value')) $('#bc-value').value = FMT[V('bc-format')].sample;
+    loadLib();
+    window.addEventListener('resize', update);
+    setTimeout(update, 40);   // restored field values have landed by now
+    update();
+  });
+}
+PLAYABLES['barcode-generator'] = mountBarcodeGenerator;
+
+
 /* ==================================================================
    tools / reaction-timer
    ================================================================== */
