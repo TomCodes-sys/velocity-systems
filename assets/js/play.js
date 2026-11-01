@@ -249,3 +249,9 @@ function downloadText(filename, text, mime){
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1000);
 }
+
+/* ---------- consistent tool errors ---------- */
+function toolError(target, title, detail, recovery){
+  if(!target) return;
+  target.innerHTML = '<div class="tool-error" role="alert"><strong>'+String(title || 'This tool could not complete the request').replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];})+'</strong><p>'+String(detail || 'The browser or service blocked the operation.').replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];})+'</p>'+(recovery ? '<p class="hint">'+String(recovery).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];})+'</p>' : '')+'</div>';
+}
