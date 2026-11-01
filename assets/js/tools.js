@@ -6353,6 +6353,89 @@ PLAYABLES['video-trimmer'] = mountVideoTrimmer;
 
 
 
+/* ==================================================================
+   tools / ip-lookup
+   ================================================================== */
+function mountIpLookup(container){
+  mountEmbed(container, 'TOOL / IP ADDRESS LOOKUP', function(body){
+    body.innerHTML='<div class="tool-grid two"><div class="field"><label for="ipl-address">IP address (leave blank for your current public IP)</label><input id="ipl-address" placeholder="203.0.113.10" autocomplete="off"></div><div class="field" style="align-self:end"><button class="game-btn" id="ipl-run" type="button">Look up IP</button></div></div><p class="hint">The address is sent to ipapi.co for lookup. Location is approximate and can be wrong, especially with mobile networks, VPNs and proxies.</p><div id="ipl-status" class="tool-msg" role="status"></div><dl id="ipl-results" class="kv"></dl>';
+    var input=body.querySelector('#ipl-address'), run=body.querySelector('#ipl-run'), status=body.querySelector('#ipl-status'), out=body.querySelector('#ipl-results');
+    function show(data){
+      var fields=[['IP address',data.ip],['Version',data.version],['City',data.city],['Region',data.region],['Country',data.country_name],['Postal code',data.postal],['Latitude',data.latitude],['Longitude',data.longitude],['Timezone',data.timezone],['Organisation',data.org],['ASN',data.asn],['Network',data.network],['Calling code',data.country_calling_code],['Currency',data.currency]];
+      out.innerHTML=fields.filter(function(x){return x[1]!==null&&x[1]!==undefined&&x[1]!=='';}).map(function(x){return '<dt>'+esc(x[0])+'</dt><dd>'+esc(String(x[1]))+'</dd>';}).join('');
+    }
+    function lookup(){
+      var ip=input.value.trim();
+      if(ip && !/^[0-9a-f:.]+$/i.test(ip)){status.textContent='Enter a valid IPv4 or IPv6 address.';return;}
+      status.textContent='Contacting IP lookup provider…';out.innerHTML='';run.disabled=true;
+      fetch('https://ipapi.co/'+(ip?encodeURIComponent(ip)+'/':'')+'json/').then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(function(d){
+        if(d.error) throw new Error(d.reason||'The provider rejected this address.');
+        show(d);status.textContent='Lookup complete. Data supplied by ipapi.co; geolocation is approximate.';
+      }).catch(function(e){toolError(out,'IP lookup failed',e.message||'The request was blocked or the provider is unavailable.','Check the address and connection, disable content blockers for this request, or try again later.');status.textContent='';}).finally(function(){run.disabled=false;});
+    }
+    run.addEventListener('click',lookup);input.addEventListener('keydown',function(e){if(e.key==='Enter')lookup();});
+    lookup();
+  });
+}
+PLAYABLES['ip-lookup']=mountIpLookup;
+
+/* ==================================================================
+   tools / microphone-tester
+   ================================================================== */
+function mountMicrophoneTester(container){
+  mountEmbed(container, 'TOOL / MICROPHONE TESTER', function(body){
+    body.innerHTML='<div class="tool-grid two"><div class="field"><label for="mic-device">Input device</label><select id="mic-device"><option value="">Default microphone</option></select></div><div class="field"><label for="mic-delay">Monitor delay <span id="mic-delay-label">500 ms</span></label><input id="mic-delay" type="range" min="0" max="2000" step="50" value="500"></div></div><div class="tool-row"><button class="game-btn" id="mic-start">Start microphone</button><button class="game-btn secondary" id="mic-stop" disabled>Stop</button><button class="game-btn secondary" id="mic-record" disabled>Start recording</button><button class="game-btn secondary" id="mic-play" disabled>Play recording</button><a class="game-btn secondary" id="mic-download" hidden download="microphone-test.webm">Download recording</a></div><div class="result-card"><div class="field-label">Input level</div><div style="height:12px;background:var(--surface-2);border-radius:20px;overflow:hidden"><div id="mic-level" style="height:100%;width:0%;background:var(--accent);transition:width .08s"></div></div><p class="hint" id="mic-status" role="status">Microphone is off. Audio stays in this browser unless you choose to download it.</p></div><audio id="mic-audio" controls hidden></audio>';
+    var device=body.querySelector('#mic-device'),delay=body.querySelector('#mic-delay'),label=body.querySelector('#mic-delay-label'),start=body.querySelector('#mic-start'),stop=body.querySelector('#mic-stop'),record=body.querySelector('#mic-record'),play=body.querySelector('#mic-play'),download=body.querySelector('#mic-download'),status=body.querySelector('#mic-status'),level=body.querySelector('#mic-level'),audio=body.querySelector('#mic-audio');
+    var stream=null,ctx=null,source=null,analyser=null,delayNode=null,raf=0,recorder=null,chunks=[],recordUrl=null;
+    function stopMic(){
+      if(raf)cancelAnimationFrame(raf);raf=0;
+      if(stream)stream.getTracks().forEach(function(t){t.stop();});stream=null;
+      if(ctx){ctx.close().catch(function(){});ctx=null;}
+      source=analyser=delayNode=null;level.style.width='0%';start.disabled=false;stop.disabled=true;record.disabled=true;
+      status.textContent='Microphone stopped.';
+    }
+    function devices(){
+      if(!navigator.mediaDevices||!navigator.mediaDevices.enumerateDevices)return;
+      navigator.mediaDevices.enumerateDevices().then(function(ds){
+        var selected=device.value;device.innerHTML='<option value="">Default microphone</option>';
+        ds.filter(function(d){return d.kind==='audioinput';}).forEach(function(d,i){var o=document.createElement('option');o.value=d.deviceId;o.textContent=d.label||('Microphone '+(i+1));device.appendChild(o);});
+        if(selected)device.value=selected;
+      }).catch(function(){});
+    }
+    function monitor(){
+      if(!analyser)return;var data=new Uint8Array(analyser.fftSize);analyser.getByteTimeDomainData(data);var sum=0;
+      for(var i=0;i<data.length;i++){var v=(data[i]-128)/128;sum+=v*v;}
+      level.style.width=Math.min(100,Math.sqrt(sum/data.length)*240)+'%';raf=requestAnimationFrame(monitor);
+    }
+    start.addEventListener('click',function(){
+      if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){toolError(status,'Microphone API unavailable','This browser does not expose microphone capture.','Use a current browser over HTTPS or localhost.');return;}
+      var constraints={audio:device.value?{deviceId:{exact:device.value}}:true};
+      navigator.mediaDevices.getUserMedia(constraints).then(function(st){
+        stream=st;ctx=new (window.AudioContext||window.webkitAudioContext)();source=ctx.createMediaStreamSource(stream);analyser=ctx.createAnalyser();analyser.fftSize=512;
+        delayNode=ctx.createDelay(2);delayNode.delayTime.value=+delay.value/1000;
+        source.connect(analyser);source.connect(delayNode);delayNode.connect(ctx.destination);
+        start.disabled=true;stop.disabled=false;record.disabled=!(window.MediaRecorder);status.textContent='Microphone active. Monitoring is enabled; use headphones to avoid feedback.';devices();monitor();
+      }).catch(function(e){var msg=e.name==='NotAllowedError'?'Microphone permission was denied. Allow microphone access in the browser address bar and try again.':e.name==='NotFoundError'?'No microphone was found. Connect one and retry.':e.message;toolError(status,'Could not access microphone',msg,'Check browser permissions, select a connected input device, and ensure the page is served over HTTPS or localhost.');});
+    });
+    stop.addEventListener('click',stopMic);
+    delay.addEventListener('input',function(){label.textContent=delay.value+' ms';if(delayNode)delayNode.delayTime.setTargetAtTime(+delay.value/1000,ctx.currentTime,.02);});
+    device.addEventListener('change',function(){if(stream){stopMic();start.click();}});
+    record.addEventListener('click',function(){
+      if(!stream||!window.MediaRecorder)return;
+      if(recorder&&recorder.state==='recording'){recorder.stop();record.textContent='Start recording';return;}
+      chunks=[];try{recorder=new MediaRecorder(stream);}catch(e){toolError(status,'Recording is not supported',e.message,'Try a browser that supports MediaRecorder.');return;}
+      recorder.ondataavailable=function(e){if(e.data&&e.data.size)chunks.push(e.data);};
+      recorder.onstop=function(){var blob=new Blob(chunks,{type:recorder.mimeType||'audio/webm'});if(recordUrl)URL.revokeObjectURL(recordUrl);recordUrl=URL.createObjectURL(blob);audio.src=recordUrl;audio.hidden=false;download.href=recordUrl;download.hidden=false;play.disabled=false;status.textContent='Recording ready. Play it back or download the file.';};
+      recorder.start();record.textContent='Stop recording';status.textContent='Recording microphone input…';
+    });
+    play.addEventListener('click',function(){audio.play().catch(function(){status.textContent='Playback was blocked. Use the audio player controls.';});});
+    onUnmount('microphone-tester',function(){if(recorder&&recorder.state==='recording')recorder.stop();stopMic();if(recordUrl)URL.revokeObjectURL(recordUrl);});
+    devices();
+  },{persist:false});
+}
+PLAYABLES['microphone-tester']=mountMicrophoneTester;
+
+
 (function(){
   var id = document.body.getAttribute('data-id'), slot = document.getElementById('embed-slot');
   if(slot && PLAYABLES[id]) PLAYABLES[id](slot);
