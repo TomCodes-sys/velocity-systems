@@ -277,5 +277,19 @@ function downloadText(filename, text, mime){
 /* ---------- consistent tool errors ---------- */
 function toolError(target, title, detail, recovery){
   if(!target) return;
-  target.innerHTML = '<div class="tool-error" role="alert"><strong>'+String(title || 'This tool could not complete the request').replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];})+'</strong><p>'+String(detail || 'The browser or service blocked the operation.').replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];})+'</p>'+(recovery ? '<p class="hint">'+String(recovery).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];})+'</p>' : '')+'</div>';
+  function safe(v){return String(v||'').replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
+  target.innerHTML='<div class="tool-error" role="alert"><strong>'+safe(title||'This tool could not complete the request')+'</strong><p>'+safe(detail||'The browser or service blocked the operation.')+'</p>'+(recovery?'<p class="tool-error-recovery"><b>What to try:</b> '+safe(recovery)+'</p>':'')+'</div>';
 }
+
+/* Surface uncaught failures inside a tool instead of leaving a silent broken panel. */
+window.addEventListener('unhandledrejection',function(event){
+  var panel=document.querySelector('.embed-body');
+  if(!panel)return;
+  var reason=event.reason,detail=reason&&reason.message?reason.message:String(reason||'An asynchronous operation failed.');
+  toolError(panel,'Unexpected tool error',detail,'Retry the action. If it continues, check browser permissions, network access and whether this browser supports the required API.');
+});
+window.addEventListener('error',function(event){
+  var panel=document.querySelector('.embed-body');
+  if(!panel||!event.message)return;
+  toolError(panel,'Tool script error',event.message,'Refresh the page. If the problem persists, try another browser or report the page and error message.');
+});
