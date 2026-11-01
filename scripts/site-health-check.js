@@ -27,7 +27,7 @@ function checkPage(page) {
     if (!check[0].test(html)) issue('warning', page.rel, 'Missing metadata: ' + check[1]);
   });
   const tags = html.match(/<(?:a|link|script|img|source|video|audio|iframe)[^>]*>/gi) || [];
-  (html.match(/<img\\b[^>]*>/gi)||[]).forEach(function(tag){if(attr(tag,'alt')==='')issue('warning',page.rel,'Image is missing alt text: '+(attr(tag,'src')||'(inline image)'));});
+  (html.match(/<img\b[^>]*>/gi)||[]).forEach(function(tag){if(!/\balt\s*=/i.test(tag))issue('warning',page.rel,'Image is missing alt text: '+(attr(tag,'src')||'(inline image)'));});
   for (const tag of tags) {
     const raw = /^<(?:a|link)\b/i.test(tag) ? attr(tag, 'href') : attr(tag, 'src');
     if (!raw || /^(?:#|https?:|mailto:|tel:|data:|blob:|javascript:|\/\/)/i.test(raw)) continue;
