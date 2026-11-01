@@ -6448,9 +6448,62 @@ function mountWebsiteToExe(container){
       var owner=match[1],repoName=match[2].replace(/\.git$/,''),slug=name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'website-app';
       var config={repository:'https://github.com/'+owner+'/'+repoName+'.git',branch:branch,folder:folder,appName:name,slug:slug};
       var packageJson={name:slug,version:'1.0.0',description:'Desktop wrapper for '+name,main:'main.js',scripts:{start:'electron .',dist:'electron-builder --win portable'},devDependencies:{electron:'^33.0.0','electron-builder':'^25.1.8'},build:{appId:'com.velocitysystems.'+slug,productName:name,files:['main.js','site/**/*','package.json'],directories:{output:'release'},win:{target:['portable']},portable:{artifactName:slug+'-portable.exe'}}};
-      var mainJs="const { app, BrowserWindow } = require('electron');\nconst path = require('path');\nfunction createWindow(){ const win = new BrowserWindow({width:1280,height:800,minWidth:720,minHeight:500,autoHideMenuBar:true,webPreferences:{contextIsolation:true,nodeIntegration:false}}); win.loadFile(path.join(__dirname,'site','index.html')); }\napp.whenReady().then(()=>{createWindow();app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow();});});\napp.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});\n";
-      var workflow="name: Build Windows EXE\non:\n  workflow_dispatch:\n  push:\n    branches: [main]\njobs:\n  build:\n    runs-on: windows-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n      - name: Download website source\n        shell: pwsh\n        run: |\n          git clone --depth 1 --branch \""+branch+"\" \""+config.repository+"\" source\n          $sourcePath = if (\""+folder+"\") { Join-Path $PWD \"source/"+folder+"\" } else { Join-Path $PWD 'source' }\n          if (!(Test-Path (Join-Path $sourcePath 'index.html'))) { throw 'Selected folder must contain index.html.' }\n          New-Item -ItemType Directory -Force site | Out-Null\n          Copy-Item -Path (Join-Path $sourcePath '*') -Destination site -Recurse -Force\n      - name: Install dependencies\n        run: npm install\n      - name: Build portable EXE\n        run: npm run dist\n      - uses: actions/upload-artifact@v4\n        with:\n          name: windows-portable-exe\n          path: release/*.exe\n          if-no-files-found: error\n";
-      var readme='# '+name+'\n\nThis project wraps a static website in an Electron desktop window and builds a portable Windows EXE.\n\n## Build\n1. Create a new GitHub repository and upload these files.\n2. Ensure the source website repository is public and its selected folder contains index.html.\n3. Push to main or run Actions > Build Windows EXE > Run workflow.\n4. Download the windows-portable-exe artifact from the completed workflow.\n\nSource: '+config.repository+'\nBranch: '+branch+'\nWebsite folder: '+(folder||'(repository root)')+'\n\nThe app loads local files and does not require a web server at runtime. Sites that depend on server-side APIs or root-relative URLs may need adaptation.\n';
+      var mainJs = [
+        "const { app, BrowserWindow } = require('electron');",
+        "const path = require('path');",
+        "function createWindow(){ const win = new BrowserWindow({width:1280,height:800,minWidth:720,minHeight:500,autoHideMenuBar:true,webPreferences:{contextIsolation:true,nodeIntegration:false}}); win.loadFile(path.join(__dirname,'site','index.html')); }",
+        "app.whenReady().then(()=>{createWindow();app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow();});});",
+        "app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});"
+      ].join('\n') + '\n';
+      var workflow = [
+        'name: Build Windows EXE',
+        'on:',
+        '  workflow_dispatch:',
+        '  push:',
+        '    branches: [main]',
+        'jobs:',
+        '  build:',
+        '    runs-on: windows-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - uses: actions/setup-node@v4',
+        '        with:',
+        '          node-version: 20',
+        '      - name: Download website source',
+        '        shell: pwsh',
+        '        run: |',
+        '          git clone --depth 1 --branch "'+branch+'" "'+config.repository+'" source',
+        '          $sourcePath = if ("'+folder+'") { Join-Path $PWD "source/'+folder+'" } else { Join-Path $PWD "source" }',
+        "          if (!(Test-Path (Join-Path $sourcePath 'index.html'))) { throw 'Selected folder must contain index.html.' }",
+        '          New-Item -ItemType Directory -Force site | Out-Null',
+        "          Copy-Item -Path (Join-Path $sourcePath '*') -Destination site -Recurse -Force",
+        '      - name: Install dependencies',
+        '        run: npm install',
+        '      - name: Build portable EXE',
+        '        run: npm run dist',
+        '      - uses: actions/upload-artifact@v4',
+        '        with:',
+        '          name: windows-portable-exe',
+        '          path: release/*.exe',
+        '          if-no-files-found: error'
+      ].join('\n') + '\n';
+      var readme = [
+        '# '+name,
+        '',
+        'This project wraps a static website in an Electron desktop window and builds a portable Windows EXE.',
+        '',
+        '## Build',
+        '1. Create a new GitHub repository and upload these files.',
+        '2. Ensure the source website repository is public and its selected folder contains index.html.',
+        '3. Push to main or run Actions > Build Windows EXE > Run workflow.',
+        '4. Download the windows-portable-exe artifact from the completed workflow.',
+        '',
+        'Source: '+config.repository,
+        'Branch: '+branch,
+        'Website folder: '+(folder||'(repository root)'),
+        '',
+        'The app loads local files and does not require a web server at runtime. Sites that depend on server-side APIs or root-relative URLs may need adaptation.'
+      ].join('\n') + '\n';
       var enc=new TextEncoder(),files=[
         {name:'package.json',data:enc.encode(JSON.stringify(packageJson,null,2))},
         {name:'main.js',data:enc.encode(mainJs)},
