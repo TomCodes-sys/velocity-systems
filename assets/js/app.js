@@ -2,7 +2,7 @@
 // Plain vanilla JS, no build step, works from file:// and any static host.
 
 /* ---------- persisted state ---------- */
-var DEFAULT_SETTINGS = {theme:'light',accent:'blue',font:'sans',density:'compact',radius:'sharp',animations:true,effects:true,icons:'lucide',notifications:true,pinnedNav:null,customAccent:'#3b82f6',customSurface:'#0a0a0c'};
+var DEFAULT_SETTINGS = {theme:'system',accent:'blue',font:'sans',density:'compact',radius:'sharp',animations:true,effects:true,icons:'lucide',notifications:true,pinnedNav:null,customAccent:'#3b82f6',customSurface:'#0a0a0c'};
 
 /* ---------- storage: localStorage with an automatic cookie fallback ----------
    Some browsers (Safari private mode, embedded webviews, iPad "Prevent
@@ -177,7 +177,8 @@ function applyTheme(){
   var d = document.documentElement.dataset;
   if(!FONT_DEFS[settings.font]) settings.font = 'sans';
   loadFonts([settings.font]);
-  d.theme = settings.theme; d.accent = settings.accent; d.font = settings.font;
+  var effectiveTheme = settings.theme === 'system' ? ((window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'amoled') : settings.theme;
+  d.theme = effectiveTheme; d.accent = settings.accent; d.font = settings.font;
   d.density = settings.density; d.radius = settings.radius;
   d.motion = settings.animations ? 'on' : 'off';
   d.effects = settings.effects ? 'on' : 'off';
@@ -214,6 +215,11 @@ function shadeHex(hex, amount){
   return '#'+[adj(r),adj(g),adj(b)].map(function(x){ return Math.round(x).toString(16).padStart(2,'0'); }).join('');
 }
 applyTheme();
+if(window.matchMedia){
+  var _systemThemeQuery = window.matchMedia('(prefers-color-scheme: light)');
+  if(_systemThemeQuery.addEventListener) _systemThemeQuery.addEventListener('change', function(){ if(settings.theme === 'system') applyTheme(); });
+  else if(_systemThemeQuery.addListener) _systemThemeQuery.addListener(function(){ if(settings.theme === 'system') applyTheme(); });
+}
 
 /* ---------- small utils ---------- */
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
@@ -1030,7 +1036,7 @@ function pageSearch(params){
 
 /* ---------- settings page ---------- */
 var THEME_LIST = [
-  ['light','Light'],['system','Follow system'],['paper','Paper'],['nordlight','Nord Light'],
+  ['system','Follow system'],['light','Light'],['paper','Paper'],['nordlight','Nord Light'],
   ['sky','Sky'],['mint','Mint'],['sunrise','Sunrise'],['coral','Coral'],['bubblegum','Bubblegum'],['lavender','Lavender'],
   ['amoled','AMOLED'],['ocean','Ocean'],['nord','Nord'],['dracula','Dracula'],['gruvbox','Gruvbox'],
   ['cyber','Cyberpunk'],['terminal','Terminal'],['glass','Glass'],['rose','Rose'],['solar','Solar'],['grape','Grape'],
