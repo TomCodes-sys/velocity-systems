@@ -1,0 +1,34 @@
+# Velocity Systems — build roadmap
+
+This is the tracked implementation list for the current polish and feature batch.
+
+## Platform, reliability and privacy
+- [ ] Automated site health checker: scan every generated page for broken local links/assets, missing metadata, JavaScript syntax errors, and (when Playwright is installed) runtime console errors and horizontal overflow.
+- [ ] Privacy indicators on tool detail pages: distinguish local-only processing, external-service requests, and server uploads; disclose third-party calls before use.
+- [ ] Consistent tool error reporting: actionable errors, retry/recovery guidance, and explanations for denied permissions, unsupported browser APIs, network/CORS failures and storage limits.
+- [x] Settings backup/restore: existing Settings data panel already exports and imports `system-*` and `vs-*` browser data, including settings, bookmarks and pins. Verify and improve rather than duplicate it.
+- [ ] Preserve Game Deals scroll position across refresh and return navigation.
+
+## Appearance and interface
+- [ ] Default theme follows the operating system's light/dark preference.
+- [ ] Custom theme supports gradient backgrounds and user-selected colours.
+- [ ] Standardise number inputs and spinner/stepper controls.
+- [ ] Fix inconsistent borders on tool cards.
+
+## Existing tools
+- [ ] Countdown Timer: pause and resume without losing remaining time.
+- [ ] Device Info: copy public IP and show IPv4 and IPv6 where available.
+- [ ] Barcode Generator: option to hide the human-readable text below the barcode.
+- [ ] New IP Lookup tool: show available IP/network metadata and approximate geolocation, with clear source and accuracy notes.
+- [ ] New Microphone Tester: choose an available microphone, record/play/download samples, and monitor live input with a default 500 ms delay and adjustable delay.
+
+## Library and new project tools
+- [ ] Add Fluent Flyout to the software library: https://fluentflyout.com
+- [ ] Website-to-EXE tool: accept a GitHub repository URL and a folder path within that repository (plus optional local folder upload); configure app name, icon and window settings; generate a Windows app project and automated build workflow that produces an EXE.
+- [ ] Add Automated Site Health Checker as an accessible developer tool/command, not only a one-off manual audit.
+
+## Implementation constraints
+- Keep the site static-host compatible (Cloudflare Pages, no mandatory server/backend).
+- Do not claim that browser-only code can compile a Windows executable; use a Windows GitHub Actions runner for the EXE build.
+- IP geolocation is approximate and may expose the queried public IP to the selected lookup provider.
+- Microphone features require explicit browser permission and HTTPS or localhost.
