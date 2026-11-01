@@ -6534,7 +6534,7 @@ function mountWebsiteToExe(container){
       if(!files.length){$('w2e-status').textContent='Select a website folder first.';return;}
       if(!validDims(width,height)){$('w2e-status').textContent='Window dimensions must be within the displayed limits.';return;}
       if(iconFile&&iconFile.size>2*1024*1024){$('w2e-status').textContent='The icon file must be smaller than 2 MB.';return;}
-      var siteFiles=files.filter(function(f){var rel=(f.webkitRelativePath||f.name).split('/').slice(1).join('/');return rel.length>0&&!/(^|\\/)(node_modules|\\.git|\\.wrangler|\\.cache)(\\/|$)/i.test(rel);});
+      var siteFiles=files.filter(function(f){var rel=(f.webkitRelativePath||f.name).split('/').slice(1).join('/');return rel.length>0&&!/(^|\/)(node_modules|\.git|\.wrangler|\.cache)(\/|$)/i.test(rel);});
       var index=siteFiles.some(function(f){return (f.webkitRelativePath||f.name).split('/').slice(1).join('/')==='index.html';});
       if(!index){$('w2e-status').textContent='The selected folder must contain index.html at its top level. If the website is inside a subfolder, select that subfolder instead.';return;}
       if(siteFiles.length>3000){$('w2e-status').textContent='This folder contains more than 3,000 files. Remove build caches and node_modules, then try again.';return;}
