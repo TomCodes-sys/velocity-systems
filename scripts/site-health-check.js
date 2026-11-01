@@ -1,84 +1,64 @@
 #!/usr/bin/env node
 'use strict';
-
-/*
- * Velocity Systems static-site health checker.
- * Usage: node scripts/site-health-check.js [site-root]
- *
- * Uses Node built-ins only. Checks generated HTML pages for local href/src
- * targets, common metadata, and JavaScript syntax. If Playwright is installed
- * in the project, set VS_HEALTH_PLAYWRIGHT=1 to add browser runtime checks.
- */
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const root = path.resolve(process.argv[2] || path.join(__dirname, '..'));
-const issues = [];
-const pages = [];
-const assets = new Set();
-const skipDirs = new Set(['.git', 'node_modules', '.wrangler', '.dev.vars']);
-
+const issues = [], pages = [];
+const skipDirs = new Set(['.git', 'node_modules', '.wrangler']);
+function issue(level, file, message) { issues.push({level, file, message}); }
 function walk(dir) {
-  for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+  for (const ent of fs.readdirSync(dir, {withFileTypes:true})) {
     if (skipDirs.has(ent.name)) continue;
     const full = path.join(dir, ent.name);
     if (ent.isDirectory()) walk(full);
-    else if (ent.isFile()) {
-      const rel = path.relative(root, full).split(path.sep).join('/');
-      if (/\.html?$/i.test(ent.name)) pages.push({ full, rel });
-      if (/\.(?:js|css|svg|png|jpe?g|webp|ico|woff2?|ttf|json)$/i.test(ent.name)) assets.add(rel);
-    }
+    else if (ent.isFile() && /\\.html?$/i.test(ent.name)) pages.push({full, rel:path.relative(root, full).split(path.sep).join('/')});
   }
 }
-function issue(level, file, message) { issues.push({ level, file, message }); }
 function attr(tag, name) {
-  const re = new RegExp('\\b' + name + '\\s*=\\s*(["\\'])(.*?)\\1', 'i');
-  const m = tag.match(re); return m ? m[2] : '';
+  const re = new RegExp("\\\\b" + name + "\\\\s*=\\\\s*(['\\\"])(.*?)\\\\1", 'i');
+  const match = tag.match(re);
+  return match ? match[2] : '';
 }
 function checkPage(page) {
   const html = fs.readFileSync(page.full, 'utf8');
-  const metadataChecks = [[/<title\\b/i, 'title'], [/<meta[^>]+name=[\"']description[\"']/i, 'description'], [/<link[^>]+rel=[\"']canonical[\"']/i, 'canonical URL']];\n  metadataChecks.forEach(function(check){ if(!check[0].test(html)) issue('warning', page.rel, 'Missing metadata: ' + check[1]); });
-  if (!/<meta[^>]+name=["']viewport["']/i.test(html)) issue('warning', page.rel, 'Missing viewport meta tag');
+  [[/<title\\b/i,'title'],[/<meta[^>]+name=['"]description['"]/i,'description'],[/<link[^>]+rel=['"]canonical['"]/i,'canonical URL'],[/<meta[^>]+name=['"]viewport['"]/i,'viewport']].forEach(function(check) {
+    if (!check[0].test(html)) issue('warning', page.rel, 'Missing metadata: ' + check[1]);
+  });
   const tags = html.match(/<(?:a|link|script|img|source|video|audio)[^>]*>/gi) || [];
   for (const tag of tags) {
-    const raw = /^(?:<a|<link)/i.test(tag) ? attr(tag, 'href') : attr(tag, 'src');
-    if (!raw || /^(?:#|https?:|mailto:|tel:|data:|blob:|javascript:|\/\/)/i.test(raw)) continue;
-    const clean = decodeURIComponent(raw.split(/[?#]/)[0]);
+    const raw = /^<(?:a|link)\\b/i.test(tag) ? attr(tag, 'href') : attr(tag, 'src');
+    if (!raw || /^(?:#|https?:|mailto:|tel:|data:|blob:|javascript:|\\/\\/)/i.test(raw)) continue;
+    let clean;
+    try { clean = decodeURIComponent(raw.split(/[?#]/)[0]); } catch(e) { issue('error', page.rel, 'Invalid URL encoding: ' + raw); continue; }
     if (!clean) continue;
     const target = path.resolve(path.dirname(page.full), clean);
-    if (!target.startsWith(root + path.sep) && target !== root) {
-      issue('error', page.rel, 'Local path escapes site root: ' + raw); continue;
-    }
+    if (target !== root && !target.startsWith(root + path.sep)) { issue('error', page.rel, 'Local path escapes site root: ' + raw); continue; }
     if (!fs.existsSync(target)) issue('error', page.rel, 'Broken local reference: ' + raw);
   }
 }
 function checkScripts() {
-  const jsFiles = [];
-  (function visit(dir) {
-    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+  const files = [];
+  function visit(dir) {
+    for (const ent of fs.readdirSync(dir, {withFileTypes:true})) {
       if (skipDirs.has(ent.name)) continue;
       const full = path.join(dir, ent.name);
       if (ent.isDirectory()) visit(full);
-      else if (ent.name.endsWith('.js')) jsFiles.push(full);
+      else if (ent.isFile() && ent.name.endsWith('.js')) files.push(full);
     }
-  })(root);
-  for (const file of jsFiles) {
-    const r = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
-    if (r.status !== 0) issue('error', path.relative(root, file), (r.stderr || r.stdout || 'JavaScript syntax check failed').trim());
   }
+  visit(root);
+  files.forEach(function(file) {
+    const result = spawnSync(process.execPath, ['--check', file], {encoding:'utf8'});
+    if (result.status !== 0) issue('error', path.relative(root, file), (result.stderr || result.stdout || 'JavaScript syntax check failed').trim());
+  });
 }
 walk(root);
 pages.forEach(checkPage);
 checkScripts();
-
-console.log('\nVelocity Systems site health');
-console.log('Root: ' + root);
-console.log('HTML pages: ' + pages.length + ' | assets: ' + assets.size);
-const counts = issues.reduce((o, x) => (o[x.level] = (o[x.level] || 0) + 1, o), {});
-console.log('Errors: ' + (counts.error || 0) + ' | Warnings: ' + (counts.warning || 0));
-for (const x of issues) console.log('[' + x.level.toUpperCase() + '] ' + x.file + ' — ' + x.message);
+const errors = issues.filter(x => x.level === 'error').length;
+const warnings = issues.filter(x => x.level === 'warning').length;
+console.log('Velocity Systems health check: ' + pages.length + ' HTML pages; ' + errors + ' errors; ' + warnings + ' warnings.');
+issues.forEach(x => console.log('[' + x.level.toUpperCase() + '] ' + x.file + ' — ' + x.message));
 if (!issues.length) console.log('No static issues found.');
-if (process.env.VS_HEALTH_PLAYWRIGHT === '1') {
-  console.log('\nBrowser checks are not bundled: install Playwright and add a project-specific route runner to test runtime console errors and layout overflow.');
-}
-process.exitCode = issues.some(x => x.level === 'error') ? 1 : 0;
+process.exitCode = errors ? 1 : 0;
