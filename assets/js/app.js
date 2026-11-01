@@ -1187,7 +1187,8 @@ function ownKeys(){
       if(STORE_PREFIXES.some(function(p){ return k.indexOf(p)===0; })) keys.push(k);
     }
   } catch(e){}
-  return keys.sort();
+  try { document.cookie.split(';').forEach(function(pair){var name=pair.trim().split('=')[0];try{name=decodeURIComponent(name);}catch(e){}if(name&&STORE_PREFIXES.some(function(p){return name.indexOf(p)===0;}))keys.push(name);}); } catch(e){}
+  return Array.from(new Set(keys)).sort();
 }
 function storeGroup(key){
   if(key==='system-settings') return 'Preferences';
@@ -1251,7 +1252,7 @@ function wireDataPanel(){
   }
   qs('#data-export').addEventListener('click', function(){
     var dump = {app:'velocity-systems', exported:new Date().toISOString(), data:{}};
-    ownKeys().forEach(function(k){ dump.data[k] = localStorage.getItem(k); });
+    ownKeys().forEach(function(k){ dump.data[k] = storeGet(k); });
     downloadBlob('velocity-systems-backup-'+new Date().toISOString().slice(0,10)+'.json', JSON.stringify(dump, null, 2));
     toast('Backup downloaded','ok');
   });
@@ -1264,7 +1265,7 @@ function wireDataPanel(){
         var dump = JSON.parse(r.result), n = 0;
         if(!dump || dump.app !== 'velocity-systems' || typeof dump.data !== 'object') throw new Error('bad file');
         Object.keys(dump.data).forEach(function(k){
-          if(STORE_PREFIXES.some(function(p){ return k.indexOf(p)===0; }) && typeof dump.data[k] === 'string'){ localStorage.setItem(k, dump.data[k]); n++; }
+          if(STORE_PREFIXES.some(function(p){ return k.indexOf(p)===0; }) && typeof dump.data[k] === 'string'){ storeSet(k, dump.data[k]); n++; }
         });
         toast('Restored '+n+' saved items — reloading…','ok',{force:true});
         setTimeout(function(){ location.reload(); }, 700);
