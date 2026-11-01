@@ -6435,6 +6435,36 @@ function mountMicrophoneTester(container){
 }
 PLAYABLES['microphone-tester']=mountMicrophoneTester;
 
+/* Website-to-EXE project generator */
+function mountWebsiteToExe(container){
+  mountEmbed(container, 'TOOL / WEBSITE TO EXE BUILDER', function(body){
+    body.innerHTML='<div class="tool-grid two"><div class="field"><label for="w2e-repo">Public GitHub repository URL</label><input id="w2e-repo" placeholder="https://github.com/owner/repository"></div><div class="field"><label for="w2e-branch">Branch or tag</label><input id="w2e-branch" value="main"></div><div class="field"><label for="w2e-folder">Website folder inside repository (optional)</label><input id="w2e-folder" placeholder="dist or docs"></div><div class="field"><label for="w2e-name">Windows app name</label><input id="w2e-name" value="My Website App"></div></div><div class="tool-row"><button class="game-btn" id="w2e-generate" type="button">Generate Windows app project ZIP</button></div><p class="hint">This generates a ready-to-push Electron project. The EXE is built by GitHub Actions on a Windows runner; the browser cannot compile a Windows executable. Public repositories only.</p><div id="w2e-status" class="tool-msg" role="status"></div>';
+    var $=function(id){return body.querySelector('#'+id);};
+    $('w2e-generate').addEventListener('click',function(){
+      var raw=$('w2e-repo').value.trim(),branch=$('w2e-branch').value.trim()||'main',folder=$('w2e-folder').value.trim().replace(/^\/+|\/+$/g,''),name=$('w2e-name').value.trim()||'Website App';
+      var match=raw.match(/^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/?$/);
+      if(!match){$('w2e-status').textContent='Enter a public GitHub repository URL in https://github.com/owner/repository format.';return;}
+      if(folder.split('/').some(function(p){return p==='..'||p==='.';})){$('w2e-status').textContent='Folder path must be a normal repository-relative path.';return;}
+      var owner=match[1],repoName=match[2].replace(/\.git$/,''),slug=name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'website-app';
+      var config={repository:'https://github.com/'+owner+'/'+repoName+'.git',branch:branch,folder:folder,appName:name,slug:slug};
+      var packageJson={name:slug,version:'1.0.0',description:'Desktop wrapper for '+name,main:'main.js',scripts:{start:'electron .',dist:'electron-builder --win portable'},devDependencies:{electron:'^33.0.0','electron-builder':'^25.1.8'},build:{appId:'com.velocitysystems.'+slug,productName:name,files:['main.js','site/**/*','package.json'],directories:{output:'release'},win:{target:['portable']},portable:{artifactName:slug+'-portable.exe'}}};
+      var mainJs="const { app, BrowserWindow } = require('electron');\nconst path = require('path');\nfunction createWindow(){ const win = new BrowserWindow({width:1280,height:800,minWidth:720,minHeight:500,autoHideMenuBar:true,webPreferences:{contextIsolation:true,nodeIntegration:false}}); win.loadFile(path.join(__dirname,'site','index.html')); }\napp.whenReady().then(()=>{createWindow();app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow();});});\napp.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});\n";
+      var workflow="name: Build Windows EXE\non:\n  workflow_dispatch:\n  push:\n    branches: [main]\njobs:\n  build:\n    runs-on: windows-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n      - name: Download website source\n        shell: pwsh\n        run: |\n          git clone --depth 1 --branch \""+branch+"\" \""+config.repository+"\" source\n          $sourcePath = if (\""+folder+"\") { Join-Path $PWD \"source/"+folder+"\" } else { Join-Path $PWD 'source' }\n          if (!(Test-Path (Join-Path $sourcePath 'index.html'))) { throw 'Selected folder must contain index.html.' }\n          New-Item -ItemType Directory -Force site | Out-Null\n          Copy-Item -Path (Join-Path $sourcePath '*') -Destination site -Recurse -Force\n      - name: Install dependencies\n        run: npm install\n      - name: Build portable EXE\n        run: npm run dist\n      - uses: actions/upload-artifact@v4\n        with:\n          name: windows-portable-exe\n          path: release/*.exe\n          if-no-files-found: error\n";
+      var readme='# '+name+'\n\nThis project wraps a static website in an Electron desktop window and builds a portable Windows EXE.\n\n## Build\n1. Create a new GitHub repository and upload these files.\n2. Ensure the source website repository is public and its selected folder contains index.html.\n3. Push to main or run Actions > Build Windows EXE > Run workflow.\n4. Download the windows-portable-exe artifact from the completed workflow.\n\nSource: '+config.repository+'\nBranch: '+branch+'\nWebsite folder: '+(folder||'(repository root)')+'\n\nThe app loads local files and does not require a web server at runtime. Sites that depend on server-side APIs or root-relative URLs may need adaptation.\n';
+      var enc=new TextEncoder(),files=[
+        {name:'package.json',data:enc.encode(JSON.stringify(packageJson,null,2))},
+        {name:'main.js',data:enc.encode(mainJs)},
+        {name:'config.json',data:enc.encode(JSON.stringify(config,null,2))},
+        {name:'README.md',data:enc.encode(readme)},
+        {name:'.github/workflows/build-windows.yml',data:enc.encode(workflow)}
+      ];
+      try{saveBlob(slug+'-windows-app-project.zip',makeZip(files));$('w2e-status').textContent='Project ZIP generated. Push its contents to a new GitHub repository, then run the included Build Windows EXE workflow.';notify('Windows app project generated','ok');}
+      catch(e){toolError($('w2e-status'),'Could not create project ZIP',e.message,'Try a current browser with downloads enabled.');}
+    });
+  },{persist:false});
+}
+PLAYABLES['website-to-exe']=mountWebsiteToExe;
+
 
 (function(){
   var id = document.body.getAttribute('data-id'), slot = document.getElementById('embed-slot');
