@@ -935,6 +935,10 @@ function pageDetail(kind, id){
       '<div><span>Access</span><b>'+(item.free?'Free':'Paid')+'</b></div>'+
       '<div><span>Source</span><b>'+(item.openSource?'Open source':'Proprietary')+'</b></div>'+
     '</div>';
+  var externalTools = ['device-info','network-diagnostics','game-deals','currency-converter','speed-test','api-request-tester'];
+  var privacyMode = item.privacy || (externalTools.indexOf(item.id)>-1 ? 'external' : 'local');
+  var privacyCopy = privacyMode === 'upload' ? ['Uploads data','Files or data are sent to a remote service to complete this tool.'] : privacyMode === 'external' ? ['Uses external services','This tool sends a request to a third-party service. Review the provider and data involved.'] : ['Runs in your browser','Processing happens on your device. Files and entered content are not uploaded by this tool.'];
+  var privacyHtml = kind === 'tools' ? '<aside class="privacy-indicator privacy-'+privacyMode+'" role="note"><b>'+privacyCopy[0]+'</b><span>'+privacyCopy[1]+'</span></aside>' : '';
   // Games and tools get a compact header with the thing itself right underneath;
   // the big placeholder artwork is only for library entries and articles.
   var html = '<div class="detail'+(playable?' wide':'')+'">'+
@@ -946,7 +950,7 @@ function pageDetail(kind, id){
     '</div>';
 
   // The game/tool itself is mounted by assets/js/games.js or tools.js into this slot.
-  if(playable) html += '<div id="embed-slot"></div>';
+  if(playable) html += privacyHtml + '<div id="embed-slot"></div>';
   if(!playable) html += metaHtml;   // the facts strip is only useful on library entries and articles
 
   if(item.id === 'fxsound') html += '<section class="detail-features"><h2>MusicBoosted custom preset</h2><p>Download the MusicBoosted.fac preset and import it in FxSound. This is a custom music-focused 10-band EQ preset; sound preferences and results vary by headphones, speakers and listening volume.</p><p><a class="primary-action" href="../assets/downloads/MusicBoosted.fac" download="MusicBoosted.fac">Download MusicBoosted.fac '+icon('download',{size:15})+'</a></p></section>';
