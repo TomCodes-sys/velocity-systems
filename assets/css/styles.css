@@ -1742,3 +1742,11 @@ a,button,summary,select,[role=button],label{touch-action:manipulation}
 .font-grid button b{font-size:22px;line-height:1.1;font-weight:600}
 .font-grid button span{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
 .font-grid button small{font:10px var(--font-mono);color:var(--muted)}
+
+/* Privacy disclosures and consistent tool error panels */
+.privacy-indicator{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;margin:0 0 14px;padding:11px 13px;border:1px solid var(--line);border-radius:var(--rad);background:var(--surface-1);font-size:12px;color:var(--muted)}
+.privacy-indicator b{color:var(--text);font-weight:600;white-space:nowrap}
+.privacy-indicator span{flex:1;min-width:180px}
+.privacy-external{border-left:3px solid #d5a34c}.privacy-upload{border-left:3px solid #d46b6b}.privacy-local{border-left:3px solid #4baf83}
+.tool-error{padding:14px;border:1px solid #b65a5a;border-radius:var(--rad);background:color-mix(in srgb,#b65a5a 9%,var(--surface-1));color:var(--text)}
+.tool-error strong{display:block;margin-bottom:5px}.tool-error p{margin:4px 0;color:var(--muted);font-size:13px}
