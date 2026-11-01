@@ -2,7 +2,7 @@
 // Plain vanilla JS, no build step, works from file:// and any static host.
 
 /* ---------- persisted state ---------- */
-var DEFAULT_SETTINGS = {theme:'system',accent:'blue',font:'sans',density:'compact',radius:'sharp',animations:true,effects:true,icons:'lucide',notifications:true,pinnedNav:null,customAccent:'#3b82f6',customSurface:'#0a0a0c'};
+var DEFAULT_SETTINGS = {theme:'system',accent:'blue',font:'sans',density:'compact',radius:'sharp',animations:true,effects:true,icons:'lucide',notifications:true,pinnedNav:null,customAccent:'#3b82f6',customSurface:'#0a0a0c',customGradientEnd:'#26334a',customGradientAngle:135,customGradientEnabled:false};
 
 /* ---------- storage: localStorage with an automatic cookie fallback ----------
    Some browsers (Safari private mode, embedded webviews, iPad "Prevent
@@ -196,8 +196,11 @@ function applyTheme(){
     root.setProperty('--line', shadeHex(bg, 22));
     root.setProperty('--text', isDark(bg) ? '#f2f2f7' : '#171717');
     root.setProperty('--muted', isDark(bg) ? '#9a9aa2' : '#70706b');
+    var gradEnd = settings.customGradientEnd || '#26334a';
+    var gradAngle = Math.max(0, Math.min(360, Number(settings.customGradientAngle) || 135));
+    root.setProperty('--custom-gradient', settings.customGradientEnabled ? 'linear-gradient('+gradAngle+'deg, '+bg+', '+gradEnd+')' : 'none');
   } else {
-    ['--accent','--accent-rgb','--surface','--surface-1','--surface-2','--line','--text','--muted'].forEach(function(v){ root.removeProperty(v); });
+    ['--accent','--accent-rgb','--surface','--surface-1','--surface-2','--line','--text','--muted','--custom-gradient'].forEach(function(v){ root.removeProperty(v); });
   }
 }
 function hexToRgbTriplet(hex){
@@ -935,10 +938,21 @@ function pageDetail(kind, id){
       '<div><span>Access</span><b>'+(item.free?'Free':'Paid')+'</b></div>'+
       '<div><span>Source</span><b>'+(item.openSource?'Open source':'Proprietary')+'</b></div>'+
     '</div>';
-  var externalTools = ['device-info','network-diagnostics','game-deals','currency-converter','speed-test','api-request-tester'];
-  var privacyMode = item.privacy || (externalTools.indexOf(item.id)>-1 ? 'external' : 'local');
-  var privacyCopy = privacyMode === 'upload' ? ['Uploads data','Files or data are sent to a remote service to complete this tool.'] : privacyMode === 'external' ? ['Uses external services','This tool sends a request to a third-party service. Review the provider and data involved.'] : ['Runs in your browser','Processing happens on your device. Files and entered content are not uploaded by this tool.'];
-  var privacyHtml = kind === 'tools' ? '<aside class="privacy-indicator privacy-'+privacyMode+'" role="note"><b>'+privacyCopy[0]+'</b><span>'+privacyCopy[1]+'</span></aside>' : '';
+  var externalTools=['device-info','network-diagnostics','game-deals','currency-converter','speed-test','api-request-tester','audio-converter','ip-lookup','website-to-exe'];
+  var privacyMode=item.privacy||(externalTools.indexOf(item.id)>-1?'external':'local');
+  var providerNotes={
+    'device-info':'Your public IPv4 and IPv6 are requested directly from ipify. The provider receives the request and your connection IP.',
+    'ip-lookup':'The queried IP address is sent to ipapi.co. Map tiles are loaded from OpenStreetMap when coordinates are available.',
+    'network-diagnostics':'DNS and connectivity checks contact external DNS-over-HTTPS and public network services.',
+    'game-deals':'Deal and giveaway data, plus currency conversion, are requested from third-party APIs such as CheapShark and GamerPower.',
+    'currency-converter':'Exchange-rate data is fetched from an external rate provider.',
+    'speed-test':'The test transfers data to external test endpoints to estimate connection speed.',
+    'api-request-tester':'Your request URL, headers and body are sent to the API endpoint you enter. Only test services you trust.',
+    'audio-converter':'The FFmpeg processing engine is downloaded from jsDelivr on first use; conversion then runs locally.',
+    'website-to-exe':'Cloud builds send the public repository URL and build settings to GitHub Actions. Local-folder builds stay on your device.'
+  };
+  var privacyCopy=privacyMode==='upload'?['Uploads data',item.privacyNote||'Files or data are sent to a remote service to complete this tool.']:privacyMode==='external'?['Uses external services',item.privacyNote||providerNotes[item.id]||'This tool contacts third-party services. The provider may receive request metadata such as your IP address.']:['Runs in your browser',item.privacyNote||'Processing happens on your device. Files and entered content are not uploaded by this tool.'];
+  var privacyHtml=kind==='tools'?'<aside class="privacy-indicator privacy-'+privacyMode+'" role="note"><b>'+privacyCopy[0]+'</b><span>'+esc(privacyCopy[1])+'</span></aside>':'';
   // Games and tools get a compact header with the thing itself right underneath;
   // the big placeholder artwork is only for library entries and articles.
   var html = '<div class="detail'+(playable?' wide':'')+'">'+
@@ -950,13 +964,14 @@ function pageDetail(kind, id){
     '</div>';
 
   // The game/tool itself is mounted by assets/js/games.js or tools.js into this slot.
-  if(playable) html += privacyHtml + '<div id="embed-slot"></div>';
+  if(playable) html += '<div id="embed-slot"></div>';
   if(!playable) html += metaHtml;   // the facts strip is only useful on library entries and articles
 
   if(item.id === 'fxsound') html += '<section class="detail-features"><h2>MusicBoosted custom preset</h2><p>Download the MusicBoosted.fac preset and import it in FxSound. This is a custom music-focused 10-band EQ preset; sound preferences and results vary by headphones, speakers and listening volume.</p><p><a class="primary-action" href="../assets/downloads/MusicBoosted.fac" download="MusicBoosted.fac">Download MusicBoosted.fac '+icon('download',{size:15})+'</a></p></section>';
   if(item.features) html += '<div class="detail-features"><h2>Features</h2><ul>'+item.features.map(function(f){return '<li>'+esc(f)+'</li>';}).join('')+'</ul></div>';
   if(item.body) html += '<div class="article-body">'+renderMarkdown(item.body)+'</div>';
   if(related.length) html += '<section class="section-block"><div class="section-title"><span>'+relatedEyebrow+'</span><h2>'+esc(relatedTitle)+'</h2></div>'+cardGrid(related)+'</section>';
+  if(privacyHtml) html += privacyHtml;
   html += '</div>';
   qs('#app').innerHTML = html;
 }
@@ -1081,10 +1096,13 @@ function pageSettings(){
   }
   function customThemeBuilder(){
     return '<div class="custom-theme-panel">'+
-      '<h2>Custom theme</h2><p style="color:var(--muted);font-size:13px;margin:4px 0 0">Pick your own accent and background colour, then select "Custom" above to use it.</p>'+
+      '<h2>Custom theme</h2><p style="color:var(--muted);font-size:13px;margin:4px 0 0">Choose an accent and a solid or gradient background, then select Custom above to apply it.</p>'+
       '<div class="custom-theme-row" style="margin-top:16px">'+
-        '<div class="custom-theme-field"><label>Accent</label><input type="color" id="custom-accent" value="'+(settings.customAccent||'#3b82f6')+'"></div>'+
-        '<div class="custom-theme-field"><label>Background</label><input type="color" id="custom-bg" value="'+(settings.customSurface||'#0a0a0c')+'"></div>'+
+        '<div class="custom-theme-field"><label for="custom-accent">Accent</label><input type="color" id="custom-accent" value="'+(settings.customAccent||'#3b82f6')+'"></div>'+
+        '<div class="custom-theme-field"><label for="custom-bg">Background</label><input type="color" id="custom-bg" value="'+(settings.customSurface||'#0a0a0c')+'"></div>'+
+        '<div class="custom-theme-field"><label for="custom-gradient-end">Gradient colour</label><input type="color" id="custom-gradient-end" value="'+(settings.customGradientEnd||'#26334a')+'"></div>'+
+        '<div class="custom-theme-field"><label for="custom-gradient-angle">Gradient angle</label><input type="number" id="custom-gradient-angle" min="0" max="360" step="5" value="'+(settings.customGradientAngle||135)+'"></div>'+
+        '<label class="custom-gradient-toggle"><input type="checkbox" id="custom-gradient-enabled" '+(settings.customGradientEnabled?'checked':'')+'> Use gradient background</label>'+
         '<div class="custom-theme-preview" id="custom-theme-preview">Preview</div>'+
         '<button class="game-btn" id="custom-theme-apply">Use this theme</button>'+
       '</div>'+
@@ -1136,21 +1154,18 @@ function pageSettings(){
     });
   });
   function updateThemePreview(){
-    var acc = qs('#custom-accent').value, bg = qs('#custom-bg').value;
-    var prev = qs('#custom-theme-preview');
-    prev.style.background = bg;
-    prev.style.color = isDark(bg) ? '#f2f2f7' : '#171717';
-    prev.style.border = '1px solid '+acc;
-    prev.innerHTML = '<span style="color:'+acc+'">Accent</span>&nbsp;on background';
+    var acc=qs('#custom-accent').value,bg=qs('#custom-bg').value,end=qs('#custom-gradient-end').value,angle=Math.max(0,Math.min(360,Number(qs('#custom-gradient-angle').value)||135)),enabled=qs('#custom-gradient-enabled').checked,prev=qs('#custom-theme-preview');
+    prev.style.background=enabled?'linear-gradient('+angle+'deg, '+bg+', '+end+')':bg;
+    prev.style.color=isDark(bg)?'#f2f2f7':'#171717';prev.style.border='1px solid '+acc;
+    prev.innerHTML='<span style="color:'+acc+'">Accent</span>&nbsp;on '+(enabled?'gradient':'background');
   }
   if(qs('#custom-accent')){
+    ['#custom-accent','#custom-bg','#custom-gradient-end','#custom-gradient-angle','#custom-gradient-enabled'].forEach(function(id){qs(id).addEventListener('input',updateThemePreview);});
     updateThemePreview();
-    qs('#custom-accent').addEventListener('input', updateThemePreview);
-    qs('#custom-bg').addEventListener('input', updateThemePreview);
-    qs('#custom-theme-apply').addEventListener('click', function(){
-      settings.customAccent = qs('#custom-accent').value;
-      settings.customSurface = qs('#custom-bg').value;
-      selectTheme('custom');
+    qs('#custom-theme-apply').addEventListener('click',function(){
+      settings.customAccent=qs('#custom-accent').value;settings.customSurface=qs('#custom-bg').value;
+      settings.customGradientEnd=qs('#custom-gradient-end').value;settings.customGradientAngle=Math.max(0,Math.min(360,Number(qs('#custom-gradient-angle').value)||135));
+      settings.customGradientEnabled=qs('#custom-gradient-enabled').checked;saveSettings();applyTheme();selectTheme('custom');
     });
   }
   qs('#reset-prefs').addEventListener('click', function(){
