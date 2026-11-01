@@ -26,17 +26,35 @@ function checkPage(page) {
   [[/<title\b/i,'title'],[/<meta[^>]+name=["']description["']/i,'description'],[/<link[^>]+rel=["']canonical["']/i,'canonical URL'],[/<meta[^>]+name=["']viewport["']/i,'viewport']].forEach(function(check) {
     if (!check[0].test(html)) issue('warning', page.rel, 'Missing metadata: ' + check[1]);
   });
-  const tags = html.match(/<(?:a|link|script|img|source|video|audio)[^>]*>/gi) || [];
+  const tags = html.match(/<(?:a|link|script|img|source|video|audio|iframe)[^>]*>/gi) || [];
+  (html.match(/<img\\b[^>]*>/gi)||[]).forEach(function(tag){if(attr(tag,'alt')==='')issue('warning',page.rel,'Image is missing alt text: '+(attr(tag,'src')||'(inline image)'));});
   for (const tag of tags) {
     const raw = /^<(?:a|link)\b/i.test(tag) ? attr(tag, 'href') : attr(tag, 'src');
     if (!raw || /^(?:#|https?:|mailto:|tel:|data:|blob:|javascript:|\/\/)/i.test(raw)) continue;
     let clean;
     try { clean = decodeURIComponent(raw.split(/[?#]/)[0]); } catch(e) { issue('error', page.rel, 'Invalid URL encoding: ' + raw); continue; }
     if (!clean) continue;
-    const target = path.resolve(path.dirname(page.full), clean);
+    const target = path.resolve(clean.startsWith('/') ? root : path.dirname(page.full), clean.startsWith('/') ? clean.slice(1) : clean);
     if (target !== root && !target.startsWith(root + path.sep)) { issue('error', page.rel, 'Local path escapes site root: ' + raw); continue; }
     if (!fs.existsSync(target)) issue('error', page.rel, 'Broken local reference: ' + raw);
   }
+}
+function checkCssAssets() {
+  const cssFiles=[];
+  function visit(dir){for(const ent of fs.readdirSync(dir,{withFileTypes:true})){if(skipDirs.has(ent.name))continue;const full=path.join(dir,ent.name);if(ent.isDirectory())visit(full);else if(ent.isFile()&&ent.name.endsWith('.css'))cssFiles.push(full);}}
+  visit(root);
+  cssFiles.forEach(function(file){
+    const css=fs.readFileSync(file,'utf8'),re=/url\\(\\s*(['"]?)([^'")]+)\\1\\s*\\)/gi;
+    let m;
+    while((m=re.exec(css))){
+      const raw=m[2].trim();
+      if(!raw||/^(?:data:|https?:|\\/\\/|#|blob:)/i.test(raw))continue;
+      let clean;try{clean=decodeURIComponent(raw.split(/[?#]/)[0]);}catch(e){issue('error',path.relative(root,file),'Invalid CSS asset URL: '+raw);continue;}
+      const target=path.resolve(path.dirname(file),clean);
+      if(target!==root&&!target.startsWith(root+path.sep)){issue('error',path.relative(root,file),'CSS asset path escapes site root: '+raw);continue;}
+      if(!fs.existsSync(target))issue('error',path.relative(root,file),'Missing CSS asset: '+raw);
+    }
+  });
 }
 function checkScripts() {
   const files = [];
@@ -103,6 +121,7 @@ async function checkBrowser() {
 async function main() {
   walk(root);
   pages.forEach(checkPage);
+  checkCssAssets();
   checkScripts();
   if (process.env.VS_HEALTH_BROWSER === '1') await checkBrowser();
   const errors = issues.filter(x => x.level === 'error').length;
