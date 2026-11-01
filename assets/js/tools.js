@@ -6464,83 +6464,106 @@ PLAYABLES['microphone-tester']=mountMicrophoneTester;
 
 /* Website-to-EXE project generator */
 function mountWebsiteToExe(container){
-  mountEmbed(container, 'TOOL / WEBSITE TO EXE BUILDER', function(body){
-    body.innerHTML='<div class="tool-grid two"><div class="field"><label for="w2e-repo">Public GitHub repository URL</label><input id="w2e-repo" placeholder="https://github.com/owner/repository"></div><div class="field"><label for="w2e-branch">Branch or tag</label><input id="w2e-branch" value="main"></div><div class="field"><label for="w2e-folder">Website folder inside repository (optional)</label><input id="w2e-folder" placeholder="dist or docs"></div><div class="field"><label for="w2e-name">Windows app name</label><input id="w2e-name" value="My Website App"></div></div><div class="tool-row"><button class="game-btn" id="w2e-generate" type="button">Generate Windows app project ZIP</button></div><p class="hint">This generates a ready-to-push Electron project. The EXE is built by GitHub Actions on a Windows runner; the browser cannot compile a Windows executable. Public repositories only.</p><div id="w2e-status" class="tool-msg" role="status"></div>';
+  mountEmbed(container,'TOOL / WEBSITE TO EXE BUILDER',function(body){
+    body.innerHTML=
+      '<div class="w2e-mode" role="tablist" aria-label="Website source"><button type="button" class="game-btn" data-w2e-mode="github" aria-selected="true">GitHub repository</button><button type="button" class="game-btn secondary" data-w2e-mode="local" aria-selected="false">Select local folder</button></div>'+
+      '<section id="w2e-github">'+
+        '<p class="tool-msg">Build a real Windows portable EXE in a Windows GitHub Actions runner. The finished .exe is provided as a downloadable workflow artifact.</p>'+
+        '<div class="tool-grid two">'+
+          '<div class="field"><label for="w2e-repo">Public GitHub repository</label><input id="w2e-repo" placeholder="https://github.com/owner/repository" spellcheck="false"></div>'+
+          '<div class="field"><label for="w2e-branch">Branch or tag</label><input id="w2e-branch" value="main"></div>'+
+          '<div class="field"><label for="w2e-folder">Website folder inside repository</label><input id="w2e-folder" placeholder="Leave blank for repository root"></div>'+
+          '<div class="field"><label for="w2e-name">Application name</label><input id="w2e-name" value="My Website App" maxlength="60"></div>'+
+          '<div class="field"><label for="w2e-width">Window width</label><input id="w2e-width" type="number" min="640" max="3840" value="1280"></div>'+
+          '<div class="field"><label for="w2e-height">Window height</label><input id="w2e-height" type="number" min="480" max="2160" value="800"></div>'+
+          '<div class="field"><label for="w2e-icon-url">Application icon URL (optional .ico)</label><input id="w2e-icon-url" type="url" placeholder="https://example.com/icon.ico"></div>'+
+          '<div class="field"><label for="w2e-token">GitHub fine-grained token</label><input id="w2e-token" type="password" autocomplete="off" data-nopersist placeholder="Token with Actions: read/write"></div>'+
+        '</div>'+
+        '<div class="tool-row"><button class="game-btn" id="w2e-cloud-build" type="button">Build Windows EXE</button></div>'+
+        '<p class="hint">The token is used only in this page session and is not saved. Give it Actions read/write access to the Velocity Systems repository. The build clones the public source repository; it does not modify it.</p>'+
+      '</section>'+
+      '<section id="w2e-local" hidden>'+
+        '<p class="tool-msg">Choose the website folder on your computer. The tool packages its files with an Electron build script. Run Build-EXE.bat on Windows to create the actual .exe locally; your source files are not uploaded.</p>'+
+        '<div class="field"><label for="w2e-local-folder">Select website folder (must contain index.html)</label><input id="w2e-local-folder" type="file" webkitdirectory directory multiple></div>'+
+        '<div class="tool-grid two">'+
+          '<div class="field"><label for="w2e-local-name">Application name</label><input id="w2e-local-name" value="My Website App" maxlength="60"></div>'+
+          '<div class="field"><label for="w2e-local-icon">Windows icon (.ico, optional)</label><input id="w2e-local-icon" type="file" accept=".ico,image/x-icon"></div>'+
+          '<div class="field"><label for="w2e-local-width">Window width</label><input id="w2e-local-width" type="number" min="640" max="3840" value="1280"></div>'+
+          '<div class="field"><label for="w2e-local-height">Window height</label><input id="w2e-local-height" type="number" min="480" max="2160" value="800"></div>'+
+        '</div>'+
+        '<div class="tool-row"><button class="game-btn" id="w2e-local-build" type="button">Download local EXE build kit</button></div>'+
+        '<p class="hint">Requires Windows and Node.js 20 or later. The ZIP contains your selected site and a one-click batch file that builds the portable EXE into the dist folder.</p>'+
+      '</section>'+
+      '<div id="w2e-status" class="tool-output" role="status" aria-live="polite">Choose a source type to begin.</div>';
     var $=function(id){return body.querySelector('#'+id);};
-    $('w2e-generate').addEventListener('click',function(){
-      var raw=$('w2e-repo').value.trim(),branch=$('w2e-branch').value.trim()||'main',folder=$('w2e-folder').value.trim().replace(/^\/+|\/+$/g,''),name=$('w2e-name').value.trim()||'Website App';
+    body.querySelectorAll('[data-w2e-mode]').forEach(function(btn){btn.addEventListener('click',function(){
+      var mode=btn.getAttribute('data-w2e-mode');
+      $('w2e-github').hidden=mode!=='github';$('w2e-local').hidden=mode!=='local';
+      body.querySelectorAll('[data-w2e-mode]').forEach(function(b){var active=b===btn;b.classList.toggle('secondary',!active);b.setAttribute('aria-selected',String(active));});
+      $('w2e-status').textContent=mode==='github'?'Enter a public repository and GitHub token to build the EXE in the cloud.':'Select a local website folder to package a Windows build kit.';
+    });});
+    function safeName(v){return String(v||'Website App').trim().slice(0,60).replace(/[<>:"/\\|?*\x00-\x1f]/g,'').replace(/[. ]+$/,'')||'Website App';}
+    function validDims(w,h){return Number.isInteger(w)&&w>=640&&w<=3840&&Number.isInteger(h)&&h>=480&&h<=2160;}
+    $('w2e-cloud-build').addEventListener('click',async function(){
+      var raw=$('w2e-repo').value.trim(),branch=$('w2e-branch').value.trim()||'main',folder=$('w2e-folder').value.trim().replace(/^\/+|\/+$/g,''),name=safeName($('w2e-name').value),width=Number($('w2e-width').value),height=Number($('w2e-height').value),iconUrl=$('w2e-icon-url').value.trim(),token=$('w2e-token').value.trim();
       var match=raw.match(/^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/?$/);
       if(!match){$('w2e-status').textContent='Enter a public GitHub repository URL in https://github.com/owner/repository format.';return;}
-      if(!/^[A-Za-z0-9._/-]+$/.test(branch)||branch.charAt(0)==='-'||branch.indexOf('..')!==-1){$('w2e-status').textContent='Branch names may contain letters, numbers, dots, underscores, hyphens and slashes only.';return;}
-      if((folder && !/^[A-Za-z0-9._/-]+$/.test(folder))||folder.split('/').some(function(p){return p==='..'||p==='.';})){$('w2e-status').textContent='Folder path must use letters, numbers, dots, underscores, hyphens and slashes only.';return;}
-      var owner=match[1],repoName=match[2].replace(/\.git$/,''),slug=name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'website-app';
-      var config={repository:'https://github.com/'+owner+'/'+repoName+'.git',branch:branch,folder:folder,appName:name,slug:slug};
-      var packageJson={name:slug,version:'1.0.0',description:'Desktop wrapper for '+name,main:'main.js',scripts:{start:'electron .',dist:'electron-builder --win portable'},devDependencies:{electron:'^33.0.0','electron-builder':'^25.1.8'},build:{appId:'com.velocitysystems.'+slug,productName:name,files:['main.js','site/**/*','package.json'],directories:{output:'release'},win:{target:['portable']},portable:{artifactName:slug+'-portable.exe'}}};
-      var mainJs = [
-        "const { app, BrowserWindow } = require('electron');",
-        "const path = require('path');",
-        "function createWindow(){ const win = new BrowserWindow({width:1280,height:800,minWidth:720,minHeight:500,autoHideMenuBar:true,webPreferences:{contextIsolation:true,nodeIntegration:false}}); win.loadFile(path.join(__dirname,'site','index.html')); }",
-        "app.whenReady().then(()=>{createWindow();app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow();});});",
-        "app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});"
-      ].join('\n') + '\n';
-      var workflow = [
-        'name: Build Windows EXE',
-        'on:',
-        '  workflow_dispatch:',
-        '  push:',
-        '    branches: [main]',
-        'jobs:',
-        '  build:',
-        '    runs-on: windows-latest',
-        '    steps:',
-        '      - uses: actions/checkout@v4',
-        '      - uses: actions/setup-node@v4',
-        '        with:',
-        '          node-version: 20',
-        '      - name: Download website source',
-        '        shell: pwsh',
-        '        run: |',
-        '          git clone --depth 1 --branch "'+branch+'" "'+config.repository+'" source',
-        '          $sourcePath = if ("'+folder+'") { Join-Path $PWD "source/'+folder+'" } else { Join-Path $PWD "source" }',
-        "          if (!(Test-Path (Join-Path $sourcePath 'index.html'))) { throw 'Selected folder must contain index.html.' }",
-        '          New-Item -ItemType Directory -Force site | Out-Null',
-        "          Copy-Item -Path (Join-Path $sourcePath '*') -Destination site -Recurse -Force",
-        '      - name: Install dependencies',
-        '        run: npm install',
-        '      - name: Build portable EXE',
-        '        run: npm run dist',
-        '      - uses: actions/upload-artifact@v4',
-        '        with:',
-        '          name: windows-portable-exe',
-        '          path: release/*.exe',
-        '          if-no-files-found: error'
-      ].join('\n') + '\n';
-      var readme = [
-        '# '+name,
-        '',
-        'This project wraps a static website in an Electron desktop window and builds a portable Windows EXE.',
-        '',
-        '## Build',
-        '1. Create a new GitHub repository and upload these files.',
-        '2. Ensure the source website repository is public and its selected folder contains index.html.',
-        '3. Push to main or run Actions > Build Windows EXE > Run workflow.',
-        '4. Download the windows-portable-exe artifact from the completed workflow.',
-        '',
-        'Source: '+config.repository,
-        'Branch: '+branch,
-        'Website folder: '+(folder||'(repository root)'),
-        '',
-        'The app loads local files and does not require a web server at runtime. Sites that depend on server-side APIs or root-relative URLs may need adaptation.'
-      ].join('\n') + '\n';
-      var enc=new TextEncoder(),files=[
-        {name:'package.json',data:enc.encode(JSON.stringify(packageJson,null,2))},
-        {name:'main.js',data:enc.encode(mainJs)},
-        {name:'config.json',data:enc.encode(JSON.stringify(config,null,2))},
-        {name:'README.md',data:enc.encode(readme)},
-        {name:'.github/workflows/build-windows.yml',data:enc.encode(workflow)}
-      ];
-      try{saveBlob(slug+'-windows-app-project.zip',makeZip(files));$('w2e-status').textContent='Project ZIP generated. Push its contents to a new GitHub repository, then run the included Build Windows EXE workflow.';notify('Windows app project generated','ok');}
-      catch(e){toolError($('w2e-status'),'Could not create project ZIP',e.message,'Try a current browser with downloads enabled.');}
+      if(!/^[A-Za-z0-9._/-]+$/.test(branch)||branch.charAt(0)==='-'||branch.indexOf('..')!==-1){$('w2e-status').textContent='Enter a valid branch or tag name.';return;}
+      if(folder&&(!/^[A-Za-z0-9._/-]+$/.test(folder)||folder.split('/').some(function(p){return !p||p==='..'||p==='.';}))){$('w2e-status').textContent='Enter a valid repository-relative folder path.';return;}
+      if(!validDims(width,height)){$('w2e-status').textContent='Window dimensions must be within the displayed limits.';return;}
+      if(iconUrl&&!/^https:\/\/[^ ]+\.ico(?:[?#].*)?$/i.test(iconUrl)){$('w2e-status').textContent='The optional icon must be a direct HTTPS .ico URL.';return;}
+      if(!token){$('w2e-status').textContent='A GitHub token is required to start the Windows build. Create a fine-grained token with Actions read/write access to TomCodes-sys/velocity-systems.';return;}
+      var repo=match[1]+'/'+match[2].replace(/\.git$/,'');
+      this.disabled=true;this.textContent='Starting Windows build…';$('w2e-status').textContent='Sending the build request to GitHub Actions…';
+      try{
+        var response=await fetch('https://api.github.com/repos/TomCodes-sys/velocity-systems/actions/workflows/build-website-exe.yml/dispatches',{method:'POST',headers:{'Accept':'application/vnd.github+json','Authorization':'Bearer '+token,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},body:JSON.stringify({ref:'main',inputs:{source_repo:repo,source_branch:branch,source_folder:folder,app_name:name,window_width:String(width),window_height:String(height),icon_url:iconUrl}})});
+        if(response.status===204){
+          var link='https://github.com/TomCodes-sys/velocity-systems/actions/workflows/build-website-exe.yml';
+          $('w2e-status').innerHTML='Build queued successfully for <b>'+esc(name)+'</b>.<br><a href="'+link+'" target="_blank" rel="noreferrer">Open Windows build workflow</a> and download the <code>windows-portable-exe</code> artifact when it finishes.';
+          notify('Windows EXE build queued','ok');
+        }else{
+          var detail='GitHub rejected the build request (HTTP '+response.status+').';
+          try{var payload=await response.json();if(payload.message)detail+=' '+payload.message;}catch(e){}
+          toolError($('w2e-status'),'Could not start the EXE build',detail,'Check that the token belongs to an account with Actions write permission on TomCodes-sys/velocity-systems, and that the workflow is available on main.');
+        }
+      }catch(e){toolError($('w2e-status'),'Could not contact GitHub',e.message||'The request was blocked.','Check your connection and allow requests to api.github.com.');}
+      finally{this.disabled=false;this.textContent='Build Windows EXE';$('w2e-token').value='';}
+    });
+    $('w2e-local-build').addEventListener('click',async function(){
+      var files=Array.from($('w2e-local-folder').files||[]),name=safeName($('w2e-local-name').value),width=Number($('w2e-local-width').value),height=Number($('w2e-local-height').value),iconFile=$('w2e-local-icon').files[0]||null;
+      if(!files.length){$('w2e-status').textContent='Select a website folder first.';return;}
+      if(!validDims(width,height)){$('w2e-status').textContent='Window dimensions must be within the displayed limits.';return;}
+      if(iconFile&&iconFile.size>2*1024*1024){$('w2e-status').textContent='The icon file must be smaller than 2 MB.';return;}
+      var root=(files[0].webkitRelativePath||files[0].name).split('/')[0],siteFiles=files.filter(function(f){return (f.webkitRelativePath||f.name).split('/').slice(1).join('/').length>0;});
+      var index=siteFiles.some(function(f){return (f.webkitRelativePath||f.name).split('/').slice(1).join('/')==='index.html';});
+      if(!index){$('w2e-status').textContent='The selected folder must contain index.html at its top level. If the website is inside a subfolder, select that subfolder instead.';return;}
+      if(siteFiles.length>3000){$('w2e-status').textContent='This folder contains more than 3,000 files. Remove build caches and node_modules, then try again.';return;}
+      var total=siteFiles.reduce(function(sum,f){return sum+f.size;},0);
+      if(total>400*1024*1024){$('w2e-status').textContent='This folder is larger than the 400 MB browser packaging limit.';return;}
+      var btn=this;btn.disabled=true;btn.textContent='Packaging website…';$('w2e-status').textContent='Reading '+siteFiles.length+' files…';
+      try{
+        var enc=new TextEncoder(),zipFiles=[],slug=name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'website-app';
+        var mainJs=[
+          "const {app,BrowserWindow}=require('electron');",
+          "const path=require('path');",
+          "function createWindow(){const win=new BrowserWindow({width:"+width+",height:"+height+",minWidth:640,minHeight:480,autoHideMenuBar:true,webPreferences:{contextIsolation:true,nodeIntegration:false}});win.loadFile(path.join(__dirname,'site','index.html'));}",
+          "app.whenReady().then(()=>{createWindow();app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow();});});",
+          "app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});"
+        ].join('\n')+'\n';
+        var pkg={name:slug,version:'1.0.0',description:'Desktop wrapper for '+name,main:'main.js',scripts:{dist:'electron-builder --win portable --x64'},devDependencies:{electron:'^33.0.0','electron-builder':'^25.1.8'},build:{appId:'com.velocitysystems.'+slug,productName:name,files:['main.js','site/**/*','package.json','build/icon.ico'],directories:{output:'dist'},win:{target:['portable']},portable:{artifactName:slug+'-portable.exe'}}};
+        var bat=['@echo off','cd /d "%~dp0"','where node >nul 2>nul || (echo Install Node.js 20 or later first.& pause & exit /b 1)','echo Installing Electron build dependencies...','npm install','if errorlevel 1 (echo Dependency installation failed.& pause & exit /b 1)','echo Building portable Windows EXE...','npm run dist','if errorlevel 1 (echo Build failed. Check the error above.& pause & exit /b 1)','echo.','echo Finished. Your EXE is in the dist folder.','pause'].join('\r\n')+'\r\n';
+        zipFiles.push({name:'package.json',data:enc.encode(JSON.stringify(pkg,null,2))},{name:'main.js',data:enc.encode(mainJs)},{name:'Build-EXE.bat',data:enc.encode(bat)},{name:'README.txt',data:enc.encode('1. Extract this ZIP to a normal folder.\\r\\n2. Install Node.js 20 or later on Windows.\\r\\n3. Double-click Build-EXE.bat.\\r\\n4. The portable Windows executable will be created in dist.\\r\\n\\r\\nThe website files are stored in site/. The original folder is not modified.\\r\\n')});
+        if(iconFile)zipFiles.push({name:'build/icon.ico',data:new Uint8Array(await iconFile.arrayBuffer())});
+        for(var i=0;i<siteFiles.length;i++){
+          var f=siteFiles[i],rel=(f.webkitRelativePath||f.name).split('/').slice(1).join('/');
+          zipFiles.push({name:'site/'+rel,data:new Uint8Array(await f.arrayBuffer())});
+          if(i%100===0)$('w2e-status').textContent='Packaging files… '+(i+1)+' / '+siteFiles.length;
+        }
+        saveBlob(slug+'-windows-exe-build-kit.zip',makeZip(zipFiles));
+        $('w2e-status').textContent='Build kit downloaded. Extract it, install Node.js 20+, then run Build-EXE.bat. The actual EXE will appear in the dist folder.';
+        notify('Local EXE build kit downloaded','ok');
+      }catch(e){toolError($('w2e-status'),'Could not package this folder',e.message||'A file could not be read or the ZIP could not be created.','Try a smaller folder and make sure the browser has permission to read the selected files.');}
+      finally{btn.disabled=false;btn.textContent='Download local EXE build kit';}
     });
   },{persist:false});
 }
