@@ -197,7 +197,7 @@ function applyTheme(){
     root.setProperty('--text', isDark(bg) ? '#f2f2f7' : '#171717');
     root.setProperty('--muted', isDark(bg) ? '#9a9aa2' : '#70706b');
     var gradEnd = settings.customGradientEnd || '#26334a';
-    var gradAngle = Math.max(0, Math.min(360, Number(settings.customGradientAngle) || 135));
+    var gradAngle = Math.max(0, Math.min(360, (Number.isFinite(Number(settings.customGradientAngle)) ? Number(settings.customGradientAngle) : 135)));
     root.setProperty('--custom-gradient', settings.customGradientEnabled ? 'linear-gradient('+gradAngle+'deg, '+bg+', '+gradEnd+')' : 'none');
   } else {
     ['--accent','--accent-rgb','--surface','--surface-1','--surface-2','--line','--text','--muted','--custom-gradient'].forEach(function(v){ root.removeProperty(v); });
@@ -1123,7 +1123,7 @@ function pageSettings(){
   qs('#app').innerHTML =
     '<section class="page-heading"><span>CONTROL / VISUAL LAYER</span><h1>Settings</h1><p>Transform the interface without changing how the archive works. Choices are saved in your browser.</p></section>'+
     '<div class="settings-grid">'+
-      '<section><h2>Appearance</h2><p>Choose a complete visual system. Light is the default; "Follow system" tracks your OS light/dark setting.</p><div class="theme-grid" id="theme-grid">'+themeButtons()+'</div>'+customThemeBuilder()+'</section>'+
+      '<section><h2>Appearance</h2><p>Choose a complete visual system. Follow system is the default; the theme changes with your OS light/dark preference.</p><div class="theme-grid" id="theme-grid">'+themeButtons()+'</div>'+customThemeBuilder()+'</section>'+
       '<section id="interface-section"><h2>Interface</h2>'+choiceRows()+toggleRows()+shortcutRow()+
         '<div class="setting-row"><label>Reset</label><div><button class="game-btn secondary" id="reset-prefs">Reset preferences</button></div></div>'+
       '</section>'+
@@ -1167,7 +1167,7 @@ function pageSettings(){
     });
   });
   function updateThemePreview(){
-    var acc=qs('#custom-accent').value,bg=qs('#custom-bg').value,end=qs('#custom-gradient-end').value,angle=Math.max(0,Math.min(360,Number(qs('#custom-gradient-angle').value)||135)),enabled=qs('#custom-gradient-enabled').checked,prev=qs('#custom-theme-preview');
+    var acc=qs('#custom-accent').value,bg=qs('#custom-bg').value,end=qs('#custom-gradient-end').value,angle=Math.max(0,Math.min(360,(Number.isFinite(Number(qs('#custom-gradient-angle').value))?Number(qs('#custom-gradient-angle').value):135))),enabled=qs('#custom-gradient-enabled').checked,prev=qs('#custom-theme-preview');
     prev.style.background=enabled?'linear-gradient('+angle+'deg, '+bg+', '+end+')':bg;
     prev.style.color=isDark(bg)?'#f2f2f7':'#171717';prev.style.border='1px solid '+acc;
     prev.innerHTML='<span style="color:'+acc+'">Accent</span>&nbsp;on '+(enabled?'gradient':'background');
