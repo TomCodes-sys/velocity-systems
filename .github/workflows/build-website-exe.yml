@@ -1,0 +1,132 @@
+name: Build website Windows EXE
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_repo:
+        description: Public GitHub repository in owner/name format
+        required: true
+        type: string
+      source_branch:
+        description: Branch or tag
+        required: true
+        default: main
+        type: string
+      source_folder:
+        description: Website folder containing index.html (blank for repository root)
+        required: false
+        type: string
+      app_name:
+        description: Windows application name
+        required: true
+        default: Website App
+        type: string
+      window_width:
+        description: Initial window width
+        required: true
+        default: '1280'
+        type: string
+      window_height:
+        description: Initial window height
+        required: true
+        default: '800'
+        type: string
+      icon_url:
+        description: Optional direct HTTPS .ico URL
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Download selected website folder
+        shell: pwsh
+        env:
+          SOURCE_REPO: \${{ inputs.source_repo }}
+          SOURCE_BRANCH: \${{ inputs.source_branch }}
+          SOURCE_FOLDER: \${{ inputs.source_folder }}
+        run: |
+          if ($env:SOURCE_REPO -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') { throw 'Repository must be owner/name.' }
+          if ($env:SOURCE_BRANCH -notmatch '^[A-Za-z0-9._/-]+$' -or $env:SOURCE_BRANCH.Contains('..')) { throw 'Invalid branch name.' }
+          git clone --depth 1 --branch "$env:SOURCE_BRANCH" "https://github.com/$env:SOURCE_REPO.git" source
+          $sourceRoot = [System.IO.Path]::GetFullPath((Join-Path $PWD 'source'))
+          $sourcePath = if ($env:SOURCE_FOLDER) { Join-Path $sourceRoot $env:SOURCE_FOLDER } else { $sourceRoot }
+          $sourcePath = [System.IO.Path]::GetFullPath($sourcePath)
+          if (!$sourcePath.StartsWith($sourceRoot, [System.StringComparison]::OrdinalIgnoreCase)) { throw 'Folder path escapes the repository.' }
+          if (!(Test-Path (Join-Path $sourcePath 'index.html'))) { throw 'Selected folder must contain index.html at its top level.' }
+          New-Item -ItemType Directory -Force site | Out-Null
+          Copy-Item -Path (Join-Path $sourcePath '*') -Destination site -Recurse -Force
+      - name: Prepare Electron application
+        shell: pwsh
+        env:
+          APP_NAME: \${{ inputs.app_name }}
+          WINDOW_WIDTH: \${{ inputs.window_width }}
+          WINDOW_HEIGHT: \${{ inputs.window_height }}
+          ICON_URL: \${{ inputs.icon_url }}
+        run: |
+          $name = $env:APP_NAME.Trim()
+          if (!$name -or $name.Length -gt 60 -or $name -match '[<>:"/\\|?*]') { throw 'Invalid app name.' }
+          $width = [int]$env:WINDOW_WIDTH
+          $height = [int]$env:WINDOW_HEIGHT
+          if ($width -lt 640 -or $width -gt 3840 -or $height -lt 480 -or $height -gt 2160) { throw 'Invalid window dimensions.' }
+          $slug = ($name.ToLower() -replace '[^a-z0-9]+','-').Trim('-')
+          if (!$slug) { $slug = 'website-app' }
+          $main = @"
+          const { app, BrowserWindow } = require('electron');
+          const path = require('path');
+          function createWindow() {
+            const win = new BrowserWindow({
+              width: $width, height: $height, minWidth: 640, minHeight: 480,
+              autoHideMenuBar: true,
+              webPreferences: { contextIsolation: true, nodeIntegration: false }
+            });
+            win.loadFile(path.join(__dirname, 'site', 'index.html'));
+          }
+          app.whenReady().then(() => {
+            createWindow();
+            app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+          });
+          app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+          "@
+          Set-Content -Path main.js -Value $main -Encoding utf8
+          $package = @{
+            name = $slug
+            version = '1.0.0'
+            description = "Desktop wrapper for $name"
+            main = 'main.js'
+            scripts = @{ dist = 'electron-builder --win portable --x64' }
+            devDependencies = @{ electron = '^33.0.0'; 'electron-builder' = '^25.1.8' }
+            build = @{
+              appId = "com.velocitysystems.$slug"
+              productName = $name
+              files = @('main.js','site/**/*','package.json','build/**/*')
+              directories = @{ output = 'release' }
+              win = @{ target = @('portable') }
+              portable = @{ artifactName = "$slug-portable.exe" }
+            }
+          }
+          if ($env:ICON_URL) {
+            if ($env:ICON_URL -notmatch '^https://.+\.ico([?#].*)?$') { throw 'Icon URL must be a direct HTTPS .ico URL.' }
+            New-Item -ItemType Directory -Force build | Out-Null
+            Invoke-WebRequest -Uri $env:ICON_URL -OutFile build/icon.ico
+            $package.build.win.icon = 'build/icon.ico'
+          }
+          $package | ConvertTo-Json -Depth 12 | Set-Content package.json -Encoding utf8
+      - name: Install dependencies
+        run: npm install
+      - name: Build portable Windows executable
+        run: npm run dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-portable-exe
+          path: release/*.exe
+          if-no-files-found: error
+          retention-days: 14
