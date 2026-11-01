@@ -6358,23 +6358,50 @@ PLAYABLES['video-trimmer'] = mountVideoTrimmer;
    ================================================================== */
 function mountIpLookup(container){
   mountEmbed(container, 'TOOL / IP ADDRESS LOOKUP', function(body){
-    body.innerHTML='<div class="tool-grid two"><div class="field"><label for="ipl-address">IP address (leave blank for your current public IP)</label><input id="ipl-address" placeholder="203.0.113.10" autocomplete="off"></div><div class="field" style="align-self:end"><button class="game-btn" id="ipl-run" type="button">Look up IP</button></div></div><p class="hint">The address is sent to ipapi.co for lookup. Location is approximate and can be wrong, especially with mobile networks, VPNs and proxies.</p><div id="ipl-status" class="tool-msg" role="status"></div><dl id="ipl-results" class="kv"></dl>';
-    var input=body.querySelector('#ipl-address'), run=body.querySelector('#ipl-run'), status=body.querySelector('#ipl-status'), out=body.querySelector('#ipl-results');
+    body.innerHTML='<div class="tool-grid two"><div class="field"><label for="ipl-address">IP address (leave blank for your current public IP)</label><input id="ipl-address" placeholder="203.0.113.10" autocomplete="off"></div><div class="field" style="align-self:end"><button class="game-btn" id="ipl-run" type="button">Look up IP</button></div></div><div id="ipl-status" class="tool-msg" role="status"></div><dl id="ipl-results" class="kv"></dl><section class="ip-map-section"><div class="section-title"><span>APPROXIMATE LOCATION</span><h3>IP location map</h3></div><div id="ipl-map" class="ip-map" aria-label="Map showing approximate IP geolocation" hidden></div><div id="ipl-map-fallback" class="ip-map-fallback" hidden></div><p class="hint">The map uses OpenStreetMap tiles. IP geolocation is an estimate, not a precise device location; VPNs, mobile carriers and proxy networks can place it far from the actual user.</p></section>';
+    var input=body.querySelector('#ipl-address'),run=body.querySelector('#ipl-run'),status=body.querySelector('#ipl-status'),out=body.querySelector('#ipl-results'),mapBox=body.querySelector('#ipl-map'),fallback=body.querySelector('#ipl-map-fallback');
+    var map=null,marker=null;
+    function loadLeaflet(){
+      if(window.L)return Promise.resolve(window.L);
+      if(window.__vsLeafletLoading)return window.__vsLeafletLoading;
+      window.__vsLeafletLoading=new Promise(function(resolve,reject){
+        if(!document.querySelector('link[data-vs-leaflet]')){var link=document.createElement('link');link.rel='stylesheet';link.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';link.setAttribute('data-vs-leaflet','');document.head.appendChild(link);}
+        var script=document.createElement('script');script.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';script.onload=function(){resolve(window.L);};script.onerror=function(){reject(new Error('The map library could not be loaded.'));};document.head.appendChild(script);
+      });
+      return window.__vsLeafletLoading;
+    }
+    function showMap(data){
+      var lat=Number(data.latitude),lon=Number(data.longitude);
+      if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180){mapBox.hidden=true;fallback.hidden=false;fallback.textContent='The lookup provider did not return usable coordinates for this address.';return;}
+      mapBox.hidden=false;fallback.hidden=true;
+      loadLeaflet().then(function(L){
+        if(!map){map=L.map(mapBox,{scrollWheelZoom:false}).setView([lat,lon],9);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a>'}).addTo(map);marker=L.marker([lat,lon]).addTo(map);}
+        else{map.setView([lat,lon],9);marker.setLatLng([lat,lon]);}
+        marker.bindPopup('<b>'+esc(data.city||data.region||data.country_name||'Approximate IP location')+'</b><br>'+lat.toFixed(4)+', '+lon.toFixed(4)).openPopup();
+        setTimeout(function(){map.invalidateSize();},80);
+      }).catch(function(){
+        mapBox.hidden=true;fallback.hidden=false;
+        var href='https://www.openstreetmap.org/?mlat='+encodeURIComponent(lat)+'&mlon='+encodeURIComponent(lon)+'#map=9/'+encodeURIComponent(lat)+'/'+encodeURIComponent(lon);
+        fallback.innerHTML='Map preview could not load. <a href="'+href+'" target="_blank" rel="noreferrer">Open approximate coordinates in OpenStreetMap</a>.';
+      });
+    }
     function show(data){
       var fields=[['IP address',data.ip],['Version',data.version],['City',data.city],['Region',data.region],['Country',data.country_name],['Postal code',data.postal],['Latitude',data.latitude],['Longitude',data.longitude],['Timezone',data.timezone],['Organisation',data.org],['ASN',data.asn],['Network',data.network],['Calling code',data.country_calling_code],['Currency',data.currency]];
       out.innerHTML=fields.filter(function(x){return x[1]!==null&&x[1]!==undefined&&x[1]!=='';}).map(function(x){return '<dt>'+esc(x[0])+'</dt><dd>'+esc(String(x[1]))+'</dd>';}).join('');
+      showMap(data);
     }
     function lookup(){
       var ip=input.value.trim();
-      if(ip && !/^[0-9a-f:.]+$/i.test(ip)){status.textContent='Enter a valid IPv4 or IPv6 address.';return;}
-      status.textContent='Contacting IP lookup provider…';out.innerHTML='';run.disabled=true;
+      if(ip&&!/^[0-9a-f:.]+$/i.test(ip)){status.textContent='Enter a valid IPv4 or IPv6 address.';return;}
+      status.textContent='Contacting IP lookup provider…';out.innerHTML='';mapBox.hidden=true;fallback.hidden=true;run.disabled=true;
       fetch('https://ipapi.co/'+(ip?encodeURIComponent(ip)+'/':'')+'json/').then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(function(d){
-        if(d.error) throw new Error(d.reason||'The provider rejected this address.');
+        if(d.error)throw new Error(d.reason||'The provider rejected this address.');
         show(d);status.textContent='Lookup complete. Data supplied by ipapi.co; geolocation is approximate.';
       }).catch(function(e){toolError(out,'IP lookup failed',e.message||'The request was blocked or the provider is unavailable.','Check the address and connection, disable content blockers for this request, or try again later.');status.textContent='';}).finally(function(){run.disabled=false;});
     }
     run.addEventListener('click',lookup);input.addEventListener('keydown',function(e){if(e.key==='Enter')lookup();});
     lookup();
+    onUnmount(body,function(){if(map){map.remove();map=null;}});
   });
 }
 PLAYABLES['ip-lookup']=mountIpLookup;
