@@ -1,0 +1,18 @@
+name: Site health
+
+on:
+  push:
+    branches: [main, feature/site-tools-polish]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  static-health:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check JavaScript syntax and site references
+        run: node scripts/site-health-check.js
