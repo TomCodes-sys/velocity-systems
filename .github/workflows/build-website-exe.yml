@@ -57,10 +57,10 @@ jobs:
           if ($env:SOURCE_REPO -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') { throw 'Repository must be owner/name.' }
           if ($env:SOURCE_BRANCH -notmatch '^[A-Za-z0-9._/-]+$' -or $env:SOURCE_BRANCH.Contains('..')) { throw 'Invalid branch name.' }
           git clone --depth 1 --branch "$env:SOURCE_BRANCH" "https://github.com/$env:SOURCE_REPO.git" source
-          $sourceRoot = [System.IO.Path]::GetFullPath((Join-Path $PWD 'source'))
-          $sourcePath = if ($env:SOURCE_FOLDER) { Join-Path $sourceRoot $env:SOURCE_FOLDER } else { $sourceRoot }
-          $sourcePath = [System.IO.Path]::GetFullPath($sourcePath)
-          if (!$sourcePath.StartsWith($sourceRoot, [System.StringComparison]::OrdinalIgnoreCase)) { throw 'Folder path escapes the repository.' }
+          $sourceRoot = [System.IO.Path]::GetFullPath((Join-Path $PWD 'source')).TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
+          if ($env:SOURCE_FOLDER -match '(^|[\\/])\.\.([\\/]|$)' -or [System.IO.Path]::IsPathRooted($env:SOURCE_FOLDER)) { throw 'Folder path must stay inside the repository.' }
+          $sourcePath = if ($env:SOURCE_FOLDER) { [System.IO.Path]::GetFullPath((Join-Path $sourceRoot $env:SOURCE_FOLDER)) } else { $sourceRoot.TrimEnd([System.IO.Path]::DirectorySeparatorChar) }
+          if ($sourcePath -ne $sourceRoot.TrimEnd([System.IO.Path]::DirectorySeparatorChar) -and !$sourcePath.StartsWith($sourceRoot, [System.StringComparison]::OrdinalIgnoreCase)) { throw 'Folder path escapes the repository.' }
           if (!(Test-Path (Join-Path $sourcePath 'index.html'))) { throw 'Selected folder must contain index.html at its top level.' }
           New-Item -ItemType Directory -Force site | Out-Null
           Copy-Item -Path (Join-Path $sourcePath '*') -Destination site -Recurse -Force
