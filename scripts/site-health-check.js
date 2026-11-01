@@ -12,23 +12,24 @@ function walk(dir) {
     if (skipDirs.has(ent.name)) continue;
     const full = path.join(dir, ent.name);
     if (ent.isDirectory()) walk(full);
-    else if (ent.isFile() && /\\.html?$/i.test(ent.name)) pages.push({full, rel:path.relative(root, full).split(path.sep).join('/')});
+    else if (ent.isFile() && /\.html?$/i.test(ent.name)) pages.push({full, rel:path.relative(root, full).split(path.sep).join('/')});
   }
 }
 function attr(tag, name) {
-  const re = new RegExp("\\\\b" + name + "\\\\s*=\\\\s*(['\\\"])(.*?)\\\\1", 'i');
-  const match = tag.match(re);
-  return match ? match[2] : '';
+  const re = /([a-z:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
+  let m;
+  while ((m = re.exec(tag))) if (m[1].toLowerCase() === name.toLowerCase()) return m[2] !== undefined ? m[2] : m[3];
+  return '';
 }
 function checkPage(page) {
   const html = fs.readFileSync(page.full, 'utf8');
-  [[/<title\\b/i,'title'],[/<meta[^>]+name=['"]description['"]/i,'description'],[/<link[^>]+rel=['"]canonical['"]/i,'canonical URL'],[/<meta[^>]+name=['"]viewport['"]/i,'viewport']].forEach(function(check) {
+  [[/<title\b/i,'title'],[/<meta[^>]+name=["']description["']/i,'description'],[/<link[^>]+rel=["']canonical["']/i,'canonical URL'],[/<meta[^>]+name=["']viewport["']/i,'viewport']].forEach(function(check) {
     if (!check[0].test(html)) issue('warning', page.rel, 'Missing metadata: ' + check[1]);
   });
   const tags = html.match(/<(?:a|link|script|img|source|video|audio)[^>]*>/gi) || [];
   for (const tag of tags) {
-    const raw = /^<(?:a|link)\\b/i.test(tag) ? attr(tag, 'href') : attr(tag, 'src');
-    if (!raw || /^(?:#|https?:|mailto:|tel:|data:|blob:|javascript:|\\/\\/)/i.test(raw)) continue;
+    const raw = /^<(?:a|link)\b/i.test(tag) ? attr(tag, 'href') : attr(tag, 'src');
+    if (!raw || /^(?:#|https?:|mailto:|tel:|data:|blob:|javascript:|\/\/)/i.test(raw)) continue;
     let clean;
     try { clean = decodeURIComponent(raw.split(/[?#]/)[0]); } catch(e) { issue('error', page.rel, 'Invalid URL encoding: ' + raw); continue; }
     if (!clean) continue;
