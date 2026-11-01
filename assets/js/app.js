@@ -1304,6 +1304,16 @@ function legacyRedirect(){
   location.replace(ROOT + to);
   return true;
 }
+/* Game Deals scroll restoration: survives reloads and returning to the page in this tab. */
+(function(){
+  if(document.body.getAttribute('data-id')!=='game-deals') return;
+  var key='vs-game-deals-scroll', restored=false;
+  function restore(){ if(restored)return; var y=Number(sessionStorage.getItem(key)||0); if(y>0){window.scrollTo(0,y);} restored=true; }
+  window.addEventListener('scroll',function(){try{sessionStorage.setItem(key,String(window.scrollY));}catch(e){}},{passive:true});
+  window.addEventListener('pagehide',function(){try{sessionStorage.setItem(key,String(window.scrollY));}catch(e){}});
+  window.addEventListener('pageshow',function(){setTimeout(restore,80);});
+  setTimeout(restore,350);
+})();
 function boot(){
   var d = document.body.dataset;
   if(d.page === 'home' && legacyRedirect()) return;
