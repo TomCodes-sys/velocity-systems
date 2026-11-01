@@ -81,7 +81,8 @@ async function checkBrowser() {
     for (const item of pages) {
       const page = await browser.newPage({viewport:{width:1365,height:900}});
       page.on('pageerror', error => issue('error', item.rel, 'JavaScript runtime error: ' + error.message));
-      page.on('console', msg => { if (msg.type() === 'error') issue('error', item.rel, 'Browser console: ' + msg.text().slice(0,240)); });
+      page.on('console', msg => { const source = msg.location().url || ''; if (msg.type() === 'error' && source.startsWith(base)) issue('error', item.rel, 'Browser console: ' + msg.text().slice(0,240)); });
+      page.on('requestfailed', request => { if (request.url().startsWith(base)) issue('error', item.rel, 'Local resource failed: ' + request.url()); });
       try {
         await page.goto(base + item.rel.split(path.sep).join('/'), {waitUntil:'domcontentloaded',timeout:20000});
         await page.waitForTimeout(250);
