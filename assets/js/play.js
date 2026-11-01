@@ -111,12 +111,14 @@ function enhanceFileInputs(root){
     if(inp.hidden || !inp.id || inp.closest('.file-pick') || inp.hasAttribute('data-plain')) return;
     var wrap = document.createElement('div'); wrap.className = 'file-pick';
     inp.parentNode.insertBefore(wrap, inp); wrap.appendChild(inp); inp.classList.remove('tool-row');
-    var noun = inp.multiple ? 'files' : 'file';
-    wrap.insertAdjacentHTML('beforeend', '<label class="file-btn" for="'+inp.id+'">'+(typeof icon === 'function' ? icon('upload', {size:15}) : '')+' Choose '+noun+'</label><span class="file-name">or drop '+(inp.multiple ? 'files' : 'a file')+' here</span>');
+    var isFolder=inp.hasAttribute('webkitdirectory'),noun=isFolder?'folder':(inp.multiple?'files':'file'),dropNoun=isFolder?'a folder':(inp.multiple?'files':'a file');
+    wrap.insertAdjacentHTML('beforeend', '<label class="file-btn" for="'+inp.id+'">'+(typeof icon === 'function' ? icon('upload', {size:15}) : '')+' Choose '+noun+'</label><span class="file-name">or drop '+dropNoun+' here</span>');
     var nm = wrap.querySelector('.file-name');
     function update(){
       var n = inp.files ? inp.files.length : 0;
-      nm.textContent = n ? (n === 1 ? inp.files[0].name : n+' files selected') : 'or drop '+(inp.multiple ? 'files' : 'a file')+' here';
+      if(!n){nm.textContent='or drop '+dropNoun+' here';return;}
+      if(isFolder){var root=(inp.files[0].webkitRelativePath||inp.files[0].name).split('/')[0];nm.textContent=root+' · '+n+' files selected';}
+      else nm.textContent=n===1?inp.files[0].name:n+' files selected';
     }
     inp.addEventListener('change', update);
     ['dragenter','dragover'].forEach(function(t){ wrap.addEventListener(t, function(e){ e.preventDefault(); wrap.classList.add('over'); }); });
