@@ -230,6 +230,18 @@ function pad2(n){ return String(n).padStart(2,'0'); }
 function qs(sel, root){ return (root||document).querySelector(sel); }
 function qsa(sel, root){ return Array.prototype.slice.call((root||document).querySelectorAll(sel)); }
 
+/* Number inputs use the same compact plus/minus controls on every page. */
+function enhanceSiteNumberInputs(root){
+  (root||document).querySelectorAll('input[type="number"]').forEach(function(input){
+    if(input.closest('.number-control')||input.hasAttribute('data-native-stepper'))return;
+    var wrap=document.createElement('div');wrap.className='number-control';input.parentNode.insertBefore(wrap,input);wrap.appendChild(input);
+    var down=document.createElement('button'),up=document.createElement('button');down.type=up.type='button';down.className=up.className='number-step';down.textContent='−';up.textContent='+';
+    down.setAttribute('aria-label','Decrease '+(input.getAttribute('aria-label')||input.id||'value'));up.setAttribute('aria-label','Increase '+(input.getAttribute('aria-label')||input.id||'value'));wrap.appendChild(down);wrap.appendChild(up);
+    function change(dir){if(input.disabled||input.readOnly)return;var step=input.step==='any'?1:(Number(input.step)||1),min=input.min===''?-Infinity:Number(input.min),max=input.max===''?Infinity:Number(input.max),v=input.value===''?(dir>0?Math.max(0,min):Math.min(0,max)):Number(input.value),next=Math.min(max,Math.max(min,v+dir*step)),dp=(String(step).split('.')[1]||'').length;input.value=Number(next.toFixed(Math.min(8,dp))).toString();input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));}
+    down.addEventListener('click',function(){change(-1);});up.addEventListener('click',function(){change(1);});
+  });
+}
+
 
 /* ---------- URLs ----------
    Every page is its own HTML file. <body data-root> says how far up the site
@@ -1119,6 +1131,7 @@ function pageSettings(){
     '<div class="settings-data">'+dataPanelHtml()+'</div>';
 
   wireDataPanel();
+  enhanceSiteNumberInputs(qs('#app'));
 
   // Settings are patched in place rather than re-rendered — a full re-render
   // combined with smooth-scrolling made the page jump around on every click.
