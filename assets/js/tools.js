@@ -6444,7 +6444,8 @@ function mountWebsiteToExe(container){
       var raw=$('w2e-repo').value.trim(),branch=$('w2e-branch').value.trim()||'main',folder=$('w2e-folder').value.trim().replace(/^\/+|\/+$/g,''),name=$('w2e-name').value.trim()||'Website App';
       var match=raw.match(/^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/?$/);
       if(!match){$('w2e-status').textContent='Enter a public GitHub repository URL in https://github.com/owner/repository format.';return;}
-      if(folder.split('/').some(function(p){return p==='..'||p==='.';})){$('w2e-status').textContent='Folder path must be a normal repository-relative path.';return;}
+      if(!/^[A-Za-z0-9._/-]+$/.test(branch)||branch.charAt(0)==='-'||branch.indexOf('..')!==-1){$('w2e-status').textContent='Branch names may contain letters, numbers, dots, underscores, hyphens and slashes only.';return;}
+      if((folder && !/^[A-Za-z0-9._/-]+$/.test(folder))||folder.split('/').some(function(p){return p==='..'||p==='.';})){$('w2e-status').textContent='Folder path must use letters, numbers, dots, underscores, hyphens and slashes only.';return;}
       var owner=match[1],repoName=match[2].replace(/\.git$/,''),slug=name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'website-app';
       var config={repository:'https://github.com/'+owner+'/'+repoName+'.git',branch:branch,folder:folder,appName:name,slug:slug};
       var packageJson={name:slug,version:'1.0.0',description:'Desktop wrapper for '+name,main:'main.js',scripts:{start:'electron .',dist:'electron-builder --win portable'},devDependencies:{electron:'^33.0.0','electron-builder':'^25.1.8'},build:{appId:'com.velocitysystems.'+slug,productName:name,files:['main.js','site/**/*','package.json'],directories:{output:'release'},win:{target:['portable']},portable:{artifactName:slug+'-portable.exe'}}};
