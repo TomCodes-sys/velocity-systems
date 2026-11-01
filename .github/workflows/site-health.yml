@@ -1,5 +1,9 @@
 name: Site health
 
+concurrency:
+  group: site-health-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [main, feature/site-tools-polish]
@@ -20,6 +24,7 @@ jobs:
       - name: Generate current static pages
         run: node scripts/build.js
       - name: Commit regenerated static pages
+        if: github.event_name != 'pull_request'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
