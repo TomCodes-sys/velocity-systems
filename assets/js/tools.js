@@ -493,7 +493,7 @@ function mountCountdown(container){
         '<div class="field"><label for="cd-s">Seconds</label><input id="cd-s" type="number" min="0" max="59" value="0"></div></div>'+
       '<div id="cd-date" class="tool-grid" hidden><div class="field"><label for="cd-target">Count down to</label><input id="cd-target" type="datetime-local"></div></div>'+
       '<div class="cd-display" id="cd-disp" role="timer" aria-live="off">00:00:00</div><p class="hint" id="cd-note" style="text-align:center"></p>'+
-      '<div class="tool-row" style="justify-content:center"><button class="game-btn" id="cd-start">Start</button><button class="game-btn secondary" id="cd-reset">Reset</button><label><input type="checkbox" id="cd-sound" checked> Sound at zero</label></div>';
+      '<div class="tool-row" style="justify-content:center"><button class="game-btn" id="cd-start">Start</button><button class="game-btn secondary" id="cd-pause" hidden>Pause</button><button class="game-btn secondary" id="cd-reset">Reset</button><label><input type="checkbox" id="cd-sound" checked> Sound at zero</label></div>';
     var $ = function(s){ return body.querySelector(s); };
     var KEY = 'vs-countdown', st = lsGet(KEY, null), iv = null, fired = false;
 
@@ -517,13 +517,13 @@ function mountCountdown(container){
     }
     function tick(){
       if(!st){ return; }
-      var left = st.end - Date.now();
+      var left = st.paused ? st.remaining : st.end - Date.now();
       $('#cd-disp').textContent = fmt(left);
       document.title = fmt(left) + ' · Countdown';
       if(left <= 0){
         clearInterval(iv); iv = null;
         $('#cd-disp').classList.add('done'); $('#cd-note').textContent = 'Time’s up.';
-        $('#cd-start').textContent = 'Start';
+        $('#cd-start').textContent = 'Start'; $('#cd-pause').hidden = true;
         if(!fired){ fired = true; if($('#cd-sound').checked) beep(); notify('Countdown finished', 'ok', {force:true}); }
         st = null; lsSet(KEY, null);
       }
@@ -540,11 +540,11 @@ function mountCountdown(container){
       }
       st = {end:end}; lsSet(KEY, st); fired = false;
       $('#cd-disp').classList.remove('done'); $('#cd-note').textContent = 'Ends ' + new Date(end).toLocaleString();
-      $('#cd-start').textContent = 'Restart';
+      $('#cd-start').textContent = 'Restart'; $('#cd-pause').hidden = false; $('#cd-pause').textContent = 'Pause';
       clearInterval(iv); iv = setInterval(tick, 250); tick();
     }
     function reset(){
-      clearInterval(iv); iv = null; st = null; lsSet(KEY, null); fired = false; document.title = document.title.replace(/^[\d: d]+ · Countdown$/, 'Countdown Timer');
+      clearInterval(iv); iv = null; st = null; lsSet(KEY, null); fired = false; $('#cd-pause').hidden = true; document.title = document.title.replace(/^[\d: d]+ · Countdown$/, 'Countdown Timer');
       $('#cd-disp').textContent = '00:00:00'; $('#cd-disp').classList.remove('done'); $('#cd-note').textContent = ''; $('#cd-start').textContent = 'Start';
     }
     $('#cd-seg').addEventListener('click', function(e){
@@ -552,11 +552,24 @@ function mountCountdown(container){
       $('#cd-mode').value = b.getAttribute('data-m'); $('#cd-mode').dispatchEvent(new Event('change', {bubbles:true})); sync();
     });
     $('#cd-mode').addEventListener('change', sync);
-    $('#cd-start').addEventListener('click', start); $('#cd-reset').addEventListener('click', reset);
+    function togglePause(){
+      if(!st) return;
+      if(!st.paused){
+        st.remaining = Math.max(0, st.end - Date.now()); st.paused = true;
+        clearInterval(iv); iv = null; lsSet(KEY, st);
+        $('#cd-pause').textContent = 'Resume'; $('#cd-note').textContent = 'Paused — ' + fmt(st.remaining) + ' remaining'; tick();
+      } else {
+        st.end = Date.now() + st.remaining; st.paused = false; lsSet(KEY, st);
+        $('#cd-pause').textContent = 'Pause'; $('#cd-note').textContent = 'Ends ' + new Date(st.end).toLocaleString();
+        iv = setInterval(tick, 250); tick();
+      }
+    }
+    $('#cd-start').addEventListener('click', start); $('#cd-pause').addEventListener('click', togglePause); $('#cd-reset').addEventListener('click', reset);
     onUnmount(body, function(){ clearInterval(iv); });
     sync();
     if(st && st.end){
-      if(st.end > Date.now()){ $('#cd-note').textContent = 'Ends ' + new Date(st.end).toLocaleString(); $('#cd-start').textContent = 'Restart'; iv = setInterval(tick, 250); tick(); }
+      if(st.paused){ $('#cd-note').textContent = 'Paused — ' + fmt(st.remaining) + ' remaining'; $('#cd-start').textContent = 'Restart'; $('#cd-pause').hidden = false; $('#cd-pause').textContent = 'Resume'; tick(); }
+      else if(st.end > Date.now()){ $('#cd-note').textContent = 'Ends ' + new Date(st.end).toLocaleString(); $('#cd-start').textContent = 'Restart'; $('#cd-pause').hidden = false; iv = setInterval(tick, 250); tick(); }
       else { st = null; lsSet(KEY, null); }
     }
   });
@@ -694,13 +707,19 @@ function mountDeviceInfo(container){
       ['Online', nav.onLine ? 'Yes' : 'No'], ['Cookies enabled', nav.cookieEnabled ? 'Yes' : 'No'],
       ['Touch support', nav.maxTouchPoints>0 ? 'Yes ('+nav.maxTouchPoints+' pts)' : 'No'],
     ];
-    function render(publicIp){
+    function render(publicIp, publicIpv6){
       body.innerHTML = '<div class="di-wrap">'+
-        (publicIp ? '<div class="di-ip"><b>Public IP:</b> '+esc(publicIp)+'</div>' : '<div class="tool-msg">Public IP unavailable (offline or blocked)</div>')+
+        (publicIp ? '<div class="di-ip"><b>Public IPv4:</b> <span id="di-ip4">'+esc(publicIp)+'</span> <button type="button" class="game-btn secondary" id="di-copy4">Copy</button></div>' : '<div class="tool-msg">Public IPv4 unavailable (offline or blocked)</div>')+
+        (publicIpv6 ? '<div class="di-ip"><b>Public IPv6:</b> <span id="di-ip6">'+esc(publicIpv6)+'</span> <button type="button" class="game-btn secondary" id="di-copy6">Copy</button></div>' : '<div class="tool-msg">Public IPv6 unavailable or not supported by this connection</div>')+
+        '<p class="hint">Public IP addresses are requested from ipify, an external service. Your browser sends the request directly to that provider.</p>'+
         '<div class="di-grid">'+rows.map(function(r){ return '<div class="di-row"><span>'+r[0]+'</span><b>'+esc(String(r[1]))+'</b></div>'; }).join('')+'</div>'+
       '</div>';
+      [['di-copy4',publicIp],['di-copy6',publicIpv6]].forEach(function(x){ var b=body.querySelector('#'+x[0]); if(b) b.addEventListener('click',function(){ if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(x[1]).then(function(){notify('IP address copied','ok');}).catch(function(){notify('Clipboard access was blocked','warn');}); else notify('Clipboard is not supported in this browser','warn'); }); });
     }
-    fetch('https://api.ipify.org?format=json').then(function(r){ return r.json(); }).then(function(d){ render(d.ip); }).catch(function(){ render(null); });
+    Promise.all([
+      fetch('https://api.ipify.org?format=json').then(function(r){ if(!r.ok) throw new Error('IPv4 lookup failed'); return r.json(); }).then(function(d){ return d.ip; }).catch(function(){ return null; }),
+      fetch('https://api6.ipify.org?format=json').then(function(r){ if(!r.ok) throw new Error('IPv6 lookup failed'); return r.json(); }).then(function(d){ return d.ip; }).catch(function(){ return null; })
+    ]).then(function(ips){ render(ips[0],ips[1]); });
   });
 }
 PLAYABLES['device-info'] = mountDeviceInfo;
@@ -6332,6 +6351,224 @@ function mountVideoTrimmer(container){
 }
 PLAYABLES['video-trimmer'] = mountVideoTrimmer;
 
+
+
+/* ==================================================================
+   tools / ip-lookup
+   ================================================================== */
+function mountIpLookup(container){
+  mountEmbed(container, 'TOOL / IP ADDRESS LOOKUP', function(body){
+    body.innerHTML='<div class="tool-grid two"><div class="field"><label for="ipl-address">IP address (leave blank for your current public IP)</label><input id="ipl-address" placeholder="203.0.113.10" autocomplete="off"></div><div class="field" style="align-self:end"><button class="game-btn" id="ipl-run" type="button">Look up IP</button></div></div><div id="ipl-status" class="tool-msg" role="status"></div><dl id="ipl-results" class="kv"></dl><section class="ip-map-section"><div class="section-title"><span>APPROXIMATE LOCATION</span><h3>IP location map</h3></div><div id="ipl-map" class="ip-map" aria-label="Map showing approximate IP geolocation" hidden></div><div id="ipl-map-fallback" class="ip-map-fallback" hidden></div><p class="hint">The map uses OpenStreetMap tiles. IP geolocation is an estimate, not a precise device location; VPNs, mobile carriers and proxy networks can place it far from the actual user.</p></section>';
+    var input=body.querySelector('#ipl-address'),run=body.querySelector('#ipl-run'),status=body.querySelector('#ipl-status'),out=body.querySelector('#ipl-results'),mapBox=body.querySelector('#ipl-map'),fallback=body.querySelector('#ipl-map-fallback');
+    var map=null,marker=null;
+    function loadLeaflet(){
+      if(window.L)return Promise.resolve(window.L);
+      if(window.__vsLeafletLoading)return window.__vsLeafletLoading;
+      window.__vsLeafletLoading=new Promise(function(resolve,reject){
+        if(!document.querySelector('link[data-vs-leaflet]')){var link=document.createElement('link');link.rel='stylesheet';link.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';link.setAttribute('data-vs-leaflet','');document.head.appendChild(link);}
+        var script=document.createElement('script');script.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';script.onload=function(){resolve(window.L);};script.onerror=function(){reject(new Error('The map library could not be loaded.'));};document.head.appendChild(script);
+      });
+      return window.__vsLeafletLoading;
+    }
+    function showMap(data){
+      var lat=Number(data.latitude),lon=Number(data.longitude);
+      if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180){mapBox.hidden=true;fallback.hidden=false;fallback.textContent='The lookup provider did not return usable coordinates for this address.';return;}
+      mapBox.hidden=false;fallback.hidden=true;
+      loadLeaflet().then(function(L){
+        if(!map){map=L.map(mapBox,{scrollWheelZoom:false}).setView([lat,lon],9);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a>'}).addTo(map);marker=L.marker([lat,lon]).addTo(map);}
+        else{map.setView([lat,lon],9);marker.setLatLng([lat,lon]);}
+        marker.bindPopup('<b>'+esc(data.city||data.region||data.country_name||'Approximate IP location')+'</b><br>'+lat.toFixed(4)+', '+lon.toFixed(4)).openPopup();
+        setTimeout(function(){map.invalidateSize();},80);
+      }).catch(function(){
+        mapBox.hidden=true;fallback.hidden=false;
+        var href='https://www.openstreetmap.org/?mlat='+encodeURIComponent(lat)+'&mlon='+encodeURIComponent(lon)+'#map=9/'+encodeURIComponent(lat)+'/'+encodeURIComponent(lon);
+        fallback.innerHTML='Map preview could not load. <a href="'+href+'" target="_blank" rel="noreferrer">Open approximate coordinates in OpenStreetMap</a>.';
+      });
+    }
+    function show(data){
+      var fields=[['IP address',data.ip],['Version',data.version],['City',data.city],['Region',data.region],['Country',data.country_name],['Postal code',data.postal],['Latitude',data.latitude],['Longitude',data.longitude],['Timezone',data.timezone],['Organisation',data.org],['ASN',data.asn],['Network',data.network],['Calling code',data.country_calling_code],['Currency',data.currency]];
+      out.innerHTML=fields.filter(function(x){return x[1]!==null&&x[1]!==undefined&&x[1]!=='';}).map(function(x){return '<dt>'+esc(x[0])+'</dt><dd>'+esc(String(x[1]))+'</dd>';}).join('');
+      showMap(data);
+    }
+    function lookup(){
+      var ip=input.value.trim();
+      if(ip&&!/^[0-9a-f:.]+$/i.test(ip)){status.textContent='Enter a valid IPv4 or IPv6 address.';return;}
+      status.textContent='Contacting IP lookup provider…';out.innerHTML='';mapBox.hidden=true;fallback.hidden=true;run.disabled=true;
+      fetch('https://ipapi.co/'+(ip?encodeURIComponent(ip)+'/':'')+'json/').then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(function(d){
+        if(d.error)throw new Error(d.reason||'The provider rejected this address.');
+        show(d);status.textContent='Lookup complete. Data supplied by ipapi.co; geolocation is approximate.';
+      }).catch(function(e){toolError(out,'IP lookup failed',e.message||'The request was blocked or the provider is unavailable.','Check the address and connection, disable content blockers for this request, or try again later.');status.textContent='';}).finally(function(){run.disabled=false;});
+    }
+    run.addEventListener('click',lookup);input.addEventListener('keydown',function(e){if(e.key==='Enter')lookup();});
+    lookup();
+    onUnmount(body,function(){if(map){map.remove();map=null;}});
+  });
+}
+PLAYABLES['ip-lookup']=mountIpLookup;
+
+/* ==================================================================
+   tools / microphone-tester
+   ================================================================== */
+function mountMicrophoneTester(container){
+  mountEmbed(container, 'TOOL / MICROPHONE TESTER', function(body){
+    body.innerHTML='<div class="tool-grid two"><div class="field"><label for="mic-device">Input device</label><select id="mic-device"><option value="">Default microphone</option></select></div><div class="field"><label for="mic-delay">Monitor delay <span id="mic-delay-label">500 ms</span></label><input id="mic-delay" type="range" min="0" max="2000" step="50" value="500"></div></div><div class="tool-row"><button class="game-btn" id="mic-start">Start microphone</button><button class="game-btn secondary" id="mic-stop" disabled>Stop</button><button class="game-btn secondary" id="mic-record" disabled>Start recording</button><button class="game-btn secondary" id="mic-play" disabled>Play recording</button><a class="game-btn secondary" id="mic-download" hidden download="microphone-test.webm">Download recording</a></div><div class="result-card"><div class="field-label">Input level</div><div style="height:12px;background:var(--surface-2);border-radius:20px;overflow:hidden"><div id="mic-level" style="height:100%;width:0%;background:var(--accent);transition:width .08s"></div></div><p class="hint" id="mic-status" role="status">Microphone is off. Audio stays in this browser unless you choose to download it.</p></div><audio id="mic-audio" controls hidden></audio>';
+    var device=body.querySelector('#mic-device'),delay=body.querySelector('#mic-delay'),label=body.querySelector('#mic-delay-label'),start=body.querySelector('#mic-start'),stop=body.querySelector('#mic-stop'),record=body.querySelector('#mic-record'),play=body.querySelector('#mic-play'),download=body.querySelector('#mic-download'),status=body.querySelector('#mic-status'),level=body.querySelector('#mic-level'),audio=body.querySelector('#mic-audio');
+    var stream=null,ctx=null,source=null,analyser=null,delayNode=null,raf=0,recorder=null,chunks=[],recordUrl=null;
+    function stopMic(){
+      if(raf)cancelAnimationFrame(raf);raf=0;
+      if(stream)stream.getTracks().forEach(function(t){t.stop();});stream=null;
+      if(ctx){ctx.close().catch(function(){});ctx=null;}
+      source=analyser=delayNode=null;level.style.width='0%';start.disabled=false;stop.disabled=true;record.disabled=true;
+      status.textContent='Microphone stopped.';
+    }
+    function devices(){
+      if(!navigator.mediaDevices||!navigator.mediaDevices.enumerateDevices)return;
+      navigator.mediaDevices.enumerateDevices().then(function(ds){
+        var selected=device.value;device.innerHTML='<option value="">Default microphone</option>';
+        ds.filter(function(d){return d.kind==='audioinput';}).forEach(function(d,i){var o=document.createElement('option');o.value=d.deviceId;o.textContent=d.label||('Microphone '+(i+1));device.appendChild(o);});
+        if(selected)device.value=selected;
+      }).catch(function(){});
+    }
+    function monitor(){
+      if(!analyser)return;var data=new Uint8Array(analyser.fftSize);analyser.getByteTimeDomainData(data);var sum=0;
+      for(var i=0;i<data.length;i++){var v=(data[i]-128)/128;sum+=v*v;}
+      level.style.width=Math.min(100,Math.sqrt(sum/data.length)*240)+'%';raf=requestAnimationFrame(monitor);
+    }
+    start.addEventListener('click',function(){
+      if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){toolError(status,'Microphone API unavailable','This browser does not expose microphone capture.','Use a current browser over HTTPS or localhost.');return;}
+      var constraints={audio:device.value?{deviceId:{exact:device.value}}:true};
+      navigator.mediaDevices.getUserMedia(constraints).then(function(st){
+        stream=st;ctx=new (window.AudioContext||window.webkitAudioContext)();source=ctx.createMediaStreamSource(stream);analyser=ctx.createAnalyser();analyser.fftSize=512;
+        delayNode=ctx.createDelay(2);delayNode.delayTime.value=+delay.value/1000;
+        source.connect(analyser);source.connect(delayNode);delayNode.connect(ctx.destination);
+        start.disabled=true;stop.disabled=false;record.disabled=!(window.MediaRecorder);status.textContent='Microphone active. Monitoring is enabled; use headphones to avoid feedback.';devices();monitor();
+      }).catch(function(e){var msg=e.name==='NotAllowedError'?'Microphone permission was denied. Allow microphone access in the browser address bar and try again.':e.name==='NotFoundError'?'No microphone was found. Connect one and retry.':e.message;toolError(status,'Could not access microphone',msg,'Check browser permissions, select a connected input device, and ensure the page is served over HTTPS or localhost.');});
+    });
+    stop.addEventListener('click',stopMic);
+    delay.addEventListener('input',function(){label.textContent=delay.value+' ms';if(delayNode)delayNode.delayTime.setTargetAtTime(+delay.value/1000,ctx.currentTime,.02);});
+    device.addEventListener('change',function(){if(stream){stopMic();start.click();}});
+    record.addEventListener('click',function(){
+      if(!stream||!window.MediaRecorder)return;
+      if(recorder&&recorder.state==='recording'){recorder.stop();record.textContent='Start recording';return;}
+      chunks=[];try{recorder=new MediaRecorder(stream);}catch(e){toolError(status,'Recording is not supported',e.message,'Try a browser that supports MediaRecorder.');return;}
+      recorder.ondataavailable=function(e){if(e.data&&e.data.size)chunks.push(e.data);};
+      recorder.onstop=function(){var blob=new Blob(chunks,{type:recorder.mimeType||'audio/webm'});if(recordUrl)URL.revokeObjectURL(recordUrl);recordUrl=URL.createObjectURL(blob);audio.src=recordUrl;audio.hidden=false;download.href=recordUrl;download.hidden=false;play.disabled=false;status.textContent='Recording ready. Play it back or download the file.';};
+      recorder.start();record.textContent='Stop recording';status.textContent='Recording microphone input…';
+    });
+    play.addEventListener('click',function(){audio.play().catch(function(){status.textContent='Playback was blocked. Use the audio player controls.';});});
+    onUnmount('microphone-tester',function(){if(recorder&&recorder.state==='recording')recorder.stop();stopMic();if(recordUrl)URL.revokeObjectURL(recordUrl);});
+    devices();
+  },{persist:false});
+}
+PLAYABLES['microphone-tester']=mountMicrophoneTester;
+
+/* Website-to-EXE project generator */
+function mountWebsiteToExe(container){
+  mountEmbed(container,'TOOL / WEBSITE TO EXE BUILDER',function(body){
+    body.innerHTML=
+      '<div class="w2e-mode" role="tablist" aria-label="Website source"><button type="button" class="game-btn" data-w2e-mode="github" aria-selected="true">GitHub repository</button><button type="button" class="game-btn secondary" data-w2e-mode="local" aria-selected="false">Select local folder</button></div>'+
+      '<section id="w2e-github">'+
+        '<p class="tool-msg">Build a real Windows portable EXE in a Windows GitHub Actions runner. The finished .exe is provided as a downloadable workflow artifact.</p>'+
+        '<div class="tool-grid two">'+
+          '<div class="field"><label for="w2e-repo">Public GitHub repository</label><input id="w2e-repo" placeholder="https://github.com/owner/repository" spellcheck="false"></div>'+
+          '<div class="field"><label for="w2e-branch">Branch or tag</label><input id="w2e-branch" value="main"></div>'+
+          '<div class="field"><label for="w2e-folder">Website folder inside repository</label><input id="w2e-folder" placeholder="Leave blank for repository root"></div>'+
+          '<div class="field"><label for="w2e-name">Application name</label><input id="w2e-name" value="My Website App" maxlength="60"></div>'+
+          '<div class="field"><label for="w2e-width">Window width</label><input id="w2e-width" type="number" min="640" max="3840" value="1280"></div>'+
+          '<div class="field"><label for="w2e-height">Window height</label><input id="w2e-height" type="number" min="480" max="2160" value="800"></div>'+
+          '<div class="field"><label for="w2e-icon-url">Application icon URL (optional .ico)</label><input id="w2e-icon-url" type="url" placeholder="https://example.com/icon.ico"></div>'+
+          '<div class="field"><label for="w2e-token">GitHub fine-grained token</label><input id="w2e-token" type="password" autocomplete="off" data-nopersist placeholder="Token with Actions: read/write"></div>'+
+        '</div>'+
+        '<div class="tool-row"><button class="game-btn" id="w2e-cloud-build" type="button">Build Windows EXE</button></div>'+
+        '<p class="hint">The token is used only in this page session and is not saved. Give it Actions read/write access to the Velocity Systems repository. The build clones the public source repository; it does not modify it.</p>'+
+      '</section>'+
+      '<section id="w2e-local" hidden>'+
+        '<p class="tool-msg">Choose the website folder on your computer. The tool packages its files with an Electron build script. Run Build-EXE.bat on Windows to create the actual .exe locally; your source files are not uploaded.</p>'+
+        '<div class="field"><label for="w2e-local-folder">Select website folder (must contain index.html)</label><input id="w2e-local-folder" type="file" webkitdirectory directory multiple></div>'+
+        '<div class="tool-grid two">'+
+          '<div class="field"><label for="w2e-local-name">Application name</label><input id="w2e-local-name" value="My Website App" maxlength="60"></div>'+
+          '<div class="field"><label for="w2e-local-icon">Windows icon (.ico, optional)</label><input id="w2e-local-icon" type="file" accept=".ico,image/x-icon"></div>'+
+          '<div class="field"><label for="w2e-local-width">Window width</label><input id="w2e-local-width" type="number" min="640" max="3840" value="1280"></div>'+
+          '<div class="field"><label for="w2e-local-height">Window height</label><input id="w2e-local-height" type="number" min="480" max="2160" value="800"></div>'+
+        '</div>'+
+        '<div class="tool-row"><button class="game-btn" id="w2e-local-build" type="button">Download local EXE build kit</button></div>'+
+        '<p class="hint">Requires Windows and Node.js 20 or later. The ZIP contains your selected site and a one-click batch file that builds the portable EXE into the dist folder.</p>'+
+      '</section>'+
+      '<div id="w2e-status" class="tool-output" role="status" aria-live="polite">Choose a source type to begin.</div>';
+    var $=function(id){return body.querySelector('#'+id);};
+    body.querySelectorAll('[data-w2e-mode]').forEach(function(btn){btn.addEventListener('click',function(){
+      var mode=btn.getAttribute('data-w2e-mode');
+      $('w2e-github').hidden=mode!=='github';$('w2e-local').hidden=mode!=='local';
+      body.querySelectorAll('[data-w2e-mode]').forEach(function(b){var active=b===btn;b.classList.toggle('secondary',!active);b.setAttribute('aria-selected',String(active));});
+      $('w2e-status').textContent=mode==='github'?'Enter a public repository and GitHub token to build the EXE in the cloud.':'Select a local website folder to package a Windows build kit.';
+    });});
+    function safeName(v){return String(v||'Website App').trim().slice(0,60).replace(/[<>:"/\\|?*\x00-\x1f]/g,'').replace(/[. ]+$/,'')||'Website App';}
+    function validDims(w,h){return Number.isInteger(w)&&w>=640&&w<=3840&&Number.isInteger(h)&&h>=480&&h<=2160;}
+    $('w2e-cloud-build').addEventListener('click',async function(){
+      var raw=$('w2e-repo').value.trim(),branch=$('w2e-branch').value.trim()||'main',folder=$('w2e-folder').value.trim().replace(/^\/+|\/+$/g,''),name=safeName($('w2e-name').value),width=Number($('w2e-width').value),height=Number($('w2e-height').value),iconUrl=$('w2e-icon-url').value.trim(),token=$('w2e-token').value.trim();
+      var match=raw.match(/^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/?$/);
+      if(!match){$('w2e-status').textContent='Enter a public GitHub repository URL in https://github.com/owner/repository format.';return;}
+      if(!/^[A-Za-z0-9._/-]+$/.test(branch)||branch.charAt(0)==='-'||branch.indexOf('..')!==-1){$('w2e-status').textContent='Enter a valid branch or tag name.';return;}
+      if(folder&&(!/^[A-Za-z0-9._/-]+$/.test(folder)||folder.split('/').some(function(p){return !p||p==='..'||p==='.';}))){$('w2e-status').textContent='Enter a valid repository-relative folder path.';return;}
+      if(!validDims(width,height)){$('w2e-status').textContent='Window dimensions must be within the displayed limits.';return;}
+      if(iconUrl&&!/^https:\/\/[^ ]+\.ico(?:[?#].*)?$/i.test(iconUrl)){$('w2e-status').textContent='The optional icon must be a direct HTTPS .ico URL.';return;}
+      if(!token){$('w2e-status').textContent='A GitHub token is required to start the Windows build. Create a fine-grained token with Actions read/write access to TomCodes-sys/velocity-systems.';return;}
+      var repo=match[1]+'/'+match[2].replace(/\.git$/,'');
+      this.disabled=true;this.textContent='Starting Windows build…';$('w2e-status').textContent='Sending the build request to GitHub Actions…';
+      try{
+        var response=await fetch('https://api.github.com/repos/TomCodes-sys/velocity-systems/actions/workflows/build-website-exe.yml/dispatches',{method:'POST',headers:{'Accept':'application/vnd.github+json','Authorization':'Bearer '+token,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},body:JSON.stringify({ref:'main',inputs:{source_repo:repo,source_branch:branch,source_folder:folder,app_name:name,window_width:String(width),window_height:String(height),icon_url:iconUrl}})});
+        if(response.status===204){
+          var link='https://github.com/TomCodes-sys/velocity-systems/actions/workflows/build-website-exe.yml';
+          $('w2e-status').innerHTML='Build queued successfully for <b>'+esc(name)+'</b>.<br><a href="'+link+'" target="_blank" rel="noreferrer">Open Windows build workflow</a> and download the <code>windows-portable-exe</code> artifact when it finishes.';
+          notify('Windows EXE build queued','ok');
+        }else{
+          var detail='GitHub rejected the build request (HTTP '+response.status+').';
+          try{var payload=await response.json();if(payload.message)detail+=' '+payload.message;}catch(e){}
+          toolError($('w2e-status'),'Could not start the EXE build',detail,'Check that the token belongs to an account with Actions write permission on TomCodes-sys/velocity-systems, and that the workflow is available on main.');
+        }
+      }catch(e){toolError($('w2e-status'),'Could not contact GitHub',e.message||'The request was blocked.','Check your connection and allow requests to api.github.com.');}
+      finally{this.disabled=false;this.textContent='Build Windows EXE';$('w2e-token').value='';}
+    });
+    $('w2e-local-build').addEventListener('click',async function(){
+      var files=Array.from($('w2e-local-folder').files||[]),name=safeName($('w2e-local-name').value),width=Number($('w2e-local-width').value),height=Number($('w2e-local-height').value),iconFile=$('w2e-local-icon').files[0]||null;
+      if(!files.length){$('w2e-status').textContent='Select a website folder first.';return;}
+      if(!validDims(width,height)){$('w2e-status').textContent='Window dimensions must be within the displayed limits.';return;}
+      if(iconFile&&iconFile.size>2*1024*1024){$('w2e-status').textContent='The icon file must be smaller than 2 MB.';return;}
+      var siteFiles=files.filter(function(f){var rel=(f.webkitRelativePath||f.name).split('/').slice(1).join('/');return rel.length>0&&!/(^|\/)(node_modules|\.git|\.wrangler|\.cache)(\/|$)/i.test(rel);});
+      var index=siteFiles.some(function(f){return (f.webkitRelativePath||f.name).split('/').slice(1).join('/')==='index.html';});
+      if(!index){$('w2e-status').textContent='The selected folder must contain index.html at its top level. If the website is inside a subfolder, select that subfolder instead.';return;}
+      if(siteFiles.length>3000){$('w2e-status').textContent='This folder contains more than 3,000 files. Remove build caches and node_modules, then try again.';return;}
+      var total=siteFiles.reduce(function(sum,f){return sum+f.size;},0);
+      if(total>400*1024*1024){$('w2e-status').textContent='This folder is larger than the 400 MB browser packaging limit.';return;}
+      var btn=this;btn.disabled=true;btn.textContent='Packaging website…';$('w2e-status').textContent='Reading '+siteFiles.length+' files…';
+      try{
+        var enc=new TextEncoder(),zipFiles=[],slug=name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'website-app';
+        var mainJs=[
+          "const {app,BrowserWindow}=require('electron');",
+          "const path=require('path');",
+          "function createWindow(){const win=new BrowserWindow({width:"+width+",height:"+height+",minWidth:640,minHeight:480,autoHideMenuBar:true,webPreferences:{contextIsolation:true,nodeIntegration:false}});win.loadFile(path.join(__dirname,'site','index.html'));}",
+          "app.whenReady().then(()=>{createWindow();app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow();});});",
+          "app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});"
+        ].join('\n')+'\n';
+        var pkg={name:slug,version:'1.0.0',description:'Desktop wrapper for '+name,main:'main.js',scripts:{dist:'electron-builder --win portable --x64'},devDependencies:{electron:'^33.0.0','electron-builder':'^25.1.8'},build:{appId:'com.velocitysystems.'+slug,productName:name,files:['main.js','site/**/*','package.json','build/icon.ico'],directories:{output:'dist'},win:{target:['portable']},portable:{artifactName:slug+'-portable.exe'}}};
+        if(iconFile)pkg.build.win.icon='build/icon.ico';
+        var bat=['@echo off','cd /d "%~dp0"','where node >nul 2>nul || (echo Install Node.js 20 or later first.& pause & exit /b 1)','echo Installing Electron build dependencies...','npm install','if errorlevel 1 (echo Dependency installation failed.& pause & exit /b 1)','echo Building portable Windows EXE...','npm run dist','if errorlevel 1 (echo Build failed. Check the error above.& pause & exit /b 1)','echo.','echo Finished. Your EXE is in the dist folder.','pause'].join('\r\n')+'\r\n';
+        zipFiles.push({name:'package.json',data:enc.encode(JSON.stringify(pkg,null,2))},{name:'main.js',data:enc.encode(mainJs)},{name:'Build-EXE.bat',data:enc.encode(bat)},{name:'README.txt',data:enc.encode('1. Extract this ZIP to a normal folder.\\r\\n2. Install Node.js 20 or later on Windows.\\r\\n3. Double-click Build-EXE.bat.\\r\\n4. The portable Windows executable will be created in dist.\\r\\n\\r\\nThe website files are stored in site/. The original folder is not modified.\\r\\n')});
+        if(iconFile)zipFiles.push({name:'build/icon.ico',data:new Uint8Array(await iconFile.arrayBuffer())});
+        for(var i=0;i<siteFiles.length;i++){
+          var f=siteFiles[i],rel=(f.webkitRelativePath||f.name).split('/').slice(1).join('/');
+          zipFiles.push({name:'site/'+rel,data:new Uint8Array(await f.arrayBuffer())});
+          if(i%100===0)$('w2e-status').textContent='Packaging files… '+(i+1)+' / '+siteFiles.length;
+        }
+        saveBlob(slug+'-windows-exe-build-kit.zip',makeZip(zipFiles));
+        $('w2e-status').textContent='Build kit downloaded. Extract it, install Node.js 20+, then run Build-EXE.bat. The actual EXE will appear in the dist folder.';
+        notify('Local EXE build kit downloaded','ok');
+      }catch(e){toolError($('w2e-status'),'Could not package this folder',e.message||'A file could not be read or the ZIP could not be created.','Try a smaller folder and make sure the browser has permission to read the selected files.');}
+      finally{btn.disabled=false;btn.textContent='Download local EXE build kit';}
+    });
+  },{persist:false});
+}
+PLAYABLES['website-to-exe']=mountWebsiteToExe;
 
 
 (function(){

@@ -1742,3 +1742,30 @@ a,button,summary,select,[role=button],label{touch-action:manipulation}
 .font-grid button b{font-size:22px;line-height:1.1;font-weight:600}
 .font-grid button span{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
 .font-grid button small{font:10px var(--font-mono);color:var(--muted)}
+
+/* Privacy disclosures and consistent tool error panels */
+.privacy-indicator{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;margin:0 0 14px;padding:11px 13px;border:1px solid var(--line);border-radius:var(--rad);background:var(--surface-1);font-size:12px;color:var(--muted)}
+.privacy-indicator b{color:var(--text);font-weight:600;white-space:nowrap}
+.privacy-indicator span{flex:1;min-width:180px}
+.privacy-external{border-left:3px solid #d5a34c}.privacy-upload{border-left:3px solid #d46b6b}.privacy-local{border-left:3px solid #4baf83}
+.tool-error{padding:14px;border:1px solid #b65a5a;border-radius:var(--rad);background:color-mix(in srgb,#b65a5a 9%,var(--surface-1));color:var(--text)}
+.tool-error strong{display:block;margin-bottom:5px}.tool-error p{margin:4px 0;color:var(--muted);font-size:13px}
+
+/* Consistent controls and clear card edges across embedded tools. */
+.number-control{display:flex;align-items:stretch;width:100%;min-width:0}
+.number-control input[type=number]{flex:1;min-width:0;width:100%;border-radius:var(--rad) 0 0 var(--rad);appearance:textfield;-moz-appearance:textfield}
+.number-control input[type=number]::-webkit-inner-spin-button,.number-control input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.number-step{width:32px;flex:0 0 32px;border:1px solid var(--line);border-left:0;background:var(--surface-2);color:var(--text);font:600 15px var(--font-mono);cursor:pointer}
+.number-step:last-child{border-radius:0 var(--rad) var(--rad) 0}
+.number-step:hover{background:var(--surface);color:var(--accent)}
+.number-step:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;z-index:1}
+.workspace{background-image:var(--custom-gradient,none)!important;background-attachment:fixed}
+.custom-gradient-toggle{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px}
+.privacy-indicator{margin:34px 0 8px;padding:14px 16px}
+.privacy-indicator span{line-height:1.55}
+.data-card{outline:1px solid var(--line);outline-offset:-1px}
+.ip-map{height:340px;width:100%;margin:18px 0;border:1px solid var(--line);border-radius:var(--rad);overflow:hidden;background:var(--surface-2)}
+.ip-map-fallback{padding:14px;border:1px solid var(--line);background:var(--surface-2);font-size:12px}
+.ip-map-fallback a{color:var(--accent)}
+
+.tool-error-recovery{margin-top:9px!important;padding-top:9px;border-top:1px solid var(--line)}

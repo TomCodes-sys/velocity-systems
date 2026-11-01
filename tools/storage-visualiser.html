@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<script>(function(){try{var s=JSON.parse(localStorage.getItem('system-settings'))||{},d=document.documentElement.dataset;var m={windows:'sky',minimal:'amoled',midnight:'ocean',slate:'amoled',future:'ocean',forest:'terminal',retro:'gruvbox'};d.theme=m[s.theme]||s.theme||'light';d.accent=s.accent||'blue';d.font=s.font||'sans';d.density=s.density||'compact';d.radius=s.radius||'sharp';d.motion=s.animations===false?'off':'on';d.effects=s.effects===false?'off':'on';d.icons=s.icons||'lucide';d.rail=localStorage.getItem('vs-rail')==='collapsed'?'collapsed':'open';}catch(e){}})();</script>
+<script>(function(){try{var s=JSON.parse(localStorage.getItem('system-settings'))||{},d=document.documentElement.dataset;var m={windows:'sky',minimal:'amoled',midnight:'ocean',slate:'amoled',future:'ocean',forest:'terminal',retro:'gruvbox'};d.theme=m[s.theme]||((s.theme==='system'||!s.theme)?((window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches)?'light':'amoled'):(s.theme||'light'));d.accent=s.accent||'blue';d.font=s.font||'sans';d.density=s.density||'compact';d.radius=s.radius||'sharp';d.motion=s.animations===false?'off':'on';d.effects=s.effects===false?'off':'on';d.icons=s.icons||'lucide';d.rail=localStorage.getItem('vs-rail')==='collapsed'?'collapsed':'open';}catch(e){}})();</script>
 <title>Storage Visualiser — Free online tool · Velocity Systems</title>
-<meta name="description" content="Analyse selected files or a folder and visualise where its storage space is going. Free, runs in your browser — nothing is uploaded.">
+<meta name="description" content="Analyse selected files or a folder and visualise where its storage space is going. Free, runs in your browser — files are not uploaded.">
 <link rel="canonical" href="https://velocitysystems.pages.dev/tools/storage-visualiser.html">
 <meta name="theme-color" content="#6b98e6">
 <meta name="color-scheme" content="dark light">
@@ -13,7 +13,7 @@
 <meta property="og:site_name" content="Velocity Systems">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Storage Visualiser · Velocity Systems">
-<meta property="og:description" content="Analyse selected files or a folder and visualise where its storage space is going. Free, runs in your browser — nothing is uploaded.">
+<meta property="og:description" content="Analyse selected files or a folder and visualise where its storage space is going. Free, runs in your browser — files are not uploaded.">
 <meta property="og:url" content="https://velocitysystems.pages.dev/tools/storage-visualiser.html">
 <meta property="og:image" content="https://velocitysystems.pages.dev/assets/img/og/tools.png">
 <meta property="og:image:type" content="image/png">
@@ -23,7 +23,7 @@
 <meta property="og:locale" content="en_AU">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Storage Visualiser · Velocity Systems">
-<meta name="twitter:description" content="Analyse selected files or a folder and visualise where its storage space is going. Free, runs in your browser — nothing is uploaded.">
+<meta name="twitter:description" content="Analyse selected files or a folder and visualise where its storage space is going. Free, runs in your browser — files are not uploaded.">
 <meta name="twitter:image" content="https://velocitysystems.pages.dev/assets/img/og/tools.png">
 <link rel="icon" type="image/svg+xml" href="../assets/img/favicon.svg">
 <link rel="apple-touch-icon" href="../assets/img/apple-touch-icon.png">
@@ -31,17 +31,17 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="../assets/css/styles.css?v=42e2cd18">
+<link rel="stylesheet" href="../assets/css/styles.css?v=e74bd154">
 </head>
 <body data-root="../" data-page="detail" data-nav="tools" data-kind="tools" data-id="storage-visualiser">
-<noscript><div style="padding:32px;font-family:system-ui,sans-serif;max-width:640px"><h1>Storage Visualiser</h1><p>Analyse selected files or a folder and visualise where its storage space is going. Free, runs in your browser — nothing is uploaded.</p><p>This site needs JavaScript enabled to show its content.</p></div></noscript>
+<noscript><div style="padding:32px;font-family:system-ui,sans-serif;max-width:640px"><h1>Storage Visualiser</h1><p>Analyse selected files or a folder and visualise where its storage space is going. Free, runs in your browser — files are not uploaded.</p><p>This site needs JavaScript enabled to show its content.</p></div></noscript>
 <!-- Everything on the page is drawn by app.js. Scripts must stay at the end of <body>. -->
-<script src="../assets/js/data.js?v=4bd6e6fd"></script>
+<script src="../assets/js/data.js?v=e30c8352"></script>
 <script src="../assets/js/icons.js?v=979faa31"></script>
-<script src="../assets/js/app.js?v=f7fda468"></script>
+<script src="../assets/js/app.js?v=4c456f94"></script>
 <script src="../assets/js/custom-selects.js?v=2839d27f"></script>
-<script src="../assets/js/play.js?v=622d63b2"></script>
-<script src="../assets/js/tools.js?v=e2c7d130"></script>
+<script src="../assets/js/play.js?v=53585c99"></script>
+<script src="../assets/js/tools.js?v=94ed663e"></script>
 <script src="../assets/js/new-tools.js?v=6b290a4a"></script>
 </body>
 </html>

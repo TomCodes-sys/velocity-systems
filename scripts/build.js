@@ -52,7 +52,7 @@ function ver(rel){
    Runs in <head> before first paint, so the saved theme is already applied when the page
    appears. Without it every page load flashed the default (dark) colours until app.js ran. */
 var THEME_INIT = "(function(){try{var s=JSON.parse(localStorage.getItem('system-settings'))||{},d=document.documentElement.dataset;" +
-  "var m={windows:'sky',minimal:'amoled',midnight:'ocean',slate:'amoled',future:'ocean',forest:'terminal',retro:'gruvbox'};d.theme=m[s.theme]||s.theme||'light';d.accent=s.accent||'blue';d.font=s.font||'sans';d.density=s.density||'compact';d.radius=s.radius||'sharp';" +
+  "var m={windows:'sky',minimal:'amoled',midnight:'ocean',slate:'amoled',future:'ocean',forest:'terminal',retro:'gruvbox'};d.theme=m[s.theme]||((s.theme==='system'||!s.theme)?((window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches)?'light':'amoled'):(s.theme||'light'));d.accent=s.accent||'blue';d.font=s.font||'sans';d.density=s.density||'compact';d.radius=s.radius||'sharp';" +
   "d.motion=s.animations===false?'off':'on';d.effects=s.effects===false?'off':'on';d.icons=s.icons||'lucide';d.rail=localStorage.getItem('vs-rail')==='collapsed'?'collapsed':'open';}catch(e){}})();";
 
 /* ---------- page copy ---------- */
@@ -179,7 +179,7 @@ items.forEach(function(item){
     }
   }
   var desc = item.description;
-  if(item.kind === 'tools') desc += ' Free, runs in your browser — nothing is uploaded.';
+  if(item.kind === 'tools') desc += item.privacy === 'external' ? ' Uses external services; requests are sent to third-party providers.' : item.privacy === 'upload' ? ' Sends selected data to a remote service.' : ' Free, runs in your browser — files are not uploaded.';
   if(item.kind === 'games') desc += ' Free to play in your browser.';
 
   var ld;
@@ -209,7 +209,7 @@ items.forEach(function(item){
 
 /* ---------- 404 (self-contained: it can be served from any URL depth) ---------- */
 write('404.html', '<!DOCTYPE html>\n<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
-'<title>Page not found · ' + SITE_NAME + '</title><meta name="robots" content="noindex"><meta name="theme-color" content="' + THEME_COLOR + '">\n' +
+'<title>Page not found · ' + SITE_NAME + '</title><meta name="description" content="The requested Velocity Systems page could not be found. Return to the home page or browse tools, games and software."><link rel="canonical" href="' + SITE_URL + '404.html"><meta name="robots" content="noindex"><meta name="theme-color" content="' + THEME_COLOR + '">\n' +
 '<link rel="icon" type="image/svg+xml" href="' + SITE_URL + 'assets/img/favicon.svg">\n' +
 '<style>:root{color-scheme:dark}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0c0f;color:#eef0f4;font-family:ui-sans-serif,system-ui,sans-serif}' +
 'main{max-width:560px;padding:32px}.c{font:600 clamp(80px,22vw,160px)/.9 ui-monospace,Menlo,monospace;color:transparent;-webkit-text-stroke:1px #6b98e6;margin:0 0 18px;letter-spacing:-.06em}' +

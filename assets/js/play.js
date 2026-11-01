@@ -43,6 +43,7 @@ function mountEmbed(container, label, bodyBuilder, opts){
   document.addEventListener('webkitfullscreenchange', syncFsLabel);
   var body = container.querySelector('.embed-body');
   bodyBuilder(body);
+  enhanceNumberInputs(body);
   enhanceFileInputs(body);
 
   // Tools remember what you typed. Games manage their own settings and scores.
@@ -81,18 +82,43 @@ document.addEventListener('keydown', function(e){
   if(p) pseudoFullscreen(p, false);
 });
 
+/* Consistent accessible number steppers across embedded tools. */
+function enhanceNumberInputs(root){
+  qsa2(root,'input[type="number"]').forEach(function(input){
+    if(input.closest('.number-control')||input.hasAttribute('data-native-stepper')) return;
+    var wrap=document.createElement('div');wrap.className='number-control';
+    input.parentNode.insertBefore(wrap,input);wrap.appendChild(input);
+    var down=document.createElement('button'),up=document.createElement('button');
+    down.type=up.type='button';down.className=up.className='number-step';down.textContent='−';up.textContent='+';
+    down.setAttribute('aria-label','Decrease '+(input.getAttribute('aria-label')||input.id||'value'));
+    up.setAttribute('aria-label','Increase '+(input.getAttribute('aria-label')||input.id||'value'));
+    wrap.appendChild(down);wrap.appendChild(up);
+    function stepBy(direction){
+      if(input.disabled||input.readOnly)return;
+      var step=input.step==='any'?1:(Number(input.step)||1),min=input.min===''?-Infinity:Number(input.min),max=input.max===''?Infinity:Number(input.max);
+      var current=input.value===''?(direction>0?Math.max(0,min):Math.min(0,max)):Number(input.value);
+      var next=Math.min(max,Math.max(min,current+step*direction));
+      var decimals=(String(step).split('.')[1]||'').length;
+      input.value=Number(next.toFixed(Math.min(8,decimals))).toString();
+      input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));
+    }
+    down.addEventListener('click',function(){stepBy(-1);});up.addEventListener('click',function(){stepBy(1);});
+  });
+}
 /* Replaces the browser's plain "Choose file" control with a styled button that also accepts drag and drop. */
 function enhanceFileInputs(root){
   qsa2(root, 'input[type=file]').forEach(function(inp){
     if(inp.hidden || !inp.id || inp.closest('.file-pick') || inp.hasAttribute('data-plain')) return;
     var wrap = document.createElement('div'); wrap.className = 'file-pick';
     inp.parentNode.insertBefore(wrap, inp); wrap.appendChild(inp); inp.classList.remove('tool-row');
-    var noun = inp.multiple ? 'files' : 'file';
-    wrap.insertAdjacentHTML('beforeend', '<label class="file-btn" for="'+inp.id+'">'+(typeof icon === 'function' ? icon('upload', {size:15}) : '')+' Choose '+noun+'</label><span class="file-name">or drop '+(inp.multiple ? 'files' : 'a file')+' here</span>');
+    var isFolder=inp.hasAttribute('webkitdirectory'),noun=isFolder?'folder':(inp.multiple?'files':'file'),dropNoun=isFolder?'a folder':(inp.multiple?'files':'a file');
+    wrap.insertAdjacentHTML('beforeend', '<label class="file-btn" for="'+inp.id+'">'+(typeof icon === 'function' ? icon('upload', {size:15}) : '')+' Choose '+noun+'</label><span class="file-name">or drop '+dropNoun+' here</span>');
     var nm = wrap.querySelector('.file-name');
     function update(){
       var n = inp.files ? inp.files.length : 0;
-      nm.textContent = n ? (n === 1 ? inp.files[0].name : n+' files selected') : 'or drop '+(inp.multiple ? 'files' : 'a file')+' here';
+      if(!n){nm.textContent='or drop '+dropNoun+' here';return;}
+      if(isFolder){var root=(inp.files[0].webkitRelativePath||inp.files[0].name).split('/')[0];nm.textContent=root+' · '+n+' files selected';}
+      else nm.textContent=n===1?inp.files[0].name:n+' files selected';
     }
     inp.addEventListener('change', update);
     ['dragenter','dragover'].forEach(function(t){ wrap.addEventListener(t, function(e){ e.preventDefault(); wrap.classList.add('over'); }); });
@@ -249,3 +275,23 @@ function downloadText(filename, text, mime){
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1000);
 }
+
+/* ---------- consistent tool errors ---------- */
+function toolError(target, title, detail, recovery){
+  if(!target) return;
+  function safe(v){return String(v||'').replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
+  target.innerHTML='<div class="tool-error" role="alert"><strong>'+safe(title||'This tool could not complete the request')+'</strong><p>'+safe(detail||'The browser or service blocked the operation.')+'</p>'+(recovery?'<p class="tool-error-recovery"><b>What to try:</b> '+safe(recovery)+'</p>':'')+'</div>';
+}
+
+/* Surface uncaught failures inside a tool instead of leaving a silent broken panel. */
+window.addEventListener('unhandledrejection',function(event){
+  var panel=document.querySelector('.embed-body');
+  if(!panel)return;
+  var reason=event.reason,detail=reason&&reason.message?reason.message:String(reason||'An asynchronous operation failed.');
+  toolError(panel,'Unexpected tool error',detail,'Retry the action. If it continues, check browser permissions, network access and whether this browser supports the required API.');
+});
+window.addEventListener('error',function(event){
+  var panel=document.querySelector('.embed-body');
+  if(!panel||!event.message)return;
+  toolError(panel,'Tool script error',event.message,'Refresh the page. If the problem persists, try another browser or report the page and error message.');
+});

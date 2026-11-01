@@ -2,7 +2,7 @@
 // Plain vanilla JS, no build step, works from file:// and any static host.
 
 /* ---------- persisted state ---------- */
-var DEFAULT_SETTINGS = {theme:'light',accent:'blue',font:'sans',density:'compact',radius:'sharp',animations:true,effects:true,icons:'lucide',notifications:true,pinnedNav:null,customAccent:'#3b82f6',customSurface:'#0a0a0c'};
+var DEFAULT_SETTINGS = {theme:'system',accent:'blue',font:'sans',density:'compact',radius:'sharp',animations:true,effects:true,icons:'lucide',notifications:true,pinnedNav:null,customAccent:'#3b82f6',customSurface:'#0a0a0c',customGradientEnd:'#26334a',customGradientAngle:135,customGradientEnabled:false};
 
 /* ---------- storage: localStorage with an automatic cookie fallback ----------
    Some browsers (Safari private mode, embedded webviews, iPad "Prevent
@@ -177,7 +177,8 @@ function applyTheme(){
   var d = document.documentElement.dataset;
   if(!FONT_DEFS[settings.font]) settings.font = 'sans';
   loadFonts([settings.font]);
-  d.theme = settings.theme; d.accent = settings.accent; d.font = settings.font;
+  var effectiveTheme = settings.theme === 'system' ? ((window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'amoled') : settings.theme;
+  d.theme = effectiveTheme; d.accent = settings.accent; d.font = settings.font;
   d.density = settings.density; d.radius = settings.radius;
   d.motion = settings.animations ? 'on' : 'off';
   d.effects = settings.effects ? 'on' : 'off';
@@ -195,8 +196,11 @@ function applyTheme(){
     root.setProperty('--line', shadeHex(bg, 22));
     root.setProperty('--text', isDark(bg) ? '#f2f2f7' : '#171717');
     root.setProperty('--muted', isDark(bg) ? '#9a9aa2' : '#70706b');
+    var gradEnd = settings.customGradientEnd || '#26334a';
+    var gradAngle = Math.max(0, Math.min(360, (Number.isFinite(Number(settings.customGradientAngle)) ? Number(settings.customGradientAngle) : 135)));
+    root.setProperty('--custom-gradient', settings.customGradientEnabled ? 'linear-gradient('+gradAngle+'deg, '+bg+', '+gradEnd+')' : 'none');
   } else {
-    ['--accent','--accent-rgb','--surface','--surface-1','--surface-2','--line','--text','--muted'].forEach(function(v){ root.removeProperty(v); });
+    ['--accent','--accent-rgb','--surface','--surface-1','--surface-2','--line','--text','--muted','--custom-gradient'].forEach(function(v){ root.removeProperty(v); });
   }
 }
 function hexToRgbTriplet(hex){
@@ -214,12 +218,29 @@ function shadeHex(hex, amount){
   return '#'+[adj(r),adj(g),adj(b)].map(function(x){ return Math.round(x).toString(16).padStart(2,'0'); }).join('');
 }
 applyTheme();
+if(window.matchMedia){
+  var _systemThemeQuery = window.matchMedia('(prefers-color-scheme: light)');
+  if(_systemThemeQuery.addEventListener) _systemThemeQuery.addEventListener('change', function(){ if(settings.theme === 'system') applyTheme(); });
+  else if(_systemThemeQuery.addListener) _systemThemeQuery.addListener(function(){ if(settings.theme === 'system') applyTheme(); });
+}
 
 /* ---------- small utils ---------- */
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
 function pad2(n){ return String(n).padStart(2,'0'); }
 function qs(sel, root){ return (root||document).querySelector(sel); }
 function qsa(sel, root){ return Array.prototype.slice.call((root||document).querySelectorAll(sel)); }
+
+/* Number inputs use the same compact plus/minus controls on every page. */
+function enhanceSiteNumberInputs(root){
+  (root||document).querySelectorAll('input[type="number"]').forEach(function(input){
+    if(input.closest('.number-control')||input.hasAttribute('data-native-stepper'))return;
+    var wrap=document.createElement('div');wrap.className='number-control';input.parentNode.insertBefore(wrap,input);wrap.appendChild(input);
+    var down=document.createElement('button'),up=document.createElement('button');down.type=up.type='button';down.className=up.className='number-step';down.textContent='−';up.textContent='+';
+    down.setAttribute('aria-label','Decrease '+(input.getAttribute('aria-label')||input.id||'value'));up.setAttribute('aria-label','Increase '+(input.getAttribute('aria-label')||input.id||'value'));wrap.appendChild(down);wrap.appendChild(up);
+    function change(dir){if(input.disabled||input.readOnly)return;var step=input.step==='any'?1:(Number(input.step)||1),min=input.min===''?-Infinity:Number(input.min),max=input.max===''?Infinity:Number(input.max),v=input.value===''?(dir>0?Math.max(0,min):Math.min(0,max)):Number(input.value),next=Math.min(max,Math.max(min,v+dir*step)),dp=(String(step).split('.')[1]||'').length;input.value=Number(next.toFixed(Math.min(8,dp))).toString();input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));}
+    down.addEventListener('click',function(){change(-1);});up.addEventListener('click',function(){change(1);});
+  });
+}
 
 
 /* ---------- URLs ----------
@@ -929,6 +950,21 @@ function pageDetail(kind, id){
       '<div><span>Access</span><b>'+(item.free?'Free':'Paid')+'</b></div>'+
       '<div><span>Source</span><b>'+(item.openSource?'Open source':'Proprietary')+'</b></div>'+
     '</div>';
+  var externalTools=['device-info','network-diagnostics','game-deals','currency-converter','speed-test','api-request-tester','audio-converter','ip-lookup','website-to-exe'];
+  var privacyMode=item.privacy||(externalTools.indexOf(item.id)>-1?'external':'local');
+  var providerNotes={
+    'device-info':'Your public IPv4 and IPv6 are requested directly from ipify. The provider receives the request and your connection IP.',
+    'ip-lookup':'The queried IP address is sent to ipapi.co. Map tiles are loaded from OpenStreetMap when coordinates are available.',
+    'network-diagnostics':'DNS and connectivity checks contact external DNS-over-HTTPS and public network services.',
+    'game-deals':'Deal and giveaway data, plus currency conversion, are requested from third-party APIs such as CheapShark and GamerPower.',
+    'currency-converter':'Exchange-rate data is fetched from an external rate provider.',
+    'speed-test':'The test transfers data to external test endpoints to estimate connection speed.',
+    'api-request-tester':'Your request URL, headers and body are sent to the API endpoint you enter. Only test services you trust.',
+    'audio-converter':'The FFmpeg processing engine is downloaded from jsDelivr on first use; conversion then runs locally.',
+    'website-to-exe':'Cloud builds send the public repository URL and build settings to GitHub Actions. Local-folder builds stay on your device.'
+  };
+  var privacyCopy=privacyMode==='upload'?['Uploads data',item.privacyNote||'Files or data are sent to a remote service to complete this tool.']:privacyMode==='external'?['Uses external services',item.privacyNote||providerNotes[item.id]||'This tool contacts third-party services. The provider may receive request metadata such as your IP address.']:['Runs in your browser',item.privacyNote||'Processing happens on your device. Files and entered content are not uploaded by this tool.'];
+  var privacyHtml=kind==='tools'?'<aside class="privacy-indicator privacy-'+privacyMode+'" role="note"><b>'+privacyCopy[0]+'</b><span>'+esc(privacyCopy[1])+'</span></aside>':'';
   // Games and tools get a compact header with the thing itself right underneath;
   // the big placeholder artwork is only for library entries and articles.
   var html = '<div class="detail'+(playable?' wide':'')+'">'+
@@ -947,6 +983,7 @@ function pageDetail(kind, id){
   if(item.features) html += '<div class="detail-features"><h2>Features</h2><ul>'+item.features.map(function(f){return '<li>'+esc(f)+'</li>';}).join('')+'</ul></div>';
   if(item.body) html += '<div class="article-body">'+renderMarkdown(item.body)+'</div>';
   if(related.length) html += '<section class="section-block"><div class="section-title"><span>'+relatedEyebrow+'</span><h2>'+esc(relatedTitle)+'</h2></div>'+cardGrid(related)+'</section>';
+  if(privacyHtml) html += privacyHtml;
   html += '</div>';
   qs('#app').innerHTML = html;
 }
@@ -1030,7 +1067,7 @@ function pageSearch(params){
 
 /* ---------- settings page ---------- */
 var THEME_LIST = [
-  ['light','Light'],['system','Follow system'],['paper','Paper'],['nordlight','Nord Light'],
+  ['system','Follow system'],['light','Light'],['paper','Paper'],['nordlight','Nord Light'],
   ['sky','Sky'],['mint','Mint'],['sunrise','Sunrise'],['coral','Coral'],['bubblegum','Bubblegum'],['lavender','Lavender'],
   ['amoled','AMOLED'],['ocean','Ocean'],['nord','Nord'],['dracula','Dracula'],['gruvbox','Gruvbox'],
   ['cyber','Cyberpunk'],['terminal','Terminal'],['glass','Glass'],['rose','Rose'],['solar','Solar'],['grape','Grape'],
@@ -1071,10 +1108,13 @@ function pageSettings(){
   }
   function customThemeBuilder(){
     return '<div class="custom-theme-panel">'+
-      '<h2>Custom theme</h2><p style="color:var(--muted);font-size:13px;margin:4px 0 0">Pick your own accent and background colour, then select "Custom" above to use it.</p>'+
+      '<h2>Custom theme</h2><p style="color:var(--muted);font-size:13px;margin:4px 0 0">Choose an accent and a solid or gradient background, then select Custom above to apply it.</p>'+
       '<div class="custom-theme-row" style="margin-top:16px">'+
-        '<div class="custom-theme-field"><label>Accent</label><input type="color" id="custom-accent" value="'+(settings.customAccent||'#3b82f6')+'"></div>'+
-        '<div class="custom-theme-field"><label>Background</label><input type="color" id="custom-bg" value="'+(settings.customSurface||'#0a0a0c')+'"></div>'+
+        '<div class="custom-theme-field"><label for="custom-accent">Accent</label><input type="color" id="custom-accent" value="'+(settings.customAccent||'#3b82f6')+'"></div>'+
+        '<div class="custom-theme-field"><label for="custom-bg">Background</label><input type="color" id="custom-bg" value="'+(settings.customSurface||'#0a0a0c')+'"></div>'+
+        '<div class="custom-theme-field"><label for="custom-gradient-end">Gradient colour</label><input type="color" id="custom-gradient-end" value="'+(settings.customGradientEnd||'#26334a')+'"></div>'+
+        '<div class="custom-theme-field"><label for="custom-gradient-angle">Gradient angle</label><input type="number" id="custom-gradient-angle" min="0" max="360" step="5" value="'+(settings.customGradientAngle||135)+'"></div>'+
+        '<label class="custom-gradient-toggle"><input type="checkbox" id="custom-gradient-enabled" '+(settings.customGradientEnabled?'checked':'')+'> Use gradient background</label>'+
         '<div class="custom-theme-preview" id="custom-theme-preview">Preview</div>'+
         '<button class="game-btn" id="custom-theme-apply">Use this theme</button>'+
       '</div>'+
@@ -1083,7 +1123,7 @@ function pageSettings(){
   qs('#app').innerHTML =
     '<section class="page-heading"><span>CONTROL / VISUAL LAYER</span><h1>Settings</h1><p>Transform the interface without changing how the archive works. Choices are saved in your browser.</p></section>'+
     '<div class="settings-grid">'+
-      '<section><h2>Appearance</h2><p>Choose a complete visual system. Light is the default; "Follow system" tracks your OS light/dark setting.</p><div class="theme-grid" id="theme-grid">'+themeButtons()+'</div>'+customThemeBuilder()+'</section>'+
+      '<section><h2>Appearance</h2><p>Choose a complete visual system. Follow system is the default; the theme changes with your OS light/dark preference.</p><div class="theme-grid" id="theme-grid">'+themeButtons()+'</div>'+customThemeBuilder()+'</section>'+
       '<section id="interface-section"><h2>Interface</h2>'+choiceRows()+toggleRows()+shortcutRow()+
         '<div class="setting-row"><label>Reset</label><div><button class="game-btn secondary" id="reset-prefs">Reset preferences</button></div></div>'+
       '</section>'+
@@ -1091,6 +1131,7 @@ function pageSettings(){
     '<div class="settings-data">'+dataPanelHtml()+'</div>';
 
   wireDataPanel();
+  enhanceSiteNumberInputs(qs('#app'));
 
   // Settings are patched in place rather than re-rendered — a full re-render
   // combined with smooth-scrolling made the page jump around on every click.
@@ -1126,21 +1167,18 @@ function pageSettings(){
     });
   });
   function updateThemePreview(){
-    var acc = qs('#custom-accent').value, bg = qs('#custom-bg').value;
-    var prev = qs('#custom-theme-preview');
-    prev.style.background = bg;
-    prev.style.color = isDark(bg) ? '#f2f2f7' : '#171717';
-    prev.style.border = '1px solid '+acc;
-    prev.innerHTML = '<span style="color:'+acc+'">Accent</span>&nbsp;on background';
+    var acc=qs('#custom-accent').value,bg=qs('#custom-bg').value,end=qs('#custom-gradient-end').value,angle=Math.max(0,Math.min(360,(Number.isFinite(Number(qs('#custom-gradient-angle').value))?Number(qs('#custom-gradient-angle').value):135))),enabled=qs('#custom-gradient-enabled').checked,prev=qs('#custom-theme-preview');
+    prev.style.background=enabled?'linear-gradient('+angle+'deg, '+bg+', '+end+')':bg;
+    prev.style.color=isDark(bg)?'#f2f2f7':'#171717';prev.style.border='1px solid '+acc;
+    prev.innerHTML='<span style="color:'+acc+'">Accent</span>&nbsp;on '+(enabled?'gradient':'background');
   }
   if(qs('#custom-accent')){
+    ['#custom-accent','#custom-bg','#custom-gradient-end','#custom-gradient-angle','#custom-gradient-enabled'].forEach(function(id){qs(id).addEventListener('input',updateThemePreview);});
     updateThemePreview();
-    qs('#custom-accent').addEventListener('input', updateThemePreview);
-    qs('#custom-bg').addEventListener('input', updateThemePreview);
-    qs('#custom-theme-apply').addEventListener('click', function(){
-      settings.customAccent = qs('#custom-accent').value;
-      settings.customSurface = qs('#custom-bg').value;
-      selectTheme('custom');
+    qs('#custom-theme-apply').addEventListener('click',function(){
+      settings.customAccent=qs('#custom-accent').value;settings.customSurface=qs('#custom-bg').value;
+      settings.customGradientEnd=qs('#custom-gradient-end').value;settings.customGradientAngle=Math.max(0,Math.min(360,Number(qs('#custom-gradient-angle').value)||135));
+      settings.customGradientEnabled=qs('#custom-gradient-enabled').checked;saveSettings();applyTheme();selectTheme('custom');
     });
   }
   qs('#reset-prefs').addEventListener('click', function(){
@@ -1162,7 +1200,8 @@ function ownKeys(){
       if(STORE_PREFIXES.some(function(p){ return k.indexOf(p)===0; })) keys.push(k);
     }
   } catch(e){}
-  return keys.sort();
+  try { document.cookie.split(';').forEach(function(pair){var name=pair.trim().split('=')[0];try{name=decodeURIComponent(name);}catch(e){}if(name&&STORE_PREFIXES.some(function(p){return name.indexOf(p)===0;}))keys.push(name);}); } catch(e){}
+  return Array.from(new Set(keys)).sort();
 }
 function storeGroup(key){
   if(key==='system-settings') return 'Preferences';
@@ -1226,7 +1265,7 @@ function wireDataPanel(){
   }
   qs('#data-export').addEventListener('click', function(){
     var dump = {app:'velocity-systems', exported:new Date().toISOString(), data:{}};
-    ownKeys().forEach(function(k){ dump.data[k] = localStorage.getItem(k); });
+    ownKeys().forEach(function(k){ dump.data[k] = storeGet(k); });
     downloadBlob('velocity-systems-backup-'+new Date().toISOString().slice(0,10)+'.json', JSON.stringify(dump, null, 2));
     toast('Backup downloaded','ok');
   });
@@ -1239,7 +1278,7 @@ function wireDataPanel(){
         var dump = JSON.parse(r.result), n = 0;
         if(!dump || dump.app !== 'velocity-systems' || typeof dump.data !== 'object') throw new Error('bad file');
         Object.keys(dump.data).forEach(function(k){
-          if(STORE_PREFIXES.some(function(p){ return k.indexOf(p)===0; }) && typeof dump.data[k] === 'string'){ localStorage.setItem(k, dump.data[k]); n++; }
+          if(STORE_PREFIXES.some(function(p){ return k.indexOf(p)===0; }) && typeof dump.data[k] === 'string'){ storeSet(k, dump.data[k]); n++; }
         });
         toast('Restored '+n+' saved items — reloading…','ok',{force:true});
         setTimeout(function(){ location.reload(); }, 700);
@@ -1294,6 +1333,16 @@ function legacyRedirect(){
   location.replace(ROOT + to);
   return true;
 }
+/* Game Deals scroll restoration: survives reloads and returning to the page in this tab. */
+(function(){
+  if(document.body.getAttribute('data-id')!=='game-deals') return;
+  var key='vs-game-deals-scroll', restored=false;
+  function restore(){ if(restored)return; var y=Number(sessionStorage.getItem(key)||0); if(y>0){window.scrollTo(0,y);} restored=true; }
+  window.addEventListener('scroll',function(){try{sessionStorage.setItem(key,String(window.scrollY));}catch(e){}},{passive:true});
+  window.addEventListener('pagehide',function(){try{sessionStorage.setItem(key,String(window.scrollY));}catch(e){}});
+  window.addEventListener('pageshow',function(){setTimeout(restore,80);});
+  setTimeout(restore,350);
+})();
 function boot(){
   var d = document.body.dataset;
   if(d.page === 'home' && legacyRedirect()) return;
