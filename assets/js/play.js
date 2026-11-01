@@ -43,6 +43,7 @@ function mountEmbed(container, label, bodyBuilder, opts){
   document.addEventListener('webkitfullscreenchange', syncFsLabel);
   var body = container.querySelector('.embed-body');
   bodyBuilder(body);
+  enhanceNumberInputs(body);
   enhanceFileInputs(body);
 
   // Tools remember what you typed. Games manage their own settings and scores.
@@ -81,6 +82,29 @@ document.addEventListener('keydown', function(e){
   if(p) pseudoFullscreen(p, false);
 });
 
+/* Consistent accessible number steppers across embedded tools. */
+function enhanceNumberInputs(root){
+  qsa2(root,'input[type="number"]').forEach(function(input){
+    if(input.closest('.number-control')||input.hasAttribute('data-native-stepper')) return;
+    var wrap=document.createElement('div');wrap.className='number-control';
+    input.parentNode.insertBefore(wrap,input);wrap.appendChild(input);
+    var down=document.createElement('button'),up=document.createElement('button');
+    down.type=up.type='button';down.className=up.className='number-step';down.textContent='−';up.textContent='+';
+    down.setAttribute('aria-label','Decrease '+(input.getAttribute('aria-label')||input.id||'value'));
+    up.setAttribute('aria-label','Increase '+(input.getAttribute('aria-label')||input.id||'value'));
+    wrap.appendChild(down);wrap.appendChild(up);
+    function stepBy(direction){
+      if(input.disabled||input.readOnly)return;
+      var step=input.step==='any'?1:(Number(input.step)||1),min=input.min===''?-Infinity:Number(input.min),max=input.max===''?Infinity:Number(input.max);
+      var current=input.value===''?(direction>0?Math.max(0,min):Math.min(0,max)):Number(input.value);
+      var next=Math.min(max,Math.max(min,current+step*direction));
+      var decimals=(String(step).split('.')[1]||'').length;
+      input.value=Number(next.toFixed(Math.min(8,decimals))).toString();
+      input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));
+    }
+    down.addEventListener('click',function(){stepBy(-1);});up.addEventListener('click',function(){stepBy(1);});
+  });
+}
 /* Replaces the browser's plain "Choose file" control with a styled button that also accepts drag and drop. */
 function enhanceFileInputs(root){
   qsa2(root, 'input[type=file]').forEach(function(inp){
