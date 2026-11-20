@@ -1414,7 +1414,7 @@ function mountGameDeals(container){
           (d.steamRatingPercent && d.steamRatingPercent !== '0' ? ' · ' + esc(d.steamRatingPercent) + '% positive' : '') + (d.metacriticScore && d.metacriticScore !== '0' ? ' · Metacritic ' + esc(d.metacriticScore) : '') + hb.sub + '</div></div>'+
         '<div class="gd-was">' + (normal > sale ? money(normal) : '') + '</div>'+
         '<div class="gd-now' + (sale === 0 ? ' free' : '') + '">' + (sale === 0 ? 'FREE' : money(sale)) + '</div>'+
-        '<div class="gd-off">' + (save > 0 ? '−' + save + '%' : '') + '</div>'+
+        '<div class="gd-off' + (save > 0 ? '' : ' none') + '"' + (save > 0 ? '' : ' title="This game is at its normal price right now"') + '>' + (save > 0 ? '−' + save + '%' : 'No discount') + '</div>'+
         heartBtn(d.gameID, inWish(d.gameID)) + '</div>';
     }
     /* ---- Wishlist tab: current best price per saved game ---- */
@@ -1435,7 +1435,7 @@ function mountGameDeals(container){
           '<div class="gd-main"><a class="gd-title gd-open" target="_blank" rel="noopener" href="' + href + '">' + esc(w.title) + '</a>' + (low ? '<span class="gd-badge low">' + icon('trendingDown', {size: 11}) + ' ALL-TIME LOW</span>' : '') + '<div class="gd-sub">' + sub + '</div></div>'+
           '<div class="gd-was">' + (best && normal > sale ? money(normal) : '') + '</div>'+
           '<div class="gd-now' + (best && sale === 0 ? ' free' : '') + '">' + (best ? (sale === 0 ? 'FREE' : money(sale)) : '—') + '</div>'+
-          '<div class="gd-off">' + (save > 0 ? '−' + save + '%' : '') + '</div>' + heartBtn(w.gameID, true) + '</div>';
+          '<div class="gd-off' + (save > 0 ? '' : ' none') + '"' + (save > 0 ? '' : ' title="This game is at its normal price right now"') + '>' + (save > 0 ? '−' + save + '%' : 'No discount') + '</div>' + heartBtn(w.gameID, true) + '</div>';
       }).join('') + '</div>';
     }
     function loadWish(){
@@ -5934,12 +5934,14 @@ function mountVideoTrimmer(container){
         return !(r[0] < 2.5 && r[1] > 10);
       });
     }
+    var KEEP_MSG = 'Keep this tab open and in front while encoding. If you switch tabs or minimise the window, the export pauses automatically and continues when you come back.';
     function encUiStart(job){
       enc = job;
       pausePreview(); el.result.hidden = true; releaseCompare();
       el.go.disabled = true; el.cancel.hidden = false; el.progress.hidden = false;
       el.pfill.style.width = '0%'; el.ptext.textContent = 'Preparing…';
-      setMsg(''); refreshControls();
+      if(job && job.rt === false) setMsg(''); else setMsg(KEEP_MSG, 'err');
+      refreshControls();
     }
     function encUiEnd(){ enc = null; el.cancel.hidden = true; refreshControls(); update(); }
     function progressUi(frac, t0, bytes){
@@ -5984,7 +5986,22 @@ function mountVideoTrimmer(container){
         document.removeEventListener('visibilitychange', onVis);
         encUiEnd();
       }
-      function onVis(){ if(document.hidden) setMsg('Tab is in the background. Encoding may stall until you come back.', 'err'); else setMsg(''); }
+      var pausedByVis = false;
+      function onVis(){
+        if(stopped || !t0) return;
+        if(document.hidden){
+          if(pausedByVis) return; pausedByVis = true;
+          try{ v.pause(); }catch(e){}
+          try{ if(rec && rec.state === 'recording') rec.pause(); }catch(e){}
+          el.ptext.textContent = 'Paused: return to this tab to continue';
+          setMsg('Encoding is paused because you left this tab. Come back to continue where it stopped.', 'err');
+        } else if(pausedByVis){
+          pausedByVis = false; lastMove = Date.now();
+          try{ if(rec && rec.state === 'paused') rec.resume(); }catch(e){}
+          var pr = v.play(); if(pr && pr.catch) pr.catch(function(){ failEnc('The browser blocked playback after you returned. Click Trim & compress again.'); });
+          setMsg(KEEP_MSG, 'err');
+        }
+      }
       document.addEventListener('visibilitychange', onVis);
       encUiStart({abort:function(silent){
         if(stopped) return; aborted = true; stopped = true;
@@ -6043,7 +6060,7 @@ function mountVideoTrimmer(container){
         if(v.requestVideoFrameCallback) v.requestVideoFrameCallback(onFrame);
         else (function loop(){ if(stopped) return; onFrame(0, {mediaTime:v.currentTime}); requestAnimationFrame(loop); })();
         timer = setInterval(function(){
-          if(stopped) return;
+          if(stopped || pausedByVis) return;
           var t = v.currentTime;
           if(t >= S.end - 0.005 || v.ended){ return finishEnc(); }
           if(t !== lastT){ lastT = t; lastMove = Date.now(); }
@@ -6071,7 +6088,23 @@ function mountVideoTrimmer(container){
       var c = calcAudio(), v = document.createElement('video'), actx = null, rec = null, chunks = [], bytes = 0, stopped = false, aborted = false, timer = 0, t0 = 0, seekedOnce = false;
       v.playsInline = true; v.preload = 'auto'; v.src = S.url;
       var spec = {start:S.start, end:S.end, snapKey:normJs(snap()), desc:af.label + ' · ' + c.abr + ' kbps'};
-      function cleanup(){ clearInterval(timer); try{ v.pause(); }catch(e){} if(actx){ try{ actx.close(); }catch(e){} } v.removeAttribute('src'); try{ v.load(); }catch(e){} encUiEnd(); }
+      var pausedByVis = false;
+      function onVisA(){
+        if(stopped || !t0) return;
+        if(document.hidden){
+          if(pausedByVis) return; pausedByVis = true;
+          try{ v.pause(); }catch(e){} try{ if(rec && rec.state === 'recording') rec.pause(); }catch(e){}
+          el.ptext.textContent = 'Paused: return to this tab to continue';
+          setMsg('Extraction is paused because you left this tab. Come back to continue where it stopped.', 'err');
+        } else if(pausedByVis){
+          pausedByVis = false;
+          try{ if(rec && rec.state === 'paused') rec.resume(); }catch(e){}
+          var pr = v.play(); if(pr && pr.catch) pr.catch(function(){ failEnc('The browser blocked playback after you returned. Click Extract audio again.'); });
+          setMsg(KEEP_MSG, 'err');
+        }
+      }
+      document.addEventListener('visibilitychange', onVisA);
+      function cleanup(){ clearInterval(timer); document.removeEventListener('visibilitychange', onVisA); try{ v.pause(); }catch(e){} if(actx){ try{ actx.close(); }catch(e){} } v.removeAttribute('src'); try{ v.load(); }catch(e){} encUiEnd(); }
       encUiStart({abort:function(silent){ if(stopped) return; aborted = stopped = true; try{ if(rec && rec.state !== 'inactive') rec.stop(); }catch(e){} cleanup(); el.progress.hidden = true; if(!silent) setMsg('Export cancelled.'); }});
       function failEnc(msg){ if(stopped) return; aborted = stopped = true; try{ if(rec && rec.state !== 'inactive') rec.stop(); }catch(e){} cleanup(); el.progress.hidden = true; setMsg(msg, 'err'); }
       v.onerror = function(){ failEnc('The browser could not decode this video for audio extraction.'); };
@@ -6098,7 +6131,7 @@ function mountVideoTrimmer(container){
         t0 = Date.now(); rec.start(400);
         var pl = v.play(); if(pl && pl.catch) pl.catch(function(){ failEnc('The browser blocked playback. Click Extract audio again.'); });
         timer = setInterval(function(){
-          if(stopped) return;
+          if(stopped || pausedByVis) return;
           var t = v.currentTime;
           if(t >= S.end - 0.005 || v.ended){
             stopped = true; clearInterval(timer); try{ v.pause(); }catch(e){}
@@ -6113,7 +6146,7 @@ function mountVideoTrimmer(container){
     function exportWav(af){
       var c = calcAudio(), f = S.file, aborted = false, t0 = Date.now(), start = S.start, end = S.end;
       var spec = {start:start, end:end, snapKey:normJs(snap()), desc:'WAV · 44.1 kHz · 16-bit'};
-      encUiStart({abort:function(silent){ aborted = true; encUiEnd(); el.progress.hidden = true; if(!silent) setMsg('Export cancelled.'); }});
+      encUiStart({rt:false, abort:function(silent){ aborted = true; encUiEnd(); el.progress.hidden = true; if(!silent) setMsg('Export cancelled.'); }});
       function fail(m){ if(aborted) return; aborted = true; encUiEnd(); el.progress.hidden = true; setMsg(m, 'err'); }
       if(f.size > WAVE_LIMIT){ fail('This file is too large to decode in browser memory for WAV. Choose Opus or AAC instead (they stream in real time).'); return; }
       el.ptext.textContent = 'Reading and decoding audio…';
@@ -6138,7 +6171,35 @@ function mountVideoTrimmer(container){
         })();
       }).catch(function(e){ fail('This browser could not decode the audio of this video (it may have no audio track or use an unsupported codec).'); });
     }
-    el.go.addEventListener('click', function(){ startEncode(0); });
+    /* Confirmation before a real-time export, with a "don't show again" option. */
+    var SKIP_KEY = 'vt-skip-encode-warn';
+    function askStart(go){
+      if(lsGet(SKIP_KEY, false) === true){ go(); return; }
+      var audio = S.kind === 'audio', wav = audio && curAFormat() && curAFormat().wav;
+      if(wav){ go(); return; }                       // WAV is not real time, nothing to warn about
+      var prev = document.activeElement, m = document.createElement('div');
+      m.className = 'vt-modal'; m.setAttribute('role', 'dialog'); m.setAttribute('aria-modal', 'true'); m.setAttribute('aria-labelledby', 'vt-confirm-title');
+      var clip = Math.max(0, S.end - S.start);
+      m.innerHTML = '<div class="vt-modal-card" tabindex="-1" style="max-width:460px">' +
+        '<div class="vt-modal-head"><h3 id="vt-confirm-title">' + (audio ? 'Extract audio' : 'Trim &amp; compress') + ' this video?</h3></div>' +
+        '<div class="vt-modal-body"><p>This exports <b>' + fmtTime(clip, true) + '</b> in real time, so it takes about as long as the clip itself.</p>' +
+        '<p style="margin-top:8px"><b>Do not leave this tab.</b> If you switch tabs or minimise the window the export pauses until you come back. Nothing is uploaded.</p>' +
+        '<label style="display:flex;gap:8px;align-items:center;margin-top:14px;font-size:12px;cursor:pointer"><input type="checkbox" id="vt-confirm-skip"> Don\'t show this again</label>' +
+        '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px"><button type="button" class="game-btn secondary" id="vt-confirm-no">Cancel</button><button type="button" class="game-btn" id="vt-confirm-yes">Start</button></div></div></div>';
+      document.body.appendChild(m);
+      var yes = m.querySelector('#vt-confirm-yes'), no = m.querySelector('#vt-confirm-no'), skip = m.querySelector('#vt-confirm-skip');
+      function close(){ document.removeEventListener('keydown', key, true); m.remove(); if(prev && prev.focus) prev.focus(); }
+      function key(e){
+        if(e.key === 'Escape'){ e.preventDefault(); e.stopPropagation(); close(); }
+        else if(e.key === 'Tab'){ var f = [skip, no, yes]; var i = f.indexOf(document.activeElement); e.preventDefault(); f[(i + (e.shiftKey ? f.length - 1 : 1)) % f.length].focus(); }
+      }
+      document.addEventListener('keydown', key, true);
+      no.addEventListener('click', close);
+      m.addEventListener('mousedown', function(e){ if(e.target === m) close(); });
+      yes.addEventListener('click', function(){ if(skip.checked) lsSet(SKIP_KEY, true); close(); go(); });
+      yes.focus();
+    }
+    el.go.addEventListener('click', function(){ askStart(function(){ startEncode(0); }); });
     el.cancel.addEventListener('click', function(){ if(enc) enc.abort(); });
     qsa2(body, 'input, select').forEach(function(x){ x.addEventListener('keydown', function(e){ if(e.key === 'Enter' && x.id === 'vt-filename'){ e.preventDefault(); } }); });
 
@@ -6411,14 +6472,47 @@ PLAYABLES['ip-lookup']=mountIpLookup;
    ================================================================== */
 function mountMicrophoneTester(container){
   mountEmbed(container, 'TOOL / MICROPHONE TESTER', function(body){
-    body.innerHTML='<div class="tool-grid two"><div class="field"><label for="mic-device">Input device</label><select id="mic-device"><option value="">Default microphone</option></select></div><div class="field"><label for="mic-delay">Monitor delay <span id="mic-delay-label">500 ms</span></label><input id="mic-delay" type="range" min="0" max="2000" step="50" value="500"></div></div><div class="tool-row"><button class="game-btn" id="mic-start">Start microphone</button><button class="game-btn secondary" id="mic-stop" disabled>Stop</button><button class="game-btn secondary" id="mic-record" disabled>Start recording</button><button class="game-btn secondary" id="mic-play" disabled>Play recording</button><a class="game-btn secondary" id="mic-download" hidden download="microphone-test.webm">Download recording</a></div><div class="result-card"><div class="field-label">Input level</div><div style="height:12px;background:var(--surface-2);border-radius:20px;overflow:hidden"><div id="mic-level" style="height:100%;width:0%;background:var(--accent);transition:width .08s"></div></div><p class="hint" id="mic-status" role="status">Microphone is off. Audio stays in this browser unless you choose to download it.</p></div><audio id="mic-audio" controls hidden></audio>';
-    var device=body.querySelector('#mic-device'),delay=body.querySelector('#mic-delay'),label=body.querySelector('#mic-delay-label'),start=body.querySelector('#mic-start'),stop=body.querySelector('#mic-stop'),record=body.querySelector('#mic-record'),play=body.querySelector('#mic-play'),download=body.querySelector('#mic-download'),status=body.querySelector('#mic-status'),level=body.querySelector('#mic-level'),audio=body.querySelector('#mic-audio');
-    var stream=null,ctx=null,source=null,analyser=null,delayNode=null,raf=0,recorder=null,chunks=[],recordUrl=null;
+    var DEF_DELAY=500;
+    function ls(k,d){try{var v=localStorage.getItem('vs-mic-'+k);return v===null?d:JSON.parse(v);}catch(e){return d;}}
+    function lw(k,v){try{localStorage.setItem('vs-mic-'+k,JSON.stringify(v));}catch(e){}}
+    function sw(id,label,on){return '<div class="setting-row"><label for="'+id+'">'+label+'</label><button type="button" class="switch'+(on?' on':'')+'" id="'+id+'" role="switch" aria-checked="'+!!on+'" aria-label="'+label+'"><i></i></button></div>';}
+    body.innerHTML=
+      '<div class="tool-grid two"><div class="field"><label for="mic-device">Input device</label><select id="mic-device"><option value="">Default microphone</option></select></div>'+
+      '<div class="field"><label for="mic-gain">Input gain <span id="mic-gain-label">100%</span></label><input id="mic-gain" type="range" min="0" max="300" step="5" value="100"></div></div>'+
+      '<div class="result-card"><div class="field-label">Monitoring</div>'+sw('mic-monitor','Hear my microphone (monitor)',ls('monitor',false))+
+      '<div class="field"><label for="mic-delay">Monitor delay <span id="mic-delay-label">'+DEF_DELAY+' ms</span></label><div class="tool-row" style="align-items:center;flex-wrap:nowrap"><input id="mic-delay" type="range" min="0" max="2000" step="50" value="'+DEF_DELAY+'" style="flex:1"><button type="button" class="game-btn secondary" id="mic-delay-reset" title="Reset monitor delay to '+DEF_DELAY+' ms">Reset to '+DEF_DELAY+' ms</button></div></div>'+
+      '<p class="hint">Use headphones while monitoring, otherwise the speakers feed back into the microphone.</p></div>'+
+      '<div class="result-card"><div class="field-label">Processing (applies when the microphone restarts)</div>'+
+      sw('mic-ns','Noise suppression',ls('ns',true))+sw('mic-ec','Echo cancellation',ls('ec',true))+sw('mic-agc','Automatic gain control',ls('agc',true))+'</div>'+
+      '<div class="tool-row"><button class="game-btn" id="mic-start">Start microphone</button><button class="game-btn secondary" id="mic-stop" disabled>Stop</button><button class="game-btn secondary" id="mic-mute" disabled>Mute</button><button class="game-btn secondary" id="mic-record" disabled>Start recording</button><button class="game-btn secondary" id="mic-play" disabled>Play recording</button><a class="game-btn secondary" id="mic-download" hidden download="microphone-test.webm">Download recording</a></div>'+
+      '<div class="result-card"><div class="field-label">Input level <span id="mic-db" style="float:right;font-family:var(--font-mono)">−∞ dB</span></div>'+
+      '<div style="position:relative;height:12px;background:var(--surface-2);border:1px solid var(--line);border-radius:20px;overflow:hidden"><div id="mic-level" style="height:100%;width:0%;background:var(--accent);transition:width .08s"></div><div id="mic-peak" style="position:absolute;top:0;bottom:0;left:0;width:2px;background:var(--text)"></div></div>'+
+      '<canvas id="mic-scope" height="64" style="width:100%;height:64px;margin-top:10px;background:var(--surface-2);border:1px solid var(--line);border-radius:6px"></canvas>'+
+      '<p class="hint" id="mic-info"></p><p class="hint" id="mic-clip" style="color:#ff6b6b" hidden>Clipping detected: the input is too loud. Lower the gain or move back from the microphone.</p>'+
+      '<p class="hint" id="mic-status" role="status">Microphone is off. Audio stays in this browser unless you choose to download it.</p></div>'+
+      '<div class="result-card" id="mic-rec-card" hidden><div class="field-label">Recording <span id="mic-rec-time" style="float:right;font-family:var(--font-mono)">0:00</span></div><audio id="mic-audio" controls style="width:100%"></audio></div>';
+    var q=function(s){return body.querySelector(s);};
+    var device=q('#mic-device'),delay=q('#mic-delay'),label=q('#mic-delay-label'),reset=q('#mic-delay-reset'),gain=q('#mic-gain'),gainLabel=q('#mic-gain-label'),monitorSw=q('#mic-monitor'),
+        start=q('#mic-start'),stop=q('#mic-stop'),mute=q('#mic-mute'),record=q('#mic-record'),play=q('#mic-play'),download=q('#mic-download'),status=q('#mic-status'),
+        level=q('#mic-level'),peak=q('#mic-peak'),db=q('#mic-db'),scope=q('#mic-scope'),info=q('#mic-info'),clip=q('#mic-clip'),audio=q('#mic-audio'),recCard=q('#mic-rec-card'),recTime=q('#mic-rec-time');
+    var stream=null,ctx=null,source=null,analyser=null,gainNode=null,delayNode=null,monGain=null,raf=0,recorder=null,chunks=[],recordUrl=null,peakHold=0,peakAt=0,clipAt=0,recT0=0,recTimer=0,muted=false,starting=false;
+    function setSw(el,on){el.classList.toggle('on',on);el.setAttribute('aria-checked',on);}
+    function isOn(el){return el.classList.contains('on');}
+    function applyMonitor(){
+      var on=isOn(monitorSw);delay.disabled=!on;reset.disabled=!on||+delay.value===DEF_DELAY;
+      if(monGain)monGain.gain.setTargetAtTime(on?1:0,ctx.currentTime,.02);
+    }
+    function applyDelay(){label.textContent=delay.value+' ms';reset.disabled=!isOn(monitorSw)||+delay.value===DEF_DELAY;if(delayNode)delayNode.delayTime.setTargetAtTime(+delay.value/1000,ctx.currentTime,.02);lw('delay',+delay.value);}
     function stopMic(){
       if(raf)cancelAnimationFrame(raf);raf=0;
+      if(recorder&&recorder.state==='recording')recorder.stop();
+      clearInterval(recTimer);
       if(stream)stream.getTracks().forEach(function(t){t.stop();});stream=null;
       if(ctx){ctx.close().catch(function(){});ctx=null;}
-      source=analyser=delayNode=null;level.style.width='0%';start.disabled=false;stop.disabled=true;record.disabled=true;
+      source=analyser=gainNode=delayNode=monGain=null;muted=false;mute.textContent='Mute';
+      level.style.width='0%';peak.style.left='0';db.textContent='−∞ dB';clip.hidden=true;info.textContent='';
+      var g=scope.getContext('2d');g.clearRect(0,0,scope.width,scope.height);
+      start.disabled=false;stop.disabled=true;mute.disabled=true;record.disabled=true;record.textContent='Start recording';
       status.textContent='Microphone stopped.';
     }
     function devices(){
@@ -6427,36 +6521,82 @@ function mountMicrophoneTester(container){
         var selected=device.value;device.innerHTML='<option value="">Default microphone</option>';
         ds.filter(function(d){return d.kind==='audioinput';}).forEach(function(d,i){var o=document.createElement('option');o.value=d.deviceId;o.textContent=d.label||('Microphone '+(i+1));device.appendChild(o);});
         if(selected)device.value=selected;
+        device.dispatchEvent(new Event('input',{bubbles:true}));
       }).catch(function(){});
     }
-    function monitor(){
-      if(!analyser)return;var data=new Uint8Array(analyser.fftSize);analyser.getByteTimeDomainData(data);var sum=0;
-      for(var i=0;i<data.length;i++){var v=(data[i]-128)/128;sum+=v*v;}
-      level.style.width=Math.min(100,Math.sqrt(sum/data.length)*240)+'%';raf=requestAnimationFrame(monitor);
+    function draw(){
+      if(!analyser)return;
+      var n=analyser.fftSize,data=new Float32Array(n);analyser.getFloatTimeDomainData(data);
+      var sum=0,pk=0;for(var i=0;i<n;i++){var v=data[i],a=v<0?-v:v;sum+=v*v;if(a>pk)pk=a;}
+      var rms=Math.sqrt(sum/n),dB=rms>0?20*Math.log10(rms):-Infinity,now=performance.now();
+      var pct=Math.max(0,Math.min(100,(dB+60)/60*100));
+      level.style.width=pct+'%';level.style.background=pk>=.98?'#ff6b6b':'var(--accent)';
+      db.textContent=isFinite(dB)?dB.toFixed(1)+' dB':'−∞ dB';
+      if(pk>=.98)clipAt=now;clip.hidden=now-clipAt>3000;
+      if(pct>=peakHold||now-peakAt>1200){peakHold=pct;peakAt=now;}peak.style.left='calc('+peakHold+'% - 1px)';
+      var cw=scope.clientWidth,dpr=window.devicePixelRatio||1;if(scope.width!==Math.round(cw*dpr)){scope.width=Math.round(cw*dpr);scope.height=Math.round(64*dpr);}
+      var g=scope.getContext('2d'),W=scope.width,H=scope.height;g.clearRect(0,0,W,H);g.strokeStyle=getComputedStyle(body).getPropertyValue('--accent').trim()||'#6b98e6';g.lineWidth=Math.max(1,dpr);g.beginPath();
+      for(var x=0;x<W;x++){var s=data[Math.floor(x/W*n)]||0,y=H/2-s*H/2*.95;if(x)g.lineTo(x,y);else g.moveTo(x,y);}g.stroke();
+      raf=requestAnimationFrame(draw);
     }
-    start.addEventListener('click',function(){
+    function begin(){
+      if(starting)return;
       if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){toolError(status,'Microphone API unavailable','This browser does not expose microphone capture.','Use a current browser over HTTPS or localhost.');return;}
-      var constraints={audio:device.value?{deviceId:{exact:device.value}}:true};
-      navigator.mediaDevices.getUserMedia(constraints).then(function(st){
-        stream=st;ctx=new (window.AudioContext||window.webkitAudioContext)();source=ctx.createMediaStreamSource(stream);analyser=ctx.createAnalyser();analyser.fftSize=512;
+      starting=true;
+      var audioC={noiseSuppression:isOn(q('#mic-ns')),echoCancellation:isOn(q('#mic-ec')),autoGainControl:isOn(q('#mic-agc'))};
+      if(device.value)audioC.deviceId={exact:device.value};
+      navigator.mediaDevices.getUserMedia({audio:audioC}).then(function(st){
+        starting=false;stream=st;ctx=new (window.AudioContext||window.webkitAudioContext)();source=ctx.createMediaStreamSource(stream);
+        gainNode=ctx.createGain();gainNode.gain.value=+gain.value/100;
+        analyser=ctx.createAnalyser();analyser.fftSize=1024;
         delayNode=ctx.createDelay(2);delayNode.delayTime.value=+delay.value/1000;
-        source.connect(analyser);source.connect(delayNode);delayNode.connect(ctx.destination);
-        start.disabled=true;stop.disabled=false;record.disabled=!(window.MediaRecorder);status.textContent='Microphone active. Monitoring is enabled; use headphones to avoid feedback.';devices();monitor();
-      }).catch(function(e){var msg=e.name==='NotAllowedError'?'Microphone permission was denied. Allow microphone access in the browser address bar and try again.':e.name==='NotFoundError'?'No microphone was found. Connect one and retry.':e.message;toolError(status,'Could not access microphone',msg,'Check browser permissions, select a connected input device, and ensure the page is served over HTTPS or localhost.');});
-    });
+        monGain=ctx.createGain();monGain.gain.value=isOn(monitorSw)?1:0;
+        source.connect(gainNode);gainNode.connect(analyser);gainNode.connect(delayNode);delayNode.connect(monGain);monGain.connect(ctx.destination);
+        var ts=stream.getAudioTracks()[0],set=ts&&ts.getSettings?ts.getSettings():{};
+        info.textContent=(ts&&ts.label?ts.label+' · ':'')+Math.round(ctx.sampleRate/100)/10+' kHz'+(set.channelCount?' · '+set.channelCount+' ch':'')+(ctx.baseLatency?' · base latency '+Math.round(ctx.baseLatency*1000)+' ms':'');
+        start.disabled=true;stop.disabled=false;mute.disabled=false;record.disabled=!window.MediaRecorder;
+        status.textContent=isOn(monitorSw)?'Microphone active. Monitoring is on; use headphones to avoid feedback.':'Microphone active. Monitoring is off, so you will not hear yourself.';
+        devices();draw();
+      }).catch(function(e){
+        starting=false;
+        var msg=e.name==='NotAllowedError'?'Microphone permission was denied. Allow microphone access in the browser address bar and try again.':e.name==='NotFoundError'?'No microphone was found. Connect one and retry.':e.message;
+        toolError(status,'Could not access microphone',msg,'Check browser permissions, select a connected input device, and ensure the page is served over HTTPS or localhost.');
+      });
+    }
+    start.addEventListener('click',begin);
     stop.addEventListener('click',stopMic);
-    delay.addEventListener('input',function(){label.textContent=delay.value+' ms';if(delayNode)delayNode.delayTime.setTargetAtTime(+delay.value/1000,ctx.currentTime,.02);});
-    device.addEventListener('change',function(){if(stream){stopMic();start.click();}});
+    mute.addEventListener('click',function(){
+      if(!stream)return;muted=!muted;stream.getAudioTracks().forEach(function(t){t.enabled=!muted;});
+      mute.textContent=muted?'Unmute':'Mute';status.textContent=muted?'Microphone muted. Nothing is monitored or recorded.':'Microphone live again.';
+    });
+    monitorSw.addEventListener('click',function(){var on=!isOn(monitorSw);setSw(monitorSw,on);lw('monitor',on);applyMonitor();if(stream)status.textContent=on?'Monitoring is on; use headphones to avoid feedback.':'Monitoring is off.';});
+    delay.addEventListener('input',applyDelay);
+    reset.addEventListener('click',function(){delay.value=DEF_DELAY;applyDelay();});
+    gain.addEventListener('input',function(){gainLabel.textContent=gain.value+'%';if(gainNode)gainNode.gain.setTargetAtTime(+gain.value/100,ctx.currentTime,.02);});
+    [['#mic-ns','ns'],['#mic-ec','ec'],['#mic-agc','agc']].forEach(function(p){var el=q(p[0]);el.addEventListener('click',function(){var on=!isOn(el);setSw(el,on);lw(p[1],on);if(stream){stopMic();begin();}});});
+    device.addEventListener('change',function(){if(stream){stopMic();begin();}});
+    function fmt(s){s=Math.floor(s);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');}
     record.addEventListener('click',function(){
       if(!stream||!window.MediaRecorder)return;
-      if(recorder&&recorder.state==='recording'){recorder.stop();record.textContent='Start recording';return;}
-      chunks=[];try{recorder=new MediaRecorder(stream);}catch(e){toolError(status,'Recording is not supported',e.message,'Try a browser that supports MediaRecorder.');return;}
+      if(recorder&&recorder.state==='recording'){recorder.stop();return;}
+      chunks=[];
+      /* Record the processed (gain-adjusted) signal so the file matches what the meter shows. */
+      var dest=ctx.createMediaStreamDestination();gainNode.connect(dest);
+      try{recorder=new MediaRecorder(dest.stream);}catch(e){toolError(status,'Recording is not supported',e.message,'Try a browser that supports MediaRecorder.');return;}
       recorder.ondataavailable=function(e){if(e.data&&e.data.size)chunks.push(e.data);};
-      recorder.onstop=function(){var blob=new Blob(chunks,{type:recorder.mimeType||'audio/webm'});if(recordUrl)URL.revokeObjectURL(recordUrl);recordUrl=URL.createObjectURL(blob);audio.src=recordUrl;audio.hidden=false;download.href=recordUrl;download.hidden=false;play.disabled=false;status.textContent='Recording ready. Play it back or download the file.';};
-      recorder.start();record.textContent='Stop recording';status.textContent='Recording microphone input…';
+      recorder.onstop=function(){
+        clearInterval(recTimer);record.textContent='Start recording';
+        var blob=new Blob(chunks,{type:recorder.mimeType||'audio/webm'});if(recordUrl)URL.revokeObjectURL(recordUrl);recordUrl=URL.createObjectURL(blob);
+        audio.src=recordUrl;recCard.hidden=false;download.href=recordUrl;download.setAttribute('download','microphone-test.'+(/ogg/.test(blob.type)?'ogg':/mp4/.test(blob.type)?'m4a':'webm'));download.hidden=false;play.disabled=false;
+        status.textContent='Recording ready ('+fmt((Date.now()-recT0)/1000)+', '+Math.round(blob.size/1024)+' KB). Play it back or download the file.';
+      };
+      recorder.start();recT0=Date.now();recTime.textContent='0:00';recCard.hidden=false;
+      recTimer=setInterval(function(){recTime.textContent=fmt((Date.now()-recT0)/1000);},250);
+      record.textContent='Stop recording';status.textContent='Recording microphone input…';
     });
     play.addEventListener('click',function(){audio.play().catch(function(){status.textContent='Playback was blocked. Use the audio player controls.';});});
-    onUnmount('microphone-tester',function(){if(recorder&&recorder.state==='recording')recorder.stop();stopMic();if(recordUrl)URL.revokeObjectURL(recordUrl);});
+    onUnmount('microphone-tester',function(){stopMic();if(recordUrl)URL.revokeObjectURL(recordUrl);});
+    var sd=+ls('delay',DEF_DELAY);delay.value=isFinite(sd)?sd:DEF_DELAY;applyDelay();applyMonitor();
     devices();
   },{persist:false});
 }

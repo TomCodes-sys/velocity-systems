@@ -140,3 +140,5 @@ default is a GitHub Pages guess), then re-run it. Preview images live in `assets
 Pages open fine from a local server (`python -m http.server`, or VS Code's Live Server).
 Opening the files by double-click mostly works but browsers restrict some features on `file://`
 (clipboard, hashing, screen capture), so test through a server.
+
+- `assets/js/dev-tools.js` holds the developer and text tools added in the 30-tool core set (cron, YAML, JWT, SQL, XML/XSD and others). Register a new one with `reg(id, label, build)` there, add its id to `DEV_TOOLS` in `scripts/build.js`, and add a `kind:'tools'` entry in `data.js` (`core:true` puts it in the default set; leave it off to list it under "More tools").

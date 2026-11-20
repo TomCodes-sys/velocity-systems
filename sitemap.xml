@@ -17,11 +17,15 @@
   <url><loc>https://velocitysystems.pages.dev/games/tetris.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/games/wordle.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/image-metadata.html</loc></url>
+  <url><loc>https://velocitysystems.pages.dev/tools/video-converter.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/audio-converter.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/storage-visualiser.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/api-request-tester.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/file-comparison.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/network-diagnostics.html</loc></url>
+  <url><loc>https://velocitysystems.pages.dev/tools/website-to-exe.html</loc></url>
+  <url><loc>https://velocitysystems.pages.dev/tools/ip-lookup.html</loc></url>
+  <url><loc>https://velocitysystems.pages.dev/tools/microphone-tester.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/subnet-calculator.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/speed-test.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/qr-scanner.html</loc></url>
@@ -71,6 +75,22 @@
   <url><loc>https://velocitysystems.pages.dev/tools/contrast-checker.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/countdown-timer.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/date-calculator.html</loc></url>
+  <url><loc>https://velocitysystems.pages.dev/tools/cron-parser.html</loc></url>
+  <url><loc>https://velocitysystems.pages.dev/tools/json-yaml.html</loc></url>
+  <url><loc>https://velocitysystems.pages.dev/tools/json-table.html</loc></url>
+  <url><loc>https://velocitysystems.pages.dev/tools/escape-unescape.html</loc></url>
+  <url><loc>https://velocitysystems.pages.dev/tools/list-comparer.html</loc></url>
+  <url><loc>https://velocitysystems.pages.dev/tools/text-analyzer.html</loc></url>
+  <url><loc>https://velocitysystems.pages.dev/tools/base64-image.html</loc></url>
+  <url><loc>https://velocitysystems.pages.dev/tools/certificate-decoder.html</loc></url>
+  <url><loc>https://velocitysystems.pages.dev/tools/gzip.html</loc></url>
+  <url><loc>https://velocitysystems.pages.dev/tools/html-encoder.html</loc></url>
+  <url><loc>https://velocitysystems.pages.dev/tools/jwt-decoder.html</loc></url>
+  <url><loc>https://velocitysystems.pages.dev/tools/sql-formatter.html</loc></url>
+  <url><loc>https://velocitysystems.pages.dev/tools/xml-formatter.html</loc></url>
+  <url><loc>https://velocitysystems.pages.dev/tools/color-blind-simulator.html</loc></url>
+  <url><loc>https://velocitysystems.pages.dev/tools/jsonpath-tester.html</loc></url>
+  <url><loc>https://velocitysystems.pages.dev/tools/xml-xsd-tester.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/hash-generator.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/dice-coin.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/game-deals.html</loc></url>
@@ -93,11 +113,15 @@
   <url><loc>https://velocitysystems.pages.dev/library/everything-cli.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/library/vlc-media-player.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/library/fxsound.html</loc></url>
+  <url><loc>https://velocitysystems.pages.dev/library/fluent-flyout.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/library/proton-pass.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/library/wiztree.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/library/revo-uninstaller.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/library/autoclicker.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/library/artcraft-apps.html</loc></url>
+  <url><loc>https://velocitysystems.pages.dev/library/balena-etcher.html</loc></url>
+  <url><loc>https://velocitysystems.pages.dev/library/diagrams-net.html</loc></url>
+  <url><loc>https://velocitysystems.pages.dev/library/contrib-rocks.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/library/rufus.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/library/hwinfo.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/library/flow-launcher.html</loc></url>

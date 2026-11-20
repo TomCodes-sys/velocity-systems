@@ -62,6 +62,7 @@ var KIND = {
   library:  {label:'Library',  noun:'Software',         og:'assets/img/og/library.png',  desc:'A curated directory of dependable software, websites and open-source projects.'},
   articles: {label:'Articles', noun:'Article',          og:'assets/img/og/articles.png', desc:'Practical guides, informed recommendations and durable technical knowledge.'},
 };
+var DEV_TOOLS = ['cron-parser','json-yaml','json-table','escape-unescape','list-comparer','text-analyzer','base64-image','certificate-decoder','gzip','html-encoder','jwt-decoder','sql-formatter','xml-formatter','color-blind-simulator','jsonpath-tester','xml-xsd-tester'];
 var DEFAULT_OG = 'assets/img/og/default.png';
 var SITE_DESC = 'A curated directory of free software, open-source alternatives to parts of Adobe Creative Cloud and Microsoft Office, browser tools, games and practical guides.';
 
@@ -76,7 +77,7 @@ function page(o){
   var desc = clip(o.desc, 200);
   var ogType = o.ogType || 'website';
   var scripts = ['assets/js/data.js', 'assets/js/icons.js', 'assets/js/app.js', 'assets/js/custom-selects.js'];
-  if(o.play){ scripts.push('assets/js/play.js'); scripts.push(o.bundle); if(o.kind === 'tools' && ['audio-converter','storage-visualiser','api-request-tester','file-comparison'].indexOf(o.id) >= 0) scripts.push('assets/js/new-tools.js'); }
+  if(o.play){ scripts.push('assets/js/play.js'); scripts.push(o.bundle); if(o.kind === 'tools' && ['audio-converter','storage-visualiser','api-request-tester','file-comparison'].indexOf(o.id) >= 0) scripts.push('assets/js/new-tools.js'); if(o.kind === 'tools' && DEV_TOOLS.indexOf(o.id) >= 0) scripts.push('assets/js/dev-tools.js'); if(o.kind === 'tools' && o.id === 'video-converter') scripts.push('assets/js/new-tools.js'); }
   var scriptTags = scripts.map(function(s){ return '<script src="' + root + s + '?v=' + ver(s) + '"></script>'; });
   var body = ['data-root="' + root + '"', 'data-page="' + o.page + '"', 'data-nav="' + o.nav + '"'];
   if(o.kind) body.push('data-kind="' + o.kind + '"');
@@ -173,7 +174,8 @@ items.forEach(function(item){
   if(play){
     var bundle = fs.existsSync(path.join(ROOT_DIR, bundleRel)) ? read(bundleRel) : '';
     if(item.kind === 'tools' && fs.existsSync(path.join(ROOT_DIR, 'assets/js/new-tools.js'))) bundle += read('assets/js/new-tools.js');
-    if(bundle.indexOf("PLAYABLES['" + item.id + "']") < 0){
+    if(item.kind === 'tools' && fs.existsSync(path.join(ROOT_DIR, 'assets/js/dev-tools.js'))) bundle += read('assets/js/dev-tools.js');
+    if(bundle.indexOf("PLAYABLES['" + item.id + "']") < 0 && bundle.indexOf("reg('" + item.id + "'") < 0){
       warnings.push(file + ': marked playable but ' + bundleRel + " has no PLAYABLES['" + item.id + "'] entry");
       play = false;
     }

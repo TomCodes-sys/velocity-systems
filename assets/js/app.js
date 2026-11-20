@@ -832,6 +832,14 @@ function pageSectioned(kind){
   var collapsedKey = 'vs-collapsed-'+kind;
   var collapsed = readLS(collapsedKey, []);
   var query = '';
+  /* Tools: the core set is always shown; everything else is added from the "More tools" list. */
+  var addedKey = 'vs-tools-added', added = kind==='tools' ? (readLS(addedKey, []) || []) : [], moreOpen = false;
+  function isShown(x){ return kind!=='tools' || x.core || added.indexOf(x.id) > -1; }
+  if(kind==='tools'){
+    var PREF = [['Converters','Cron, dates, JSON, YAML and number bases.'],['Text','Escape, compare, analyse and preview text.'],['Encoders / Decoders','Base64, certificates, GZIP, HTML, JWT, QR codes and URLs.'],['Formatters','JSON, SQL and XML.'],['Generators','Hashes, lorem ipsum, passwords and UUIDs.'],['Graphic','Colour blindness and image conversion.'],['Testers','JSONPath, regular expressions and XML / XSD.']];
+    var rest = defs.filter(function(d){ return !PREF.some(function(p){ return p[0]===d.category; }); });
+    defs = PREF.map(function(p){ return {category:p[0], title:p[0], blurb:p[1]}; }).concat(rest);
+  }
 
   qs('#app').innerHTML =
     '<section class="page-heading"><span>'+meta[1]+'</span><h1>'+meta[0]+'</h1><p>'+meta[2]+'</p>'+
@@ -843,11 +851,29 @@ function pageSectioned(kind){
     ].map(function(x){var it=getItem(x[0]);return it?'<a class="tool-shortcut" href="'+itemUrl(it)+'">'+(it.emoji||'•')+' '+esc(x[1])+'</a>':'';}).join('')+'</div></section>' : '')+
     '<nav class="section-nav" id="sec-nav" aria-label="Jump to a section"></nav>'+
     '<div id="sec-recent"></div>'+
-    '<div id="sec-list"></div>';
+    '<div id="sec-list"></div><div id="sec-more"></div>';
+
+  function renderMore(){
+    var box = qs('#sec-more'); if(!box) return;
+    var extra = all.filter(function(x){ return !x.core; });
+    if(kind!=='tools' || !extra.length || query.trim()){ box.innerHTML=''; return; }
+    box.innerHTML = '<section class="cat-section'+(moreOpen?'':' is-collapsed')+'" id="sec-more-tools"><header class="cat-head"><button type="button" class="cat-toggle" data-more-toggle aria-expanded="'+moreOpen+'" aria-controls="more-list"><span class="cat-title">More tools</span><span class="cat-count">'+pad2(extra.length)+'</span><span class="cat-blurb">Extra tools to add to this page. Every tool stays reachable by search and direct link.</span><span class="cat-chevron">'+icon('chevronDown',{size:16})+'</span></button></header>'+
+      '<div class="more-list" id="more-list"'+(moreOpen?'':' hidden')+'>'+extra.map(function(x){ var on = added.indexOf(x.id)>-1;
+        return '<div class="more-row"><span class="more-emoji" aria-hidden="true">'+(x.emoji||'•')+'</span><div class="more-main"><a href="'+itemUrl(x)+'">'+esc(x.title)+'</a><small>'+esc(x.description)+'</small></div><button type="button" class="game-btn '+(on?'secondary':'')+'" data-add="'+esc(x.id)+'" aria-pressed="'+on+'">'+(on?'Remove':'Add')+'</button></div>'; }).join('')+'</div></section>';
+  }
+  qs('#sec-more').addEventListener('click', function(e){
+    var t = e.target.closest('[data-more-toggle]');
+    if(t){ moreOpen = !moreOpen; renderMore(); return; }
+    var b = e.target.closest('[data-add]'); if(!b) return;
+    var id = b.getAttribute('data-add'), i = added.indexOf(id);
+    if(i>-1) added.splice(i,1); else added.push(id);
+    storeSet(addedKey, JSON.stringify(added)); render();
+  });
 
   function render(){
     var q = query.trim().toLowerCase();
-    var matched = all.filter(function(x){ return matchesQuery(x, q); });
+    var pool = q ? all : all.filter(isShown);
+    var matched = pool.filter(function(x){ return matchesQuery(x, q); });
     qs('#cat-count').textContent = pad2(matched.length)+' '+(matched.length===1?'ENTRY':'ENTRIES');
 
     var groups = defs.map(function(d){
@@ -876,6 +902,7 @@ function pageSectioned(kind){
         '<div class="card-grid" id="grid-'+id+'"'+(isCollapsed?' hidden':'')+'>'+g.list.map(contentCardHtml).join('')+'</div>'+
       '</section>';
     }).join('') : '<div class="empty-state">No '+meta[0].toLowerCase()+' match “'+esc(query)+'”.</div>';
+    renderMore();
   }
 
   function setCollapsed(id, on){
@@ -950,7 +977,7 @@ function pageDetail(kind, id){
       '<div><span>Access</span><b>'+(item.free?'Free':'Paid')+'</b></div>'+
       '<div><span>Source</span><b>'+(item.openSource?'Open source':'Proprietary')+'</b></div>'+
     '</div>';
-  var externalTools=['device-info','network-diagnostics','game-deals','currency-converter','speed-test','api-request-tester','audio-converter','ip-lookup','website-to-exe'];
+  var externalTools=['device-info','network-diagnostics','game-deals','currency-converter','speed-test','api-request-tester','audio-converter','video-converter','ip-lookup','website-to-exe'];
   var privacyMode=item.privacy||(externalTools.indexOf(item.id)>-1?'external':'local');
   var providerNotes={
     'device-info':'Your public IPv4 and IPv6 are requested directly from ipify. The provider receives the request and your connection IP.',
@@ -960,6 +987,7 @@ function pageDetail(kind, id){
     'currency-converter':'Exchange-rate data is fetched from an external rate provider.',
     'speed-test':'The test transfers data to external test endpoints to estimate connection speed.',
     'api-request-tester':'Your request URL, headers and body are sent to the API endpoint you enter. Only test services you trust.',
+    'video-converter':'The FFmpeg processing engine is downloaded from jsDelivr on first use; conversion then runs locally.',
     'audio-converter':'The FFmpeg processing engine is downloaded from jsDelivr on first use; conversion then runs locally.',
     'website-to-exe':'Cloud builds send the public repository URL and build settings to GitHub Actions. Local-folder builds stay on your device.'
   };
