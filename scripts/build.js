@@ -77,7 +77,7 @@ function page(o){
   var desc = clip(o.desc, 200);
   var ogType = o.ogType || 'website';
   var scripts = ['assets/js/data.js', 'assets/js/icons.js', 'assets/js/app.js', 'assets/js/custom-selects.js'];
-  if(o.play){ scripts.push('assets/js/play.js'); scripts.push(o.bundle); if(o.kind === 'tools' && ['audio-converter','storage-visualiser','api-request-tester','file-comparison'].indexOf(o.id) >= 0) scripts.push('assets/js/new-tools.js'); if(o.kind === 'tools' && DEV_TOOLS.indexOf(o.id) >= 0) scripts.push('assets/js/dev-tools.js'); if(o.kind === 'tools' && o.id === 'video-converter') scripts.push('assets/js/new-tools.js'); }
+  if(o.play){ scripts.push('assets/js/play.js'); scripts.push(o.bundle); if(o.kind === 'tools' && ['storage-visualiser','api-request-tester','file-comparison'].indexOf(o.id) >= 0) scripts.push('assets/js/new-tools.js'); if(o.kind === 'tools' && DEV_TOOLS.indexOf(o.id) >= 0) scripts.push('assets/js/dev-tools.js'); }
   var scriptTags = scripts.map(function(s){ return '<script src="' + root + s + '?v=' + ver(s) + '"></script>'; });
   var body = ['data-root="' + root + '"', 'data-page="' + o.page + '"', 'data-nav="' + o.nav + '"'];
   if(o.kind) body.push('data-kind="' + o.kind + '"');

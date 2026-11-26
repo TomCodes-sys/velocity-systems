@@ -17,11 +17,11 @@
 //   dice-coin
 //   diff-checker
 //   file-converter
+//   pdf-compressor
 //   fraction-calculator
 //   game-deals
 //   gradient-generator
 //   hash-generator
-//   image-converter
 //   image-resizer
 //   json-csv
 //   json-explorer
@@ -813,63 +813,243 @@ PLAYABLES['diff-checker'] = mountDiffChecker;
 /* ==================================================================
    tools / file-converter
    ================================================================== */
-// tools/file-converter.js
-// Converts files entirely in your browser; nothing is uploaded.
-//   Images  → PNG, JPEG, WebP, BMP, ICO, or PDF (optionally one PDF for all)
-//   Audio / video soundtrack → WAV
-//   Text    → PDF
-// Results can be saved one by one or together as a ZIP.
+// One converter for everything: images, video, GIFs, audio and documents. Runs entirely in the browser; nothing is uploaded.
 
-function mountFileConverter(container, cfg){
-  cfg = cfg || {};
-  mountEmbed(container, cfg.label || 'TOOL / FILE CONVERTER', function(body){
+/* ---------- shared loaders: FFmpeg (WebAssembly), pdf.js and pdf-lib are fetched from jsDelivr on first use ---------- */
+var vsLibCache = {};
+function vsLoadScript(url){
+  if(!vsLibCache[url]) vsLibCache[url] = new Promise(function(res, rej){
+    var s = document.createElement('script'); s.src = url; s.onload = res;
+    s.onerror = function(){ delete vsLibCache[url]; rej(new Error('A helper library could not be loaded. Check your connection and try again.')); };
+    document.head.appendChild(s);
+  });
+  return vsLibCache[url];
+}
+function vsLoadPdfLib(){ return window.PDFLib ? Promise.resolve(window.PDFLib) : vsLoadScript('https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js').then(function(){ return window.PDFLib; }); }
+function vsLoadPdfJs(){
+  if(window.pdfjsLib && window.pdfjsLib._vsReady) return Promise.resolve(window.pdfjsLib);
+  var base = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/';
+  return vsLoadScript(base + 'pdf.min.js').then(function(){ return fetch(base + 'pdf.worker.min.js'); }).then(function(r){ if(!r.ok) throw new Error('The PDF engine could not be loaded.'); return r.text(); }).then(function(t){
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(new Blob([t], {type: 'text/javascript'}));
+    window.pdfjsLib._vsReady = true; return window.pdfjsLib;
+  });
+}
+var vsFF = {inst: null, loading: null, progress: null, lastErr: ''};
+function vsLoadFFmpeg(onStatus){
+  if(vsFF.inst) return Promise.resolve(vsFF.inst);
+  if(vsFF.loading) return vsFF.loading;
+  var base = 'https://cdn.jsdelivr.net/npm/', core = base + '@ffmpeg/core@0.12.6/dist/esm/';  /* module worker (needed for a cross-origin CDN) requires the ESM core */
+  if(onStatus) onStatus('Loading the FFmpeg engine (first use only)…');
+  vsFF.loading = Promise.all([vsLoadScript(base + '@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js'), vsLoadScript(base + '@ffmpeg/util@0.12.1/dist/umd/index.js')]).then(function(){
+    var U = window.FFmpegUtil, e = new window.FFmpegWASM.FFmpeg();
+    e.on('progress', function(p){ if(vsFF.progress && isFinite(p.progress)) vsFF.progress(Math.max(0, Math.min(1, p.progress))); });
+    e.on('log', function(m){ if(m.message && /error|invalid|unsupported|no such|not found/i.test(m.message)) vsFF.lastErr = m.message; });
+    return Promise.all([U.toBlobURL(base + '@ffmpeg/ffmpeg@0.12.10/dist/umd/814.ffmpeg.js', 'text/javascript'), U.toBlobURL(core + 'ffmpeg-core.js', 'text/javascript'), U.toBlobURL(core + 'ffmpeg-core.wasm', 'application/wasm')]).then(function(u){
+      return e.load({classWorkerURL: u[0], coreURL: u[1], wasmURL: u[2]});
+    }).then(function(){ vsFF.inst = e; vsFF.loading = null; return e; });
+  }).catch(function(err){ vsFF.loading = null; throw err; });
+  return vsFF.loading;
+}
+
+/* Minimal GIF89a encoder: shared median-cut palette, optional dithering and transparency, LZW compression.
+   frames: [{data: Uint8ClampedArray (RGBA), delay: centiseconds}], all frames share width x height. */
+function encodeGif(frames, w, h, opt){
+  opt = opt || {};
+  var maxColors = Math.max(2, Math.min(256, opt.colors || 256)), transparent = !!opt.transparent, loop = opt.loop === false ? -1 : 0;
+  var nColors = transparent ? maxColors - 1 : maxColors;
+
+  /* ---- palette: median cut over a sample of opaque pixels from every frame ---- */
+  var sample = [], total = 0, i, f, d;
+  frames.forEach(function(fr){ total += fr.data.length / 4; });
+  var step = Math.max(1, Math.floor(total / 60000));
+  frames.forEach(function(fr){
+    d = fr.data;
+    for(i = 0; i < d.length; i += 4 * step){
+      if(transparent && d[i + 3] < 128) continue;
+      sample.push(d[i] << 16 | d[i + 1] << 8 | d[i + 2]);
+    }
+  });
+  if(!sample.length) sample.push(0);
+  var boxes = [sample];
+  function range(box){
+    var mn = [255, 255, 255], mx = [0, 0, 0];
+    for(var k = 0; k < box.length; k++){
+      var c = box[k], ch = [c >> 16, (c >> 8) & 255, c & 255];
+      for(var j = 0; j < 3; j++){ if(ch[j] < mn[j]) mn[j] = ch[j]; if(ch[j] > mx[j]) mx[j] = ch[j]; }
+    }
+    var r = [mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]], axis = r[0] >= r[1] && r[0] >= r[2] ? 0 : r[1] >= r[2] ? 1 : 2;
+    return {axis: axis, size: r[axis]};
+  }
+  while(boxes.length < nColors){
+    var bi = -1, best = 0;
+    for(i = 0; i < boxes.length; i++){
+      if(boxes[i].length < 2) continue;
+      var rg = range(boxes[i]), score = rg.size * Math.log(boxes[i].length + 1);
+      if(rg.size > 0 && score > best){ best = score; bi = i; }
+    }
+    if(bi < 0) break;
+    var box = boxes[bi], ax = range(box).axis, shift = 16 - 8 * ax;
+    box.sort(function(a, b){ return ((a >> shift) & 255) - ((b >> shift) & 255); });
+    var mid = box.length >> 1;
+    boxes.splice(bi, 1, box.slice(0, mid), box.slice(mid));
+  }
+  var pal = boxes.map(function(b){
+    var r = 0, g = 0, bl = 0;
+    for(var k = 0; k < b.length; k++){ r += b[k] >> 16; g += (b[k] >> 8) & 255; bl += b[k] & 255; }
+    return [Math.round(r / b.length), Math.round(g / b.length), Math.round(bl / b.length)];
+  });
+  var tIndex = -1;
+  if(transparent){ tIndex = pal.length; pal.push([0, 0, 0]); }
+  var bits = 1; while((1 << bits) < pal.length) bits++;
+  var size = 1 << bits; while(pal.length < size) pal.push([0, 0, 0]);
+
+  /* ---- nearest colour lookup (cached on a 15-bit key) ---- */
+  var cache = new Int16Array(32768).fill(-1), real = transparent ? pal.length - 1 : pal.length;
+  function nearest(r, g, b){
+    var key = (r >> 3) << 10 | (g >> 3) << 5 | (b >> 3), c = cache[key];
+    if(c >= 0) return c;
+    var bd = 1e9, bx = 0, rr = (r & 248) | 4, gg = (g & 248) | 4, bb = (b & 248) | 4;
+    for(var k = 0; k < real; k++){
+      if(k === tIndex) continue;
+      var p = pal[k], dr = p[0] - rr, dg = p[1] - gg, db = p[2] - bb, dist = dr * dr * 3 + dg * dg * 4 + db * db * 2;
+      if(dist < bd){ bd = dist; bx = k; }
+    }
+    cache[key] = bx; return bx;
+  }
+  function indexFrame(data){
+    var out = new Uint8Array(w * h), n = w * h, p, a;
+    if(opt.dither){
+      var errs = new Float32Array((w + 2) * 6), cur = 0, nxt = (w + 2) * 3, y, x, k, e;
+      for(y = 0; y < h; y++){
+        for(x = 0; x < w; x++){
+          p = (y * w + x) * 4;
+          if(transparent && data[p + 3] < 128){ out[y * w + x] = tIndex; continue; }
+          var c3 = [0, 0, 0];
+          for(k = 0; k < 3; k++){ var v = data[p + k] + errs[cur + (x + 1) * 3 + k]; c3[k] = v < 0 ? 0 : v > 255 ? 255 : v; }
+          var idx = nearest(c3[0] | 0, c3[1] | 0, c3[2] | 0), q = pal[idx];
+          out[y * w + x] = idx;
+          for(k = 0; k < 3; k++){
+            e = c3[k] - q[k];
+            errs[cur + (x + 2) * 3 + k] += e * 7 / 16;
+            errs[nxt + x * 3 + k] += e * 3 / 16;
+            errs[nxt + (x + 1) * 3 + k] += e * 5 / 16;
+            errs[nxt + (x + 2) * 3 + k] += e * 1 / 16;
+          }
+        }
+        var t = cur; cur = nxt; nxt = t;
+        for(k = 0; k < (w + 2) * 3; k++) errs[nxt + k] = 0;
+      }
+      return out;
+    }
+    for(p = 0; p < n; p++){
+      a = p * 4;
+      out[p] = transparent && data[a + 3] < 128 ? tIndex : nearest(data[a], data[a + 1], data[a + 2]);
+    }
+    return out;
+  }
+
+  /* ---- LZW ---- */
+  function lzw(idx, minCode){
+    var clear = 1 << minCode, eoi = clear + 1, next = eoi + 1, codeSize = minCode + 1;
+    var out = [], cur = 0, nbits = 0, block = [];
+    var tbl = new Int32Array(4096 * 256), stamp = new Int32Array(4096 * 256), gen = 1;
+    function emit(code){
+      cur |= code << nbits; nbits += codeSize;
+      while(nbits >= 8){ block.push(cur & 255); cur >>>= 8; nbits -= 8; if(block.length === 255){ out.push(255); for(var q = 0; q < 255; q++) out.push(block[q]); block = []; } }
+    }
+    emit(clear);
+    var prefix = idx[0];
+    for(var k = 1; k < idx.length; k++){
+      var c = idx[k], key = prefix << 8 | c;
+      if(stamp[key] === gen){ prefix = tbl[key]; continue; }
+      emit(prefix);
+      if(next < 4096){
+        stamp[key] = gen; tbl[key] = next++;
+        if(next - 1 === (1 << codeSize) && codeSize < 12) codeSize++;
+      } else { emit(clear); gen++; next = eoi + 1; codeSize = minCode + 1; }
+      prefix = c;
+    }
+    emit(prefix); emit(eoi);
+    if(nbits > 0) block.push(cur & 255);
+    if(block.length){ out.push(block.length); for(var m = 0; m < block.length; m++) out.push(block[m]); }
+    out.push(0);
+    return out;
+  }
+
+  /* ---- assemble file ---- */
+  var bytes = [];
+  function u16(v){ bytes.push(v & 255, (v >> 8) & 255); }
+  function str(s){ for(var k = 0; k < s.length; k++) bytes.push(s.charCodeAt(k)); }
+  var minCode = Math.max(2, bits);
+  str('GIF89a'); u16(w); u16(h); bytes.push(0x80 | 0x70 | (bits - 1), 0, 0);
+  pal.forEach(function(c){ bytes.push(c[0], c[1], c[2]); });
+  if(frames.length > 1 && loop === 0){ bytes.push(0x21, 0xFF, 11); str('NETSCAPE2.0'); bytes.push(3, 1, 0, 0, 0); }
+  frames.forEach(function(fr){
+    var packed = (transparent ? 2 : 1) << 2 | (transparent ? 1 : 0);
+    bytes.push(0x21, 0xF9, 4, packed); u16(Math.max(2, Math.round(fr.delay || 10))); bytes.push(tIndex >= 0 ? tIndex : 0, 0);
+    bytes.push(0x2C); u16(0); u16(0); u16(w); u16(h); bytes.push(0, minCode);
+    var data = lzw(indexFrame(fr.data), minCode);
+    for(var k = 0; k < data.length; k++) bytes.push(data[k]);
+  });
+  bytes.push(0x3B);
+  return new Blob([new Uint8Array(bytes)], {type: 'image/gif'});
+}
+
+function mountFileConverter(container){
+  mountEmbed(container, 'TOOL / FILE CONVERTER', function(body){
     var MODES = {
-      img: {label: 'Images', accept: 'image/*,.heic,.heif,.avif,.ico,.bmp,.tif,.tiff,.svg,.gif,.webp,.jfif', hint: 'PNG, JPG, WebP, GIF, BMP, SVG, AVIF, ICO and more can be read. HEIC/TIFF only open in Safari.'},
-      aud: {label: 'Audio → WAV', accept: 'audio/*,video/*', hint: 'Any audio file, or the soundtrack of a video, that your browser can play.'},
-      txt: {label: 'Text → PDF', accept: '.txt,.md,.csv,.json,.log,.xml,.html,.js,.css,.py,text/*', hint: 'Plain text files. Output uses a fixed-width font and Latin characters.'},
+      img: {label: 'Images', accept: 'image/*,.heic,.heif,.avif,.ico,.bmp,.tif,.tiff,.svg,.gif,.webp,.jfif', hint: 'PNG, JPG, WebP, GIF, BMP, SVG, AVIF and ICO can be read. HEIC and TIFF only open in Safari.'},
+      vid: {label: 'Video & GIF', accept: 'video/*,image/gif,.gif,.mkv,.avi,.mov,.flv,.wmv,.m4v,.3gp,.ts,.mpg,.mpeg,.webm', hint: 'MP4, MOV, MKV, WebM, AVI and animated GIFs. Needs the FFmpeg engine (downloads once).'},
+      aud: {label: 'Audio', accept: 'audio/*,.mp3,.wav,.flac,.ogg,.oga,.m4a,.aac,.opus,.wma,.aiff', hint: 'MP3, WAV, FLAC, OGG, M4A, Opus, AAC and more.'},
+      doc: {label: 'Documents', accept: '.txt,.md,.markdown,.csv,.json,.html,.htm,.xml,.log,.pdf,application/pdf,text/*', hint: 'Text, Markdown, HTML, CSV, JSON and PDF.'}
     };
-    body.innerHTML =
-      '<div class="tool-row"' + (cfg.only ? ' hidden' : '') + '><span class="seg" id="fv-seg">' + Object.keys(MODES).map(function(k, i){ return '<button type="button" data-m="' + k + '"' + (i ? '' : ' class="on"') + '>' + MODES[k].label + '</button>'; }).join('') + '</span>'+
-        '<select id="fv-mode" style="display:none">' + Object.keys(MODES).map(function(k){ return '<option value="' + k + '">' + k + '</option>'; }).join('') + '</select></div>'+
-      '<label class="fv-drop" id="fv-drop" for="fv-file"><b>Drop files here</b> or click to choose<span id="fv-hint"></span></label>'+
-      '<input type="file" id="fv-file" multiple hidden data-nopersist>'+
-      '<div id="fv-opts"></div>'+
-      '<div class="tool-row"><button class="game-btn" id="fv-go" disabled>Convert</button><button class="game-btn secondary" id="fv-zip" disabled>Download all (.zip)</button><button class="game-btn secondary" id="fv-clear" disabled>Clear</button><span class="hint" id="fv-sum" style="margin:0"></span></div>'+
-      '<div class="gd-list" id="fv-list" hidden></div>';
-    var $ = function(s){ return body.querySelector(s); };
-    var items = [], busy = false, seq = 0;
-    function canEncode(t){ try { return document.createElement('canvas').toDataURL(t).indexOf('data:' + t) === 0; } catch(e){ return false; } }
+    var FORMATS = {
+      img: [['png', 'PNG'], ['jpeg', 'JPEG'], ['webp', 'WebP'], ['avif', 'AVIF'], ['bmp', 'BMP'], ['ico', 'ICO (icon)'], ['gif', 'GIF'], ['pdf', 'PDF']],
+      vid: [['mp4', 'MP4 (H.264)'], ['webm', 'WebM'], ['mov', 'MOV'], ['mkv', 'MKV'], ['avi', 'AVI'], ['gif', 'Animated GIF'], ['webp', 'Animated WebP'], ['png', 'PNG (single frame)'], ['jpg', 'JPG (single frame)'], ['mp3', 'MP3 (audio only)'], ['m4a', 'M4A / AAC (audio only)'], ['ogg', 'OGG (audio only)'], ['opus', 'Opus (audio only)'], ['wav', 'WAV (audio only)'], ['flac', 'FLAC (audio only)']],
+      aud: [['mp3', 'MP3'], ['m4a', 'M4A / AAC'], ['ogg', 'OGG Vorbis'], ['opus', 'Opus'], ['wav', 'WAV'], ['flac', 'FLAC']],
+      doc: [['pdf', 'PDF'], ['html', 'HTML'], ['txt', 'Plain text'], ['json', 'JSON'], ['csv', 'CSV'], ['png', 'PNG pages (from PDF)'], ['jpg', 'JPG pages (from PDF)']]
+    };
+    var DOC_TARGETS = {pdf: ['txt', 'png', 'jpg'], csv: ['json', 'pdf'], json: ['csv', 'pdf'], md: ['html', 'txt', 'pdf'], html: ['txt', 'pdf'], txt: ['pdf', 'html']};
+    var MIME = {mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', mkv: 'video/x-matroska', avi: 'video/x-msvideo', gif: 'image/gif', webp: 'image/webp', png: 'image/png', jpg: 'image/jpeg', mp3: 'audio/mpeg', m4a: 'audio/mp4', ogg: 'audio/ogg', opus: 'audio/ogg', wav: 'audio/wav', flac: 'audio/flac'};
 
-    /* ---------- options per mode ---------- */
-    function optsHtml(mode){
-      if(mode === 'img') return '<div class="tool-grid">'+
-        '<div class="field"><label for="fv-fmt">Convert to</label><select id="fv-fmt"><option value="png">PNG</option><option value="jpeg">JPEG</option><option value="webp">WebP</option>' + (canEncode('image/avif') ? '<option value="avif">AVIF</option>' : '') + '<option value="bmp">BMP</option><option value="ico">ICO (icon)</option><option value="pdf">PDF</option></select></div>'+
-        '<div class="field" id="fv-qf"><label for="fv-q">Quality <span id="fv-qv">90</span>%</label><input id="fv-q" type="range" min="10" max="100" value="90"></div>'+
-        '<div class="field"><label for="fv-w">Max width (px)</label><input id="fv-w" inputmode="numeric" placeholder="Original"></div>'+
-        '<div class="field"><label for="fv-h">Max height (px)</label><input id="fv-h" inputmode="numeric" placeholder="Original"></div>'+
-        '<div class="field" id="fv-bgf"><label for="fv-bg">Background for transparent areas</label><input id="fv-bg" type="color" class="big" value="#ffffff"></div></div>'+
-        '<div class="tool-row" id="fv-icorow" hidden><span class="field-label">Icon sizes</span>' + [16, 32, 48, 64, 128, 256].map(function(s){ return '<label><input type="checkbox" id="fv-ico' + s + '"' + ([16, 32, 48, 256].indexOf(s) > -1 ? ' checked' : '') + '> ' + s + '</label>'; }).join('') + '</div>'+
-        '<div class="tool-row" id="fv-mergerow" hidden><label><input type="checkbox" id="fv-merge"> Combine all images into one PDF (one page each)</label></div>';
-      if(mode === 'aud') return '<div class="tool-grid"><div class="field"><label for="fv-rate">Sample rate</label><select id="fv-rate"><option value="0">Keep original</option><option value="48000">48 kHz</option><option value="44100">44.1 kHz</option><option value="22050">22.05 kHz</option><option value="16000">16 kHz (speech)</option></select></div>'+
-        '<div class="field"><span class="field-label">Channels</span><label><input type="checkbox" id="fv-mono"> Mix down to mono</label></div></div>';
-      return '<div class="field"><label for="fv-paste">Or paste text to convert</label><textarea id="fv-paste" spellcheck="false" style="min-height:110px" data-nopersist></textarea></div>'+
-        '<div class="tool-row"><button class="game-btn secondary" id="fv-addtext">Add pasted text</button></div>';
-    }
-    function setMode(){
-      var m = $('#fv-mode').value;
-      Array.prototype.forEach.call(body.querySelectorAll('#fv-seg button'), function(b){ b.classList.toggle('on', b.getAttribute('data-m') === m); });
-      $('#fv-file').accept = MODES[m].accept; $('#fv-hint').textContent = MODES[m].hint;
-      $('#fv-opts').innerHTML = optsHtml(m);
-      items = []; drawList(); fmtUi();
-    }
-    function fmtUi(){
-      var f = $('#fv-fmt'); if(!f) return;
-      var v = f.value;
-      $('#fv-qf').hidden = ['jpeg', 'webp', 'avif', 'pdf'].indexOf(v) < 0;
-      $('#fv-bgf').hidden = ['jpeg', 'bmp', 'pdf'].indexOf(v) < 0;
-      $('#fv-icorow').hidden = v !== 'ico'; $('#fv-mergerow').hidden = v !== 'pdf';
-      $('#fv-qv').textContent = $('#fv-q').value;
-    }
+    function opt(v, l, sel){ return '<option value="' + v + '"' + (sel ? ' selected' : '') + '>' + l + '</option>'; }
+    function field(id, label, inner, m, f){ return '<div class="field" id="' + id + '-f" data-m="' + m + '"' + (f ? ' data-f="' + f + '"' : '') + '><label for="' + id + '">' + label + '</label>' + inner + '</div>'; }
+    body.innerHTML =
+      '<div class="tool-row"><span class="seg" id="fv-seg">' + Object.keys(MODES).map(function(k, i){ return '<button type="button" data-m="' + k + '"' + (i ? '' : ' class="on"') + '>' + MODES[k].label + '</button>'; }).join('') + '</span></div>' +
+      '<label class="fv-drop" id="fv-drop" for="fv-file"><b>Drop files here</b> or click to choose<span id="fv-hint"></span></label>' +
+      '<input type="file" id="fv-file" multiple hidden data-nopersist>' +
+      '<div class="tool-grid">' +
+        '<div class="field"><label for="fv-fmt">Convert to</label><select id="fv-fmt"></select></div>' +
+        field('fv-q', 'Quality <span id="fv-qv">90</span>%', '<input id="fv-q" type="range" min="10" max="100" value="90">', 'img', 'jpeg webp avif pdf') +
+        field('fv-w', 'Max width (px)', '<input id="fv-w" inputmode="numeric" placeholder="Original">', 'img', 'png jpeg webp avif bmp gif pdf') +
+        field('fv-h', 'Max height (px)', '<input id="fv-h" inputmode="numeric" placeholder="Original">', 'img', 'png jpeg webp avif bmp gif pdf') +
+        field('fv-bg', 'Background for transparent areas', '<input id="fv-bg" type="color" class="big" value="#ffffff">', 'img', 'jpeg bmp pdf gif') +
+        field('fv-gcol', 'GIF colours', '<select id="fv-gcol">' + opt(256, '256', 1) + opt(128, '128') + opt(64, '64') + opt(32, '32') + opt(16, '16') + '</select>', 'img', 'gif') +
+        field('fv-delay', 'Frame delay (ms)', '<input id="fv-delay" inputmode="numeric" value="500">', 'img', 'gif') +
+        field('vc-w', 'Max width', '<select id="vc-w">' + opt(0, 'Keep original') + [1920, 1280, 854, 640, 480, 320].map(function(n){ return opt(n, n + ' px'); }).join('') + '</select>', 'vid', 'mp4 webm mov mkv avi gif webp png jpg') +
+        field('vc-fps', 'Frame rate', '<select id="vc-fps">' + opt(0, 'Keep original') + [30, 24, 15, 12, 10, 5].map(function(n){ return opt(n, n + ' fps'); }).join('') + '</select>', 'vid', 'mp4 webm mov mkv avi gif webp') +
+        field('vc-q', 'Quality <span id="vc-qv">Balanced</span>', '<input id="vc-q" type="range" min="1" max="5" value="3">', 'vid', 'mp4 webm mov mkv avi gif webp jpg mp3 m4a ogg opus') +
+        field('vc-ss', 'Start at (seconds)', '<input id="vc-ss" inputmode="decimal" placeholder="0">', 'vid') +
+        field('vc-t', 'Length (seconds)', '<input id="vc-t" inputmode="decimal" placeholder="Whole file">', 'vid', 'mp4 webm mov mkv avi gif webp mp3 m4a ogg opus wav flac') +
+        field('ac-br', 'Bitrate', '<select id="ac-br">' + opt('64k', '64 kbps') + opt('96k', '96 kbps') + opt('128k', '128 kbps') + opt('192k', '192 kbps', 1) + opt('256k', '256 kbps') + opt('320k', '320 kbps') + '</select>', 'aud', 'mp3 m4a ogg opus') +
+        field('ac-rate', 'Sample rate', '<select id="ac-rate">' + opt(0, 'Keep original') + opt(48000, '48 kHz') + opt(44100, '44.1 kHz') + opt(22050, '22.05 kHz') + opt(16000, '16 kHz') + '</select>', 'aud', 'mp3 m4a ogg wav flac') +
+        field('fv-dscale', 'Page resolution', '<select id="fv-dscale">' + opt(1, 'Standard (1×)') + opt(1.5, 'Sharp (1.5×)') + opt(2, 'High (2×)', 1) + opt(3, 'Very high (3×)') + '</select>', 'doc', 'png jpg') +
+      '</div>' +
+      '<div class="tool-row" id="fv-icorow" data-m="img" data-f="ico"><span class="field-label">Icon sizes</span>' + [16, 32, 48, 64, 128, 256].map(function(s){ return '<label><input type="checkbox" id="fv-ico' + s + '"' + ([16, 32, 48, 256].indexOf(s) > -1 ? ' checked' : '') + '> ' + s + '</label>'; }).join(' ') + '</div>' +
+      '<div class="tool-row" id="fv-mergerow" data-m="img" data-f="pdf gif"><label><input type="checkbox" id="fv-merge"> <span id="fv-mergel"></span></label></div>' +
+      '<div class="tool-row" id="fv-gifrow" data-m="img" data-f="gif"><label><input type="checkbox" id="fv-dither"> Dither (smoother gradients, bigger file)</label> <label><input type="checkbox" id="fv-gtrans" checked> Keep transparency</label> <label id="fv-gloopl"><input type="checkbox" id="fv-gloop" checked> Loop forever</label></div>' +
+      '<div class="tool-row" id="vc-chk" data-m="vid" data-f="mp4 webm mov mkv avi gif webp"><label id="vc-mutel"><input type="checkbox" id="vc-mute"> Remove audio</label> <label id="vc-loopl"><input type="checkbox" id="vc-loop" checked> Loop forever</label></div>' +
+      '<div class="tool-row" id="ac-chk" data-m="aud" data-f="mp3 m4a ogg opus wav flac"><label><input type="checkbox" id="ac-mono"> Mix down to mono</label></div>' +
+      '<div class="tool-row"><button class="game-btn" id="fv-go" disabled>Convert</button><button class="game-btn secondary" id="fv-cancel" hidden>Cancel</button><button class="game-btn secondary" id="fv-zip" disabled>Download all (.zip)</button><button class="game-btn secondary" id="fv-clear" disabled>Clear</button><span class="hint" id="fv-sum"></span></div>' +
+      '<div style="height:8px;background:var(--surface-2);border:1px solid var(--line);border-radius:6px;overflow:hidden" id="fv-bar" hidden><div id="fv-fill" style="height:100%;width:0;background:var(--accent)"></div></div>' +
+      '<div class="gd-list" id="fv-list" hidden></div><div id="fv-prev"></div>';
+
+    var $ = function(s){ return body.querySelector(s); };
+    var items = [], busy = false, seq = 0, cancelled = false, mode = 'img', fmtTouched = false, QL = ['Smallest', 'Small', 'Balanced', 'Good', 'Best'];
+    function canEncode(t){ try { return document.createElement('canvas').toDataURL(t).indexOf('data:' + t) === 0; } catch(e){ return false; } }
+    if(!canEncode('image/avif')) FORMATS.img = FORMATS.img.filter(function(f){ return f[0] !== 'avif'; });
+    function extOf(n){ return ((n || '').match(/\.([^.]+)$/) || [, ''])[1].toLowerCase(); }
+    function baseName(n){ return n.replace(/\.[^.]+$/, '') || 'file'; }
 
     /* ---------- encoders ---------- */
     function latin1(s){ var u = new Uint8Array(s.length); for(var i = 0; i < s.length; i++){ var c = s.charCodeAt(i); u[i] = c < 256 ? c : 63; } return u; }
@@ -995,17 +1175,199 @@ function mountFileConverter(container, cfg){
       }).then(function(buf){ return encodeWav(buf, mono); });
     }
 
+
+    /* ---------- FFmpeg (loaded on first use, shared with other tools) ---------- */
+    function ffArgs(fmt, input, out, o){
+      var a = [], q = o.q;
+      var AUD = {mp3: ['libmp3lame'], m4a: ['aac'], ogg: ['libvorbis'], opus: ['libopus'], wav: ['pcm_s16le'], flac: ['flac']};
+      if(AUD[fmt]){
+        if(o.ss > 0) a.push('-ss', String(o.ss));
+        a.push('-i', input);
+        if(o.t > 0) a.push('-t', String(o.t));
+        a.push('-vn', '-c:a', AUD[fmt][0]);
+        if(fmt !== 'wav' && fmt !== 'flac') a.push('-b:a', o.br);
+        if(o.rate > 0 && fmt !== 'opus') a.push('-ar', String(o.rate));
+        if(o.mono) a.push('-ac', '1');
+        a.push(out); return a;
+      }
+      if(o.ss > 0) a.push('-ss', String(o.ss));
+      a.push('-i', input);
+      if(o.t > 0 && fmt !== 'png' && fmt !== 'jpg') a.push('-t', String(o.t));
+      var even = o.w > 0 ? "scale='min(" + o.w + ",iw)':-2" : 'scale=trunc(iw/2)*2:trunc(ih/2)*2';
+      if(fmt === 'png' || fmt === 'jpg'){
+        a.push('-frames:v', '1', '-an');
+        if(o.w > 0) a.push('-vf', "scale='min(" + o.w + ",iw)':-1");
+        if(fmt === 'jpg') a.push('-q:v', String([10, 6, 4, 3, 2][q - 1]));
+        a.push(out); return a;
+      }
+      if(fmt === 'gif'){
+        var f = o.fps || 12, cols = [32, 64, 128, 200, 256][q - 1], sc = o.w > 0 ? "scale='min(" + o.w + ",iw)':-1:flags=lanczos" : 'scale=iw:-1:flags=lanczos';
+        a.push('-an', '-filter_complex', '[0:v]fps=' + f + ',' + sc + ',split[a][b];[a]palettegen=max_colors=' + cols + '[p];[b][p]paletteuse=dither=bayer:bayer_scale=4', '-loop', o.loop ? '0' : '-1', out); return a;
+      }
+      if(fmt === 'webp'){
+        a.push('-an', '-vf', 'fps=' + (o.fps || 12) + ',' + (o.w > 0 ? "scale='min(" + o.w + ",iw)':-1" : 'scale=iw:-1'), '-c:v', 'libwebp', '-q:v', String([30, 45, 60, 75, 90][q - 1]), '-loop', o.loop ? '0' : '1', out); return a;
+      }
+      var vf = []; if(o.fps > 0) vf.push('fps=' + o.fps); vf.push(even); vf.push('format=yuv420p'); a.push('-vf', vf.join(','));
+      var crf = [34, 30, 26, 22, 18][q - 1];
+      if(fmt === 'webm') a.push('-c:v', 'libvpx', '-crf', String(crf + 4), '-b:v', '1M', o.mute ? '-an' : '-c:a', o.mute ? '-sn' : 'libvorbis');
+      else if(fmt === 'avi') a.push('-c:v', 'mpeg4', '-q:v', String([8, 6, 4, 3, 2][q - 1]), '-vtag', 'xvid', o.mute ? '-an' : '-c:a', o.mute ? '-sn' : 'libmp3lame');
+      else a.push('-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-preset', 'veryfast', '-crf', String(crf), o.mute ? '-an' : '-c:a', o.mute ? '-sn' : 'aac');
+      if(fmt === 'mp4') a.push('-movflags', '+faststart');
+      a.push(out); return a;
+    }
+    function ffConvert(it, fmt, o){
+      var ext = (extOf(it.file.name) || 'bin').replace(/[^a-z0-9]/g, '').slice(0, 8) || 'bin', input = 'input.' + ext, out = 'output.' + fmt, ff;
+      return vsLoadFFmpeg(function(m){ it.sub = m; drawStatus(it); }).then(function(e){
+        ff = e; vsFF.lastErr = '';
+        vsFF.progress = function(p){ it.sub = 'Converting… ' + Math.round(p * 100) + '%'; $('#fv-fill').style.width = (p * 100).toFixed(1) + '%'; drawStatus(it); };
+        it.sub = 'Reading file…'; drawStatus(it);
+        return it.file.arrayBuffer().then(function(ab){ return ff.writeFile(input, new Uint8Array(ab)); });
+      }).then(function(){
+        it.sub = 'Converting…'; drawStatus(it);
+        return ff.exec(ffArgs(fmt, input, out, o));
+      }).then(function(rc){
+        if(rc !== 0 && rc !== undefined) throw new Error(vsFF.lastErr || 'FFmpeg could not convert this file to ' + fmt.toUpperCase() + '.');
+        return ff.readFile(out);
+      }).then(function(data){
+        if(!data || !data.length) throw new Error('The conversion produced an empty file. The input may have no ' + (AUDIO_ONLY(fmt) ? 'audio' : 'video') + ' stream.');
+        var blob = new Blob([data.buffer], {type: MIME[fmt]});
+        try { ff.deleteFile(input); ff.deleteFile(out); } catch(x){}
+        return [{blob: blob, name: baseName(it.file.name) + '.' + fmt}];
+      }).catch(function(err){
+        var msg = String(err && err.message || err);
+        if(cancelled || /terminate|abort/i.test(msg)){ vsFF.inst = null; throw new Error('Cancelled'); }
+        throw new Error(msg + (/memory|alloc/i.test(msg) ? ' The file may be too large for this browser.' : ''));
+      });
+    }
+    function AUDIO_ONLY(f){ return ['mp3', 'm4a', 'ogg', 'opus', 'wav', 'flac'].indexOf(f) > -1; }
+
+    /* ---------- documents ---------- */
+    function docKind(name){
+      var e = extOf(name);
+      return e === 'pdf' ? 'pdf' : e === 'csv' ? 'csv' : e === 'json' ? 'json' : (e === 'md' || e === 'markdown') ? 'md' : (e === 'html' || e === 'htm') ? 'html' : 'txt';
+    }
+    function parseCsv(t){
+      var rows = [], row = [], cur = '', q = false, i, c;
+      t = t.replace(/^\uFEFF/, '');
+      var first = t.split('\n')[0] || '', delim = [',', ';', '\t'].map(function(d){ return [d, first.split(d).length]; }).sort(function(a, b){ return b[1] - a[1]; })[0][0];
+      for(i = 0; i < t.length; i++){
+        c = t[i];
+        if(q){ if(c === '"'){ if(t[i + 1] === '"'){ cur += '"'; i++; } else q = false; } else cur += c; }
+        else if(c === '"') q = true;
+        else if(c === delim){ row.push(cur); cur = ''; }
+        else if(c === '\n' || c === '\r'){ if(c === '\r' && t[i + 1] === '\n') i++; row.push(cur); rows.push(row); row = []; cur = ''; }
+        else cur += c;
+      }
+      if(cur !== '' || row.length){ row.push(cur); rows.push(row); }
+      return rows.filter(function(r){ return r.length > 1 || r[0] !== ''; });
+    }
+    function csvToJson(t){
+      var rows = parseCsv(t); if(!rows.length) throw new Error('The CSV file is empty');
+      var head = rows[0].map(function(h, i){ return h.trim() || 'column' + (i + 1); });
+      return JSON.stringify(rows.slice(1).map(function(r){ var o = {}; head.forEach(function(h, i){ o[h] = r[i] === undefined ? '' : r[i]; }); return o; }), null, 2);
+    }
+    function jsonToCsv(t){
+      var data; try { data = JSON.parse(t); } catch(e){ throw new Error('This is not valid JSON'); }
+      if(!Array.isArray(data)) data = (data && typeof data === 'object') ? [data] : null;
+      if(!data || !data.length) throw new Error('Expected a JSON array of objects or arrays');
+      var cell = function(v){ if(v == null) return ''; if(typeof v === 'object') v = JSON.stringify(v); v = String(v); return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+      if(data.every(Array.isArray)) return data.map(function(r){ return r.map(cell).join(','); }).join('\n');
+      var keys = []; data.forEach(function(o){ if(o && typeof o === 'object') Object.keys(o).forEach(function(k){ if(keys.indexOf(k) < 0) keys.push(k); }); });
+      if(!keys.length) throw new Error('Expected a JSON array of objects or arrays');
+      return keys.map(cell).join(',') + '\n' + data.map(function(o){ return keys.map(function(k){ return cell(o && o[k]); }).join(','); }).join('\n');
+    }
+    function htmlToText(h){
+      var d = new DOMParser().parseFromString(h, 'text/html');
+      Array.prototype.forEach.call(d.querySelectorAll('script,style,noscript,template'), function(n){ n.remove(); });
+      Array.prototype.forEach.call(d.querySelectorAll('br,p,div,li,tr,h1,h2,h3,h4,h5,h6,pre'), function(n){ n.appendChild(d.createTextNode('\n')); });
+      return (d.body ? d.body.textContent : '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+    }
+    function mdToHtml(t, title){
+      var inner = typeof renderMarkdown === 'function' ? renderMarkdown(t) : '<pre>' + esc(t) + '</pre>';
+      return '<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + esc(title) + '</title>' +
+        '<style>body{font:16px/1.65 system-ui,sans-serif;max-width:760px;margin:40px auto;padding:0 16px;color:#1a1a1a}pre,code{background:#f3f3f3;border-radius:4px}pre{padding:12px;overflow:auto}code{padding:1px 4px}img{max-width:100%}blockquote{margin-left:0;padding-left:14px;border-left:3px solid #ccc;color:#555}table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:4px 8px}</style></head><body>\n' + inner + '\n</body></html>\n';
+    }
+    function textToUnicodePdf(text){
+      /* Fallback when the text has characters the built-in PDF font lacks: draw each page onto a canvas. */
+      var W = 1190, H = 1684, M = 100, LH = 34, FONT = '22px system-ui, "Segoe UI", sans-serif', c = document.createElement('canvas'), x = c.getContext('2d'), lines = [];
+      c.width = W; c.height = H; x.font = FONT;
+      text.replace(/\r\n?/g, '\n').replace(/\t/g, '    ').split('\n').forEach(function(l){
+        if(!l){ lines.push(''); return; }
+        var cur = '';
+        l.split(/(\s+)/).forEach(function(w){ if(cur && x.measureText(cur + w).width > W - 2 * M){ lines.push(cur.replace(/\s+$/, '')); cur = w.replace(/^\s+/, ''); } else cur += w; });
+        lines.push(cur);
+      });
+      var per = Math.floor((H - 2 * M) / LH), count = Math.max(1, Math.ceil(lines.length / per)), pages = [], chain = Promise.resolve();
+      for(var p = 0; p < count; p++) (function(p){ chain = chain.then(function(){
+        x.fillStyle = '#fff'; x.fillRect(0, 0, W, H); x.fillStyle = '#111'; x.font = FONT; x.textBaseline = 'top';
+        lines.slice(p * per, (p + 1) * per).forEach(function(l, i){ x.fillText(l, M, M + i * LH); });
+        return toBlob(c, 'image/jpeg', .85).then(function(b){ return b.arrayBuffer(); }).then(function(ab){ pages.push({w: W, h: H, jpeg: new Uint8Array(ab)}); });
+      }); })(p);
+      return chain.then(function(){ return buildImagePdf(pages); });
+    }
+    function pdfOut(it, fmt, o){
+      return vsLoadPdfJs().then(function(lib){
+        return it.file.arrayBuffer().then(function(ab){ return lib.getDocument({data: new Uint8Array(ab)}).promise; });
+      }).then(function(doc){
+        var base = baseName(it.file.name), outs = [], p = Promise.resolve();
+        if(fmt === 'txt'){
+          var parts = [];
+          for(var n = 1; n <= doc.numPages; n++) (function(n){ p = p.then(function(){ return doc.getPage(n).then(function(pg){ return pg.getTextContent(); }).then(function(tc){
+            var line = '', last = null; tc.items.forEach(function(s){ if(last !== null && Math.abs(s.transform[5] - last) > 2 && !/\n$/.test(line)) line += '\n'; line += s.str + (s.hasEOL ? '\n' : ''); last = s.transform[5]; });
+            parts.push(line.trim()); it.sub = 'Reading page ' + n + ' of ' + doc.numPages; drawStatus(it); }); }); })(n);
+          return p.then(function(){ doc.destroy(); return [{blob: new Blob([parts.join('\n\n— page break —\n\n') + '\n'], {type: 'text/plain'}), name: base + '.txt'}]; });
+        }
+        for(var k = 1; k <= doc.numPages; k++) (function(k){ p = p.then(function(){
+          if(cancelled) throw new Error('Cancelled');
+          it.sub = 'Rendering page ' + k + ' of ' + doc.numPages; drawStatus(it);
+          return doc.getPage(k).then(function(pg){
+            var vp = pg.getViewport({scale: o.dscale * 96 / 72}), c = document.createElement('canvas'); c.width = Math.ceil(vp.width); c.height = Math.ceil(vp.height);
+            var x = c.getContext('2d'); if(fmt === 'jpg'){ x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); }
+            return pg.render({canvasContext: x, viewport: vp}).promise.then(function(){ return toBlob(c, fmt === 'jpg' ? 'image/jpeg' : 'image/png', .92); })
+              .then(function(b){ outs.push({blob: b, name: base + (doc.numPages > 1 ? '-page-' + String(k).padStart(String(doc.numPages).length, '0') : '') + '.' + fmt}); c.width = c.height = 0; });
+          });
+        }); })(k);
+        return p.then(function(){ doc.destroy(); return outs; });
+      });
+    }
+    function convertDoc(it, fmt, o){
+      var kind = docKind(it.file.name), allowed = DOC_TARGETS[kind] || [];
+      if(allowed.indexOf(fmt) < 0) return Promise.reject(new Error('Can’t convert ' + kind.toUpperCase() + ' to ' + fmt.toUpperCase() + ' here'));
+      if(kind === 'pdf') return pdfOut(it, fmt, o);
+      return (it.text != null ? Promise.resolve(it.text) : it.file.text()).then(function(t){
+        var base = baseName(it.name);
+        if(fmt === 'json') return [{blob: new Blob([csvToJson(t)], {type: 'application/json'}), name: base + '.json'}];
+        if(fmt === 'csv') return [{blob: new Blob([jsonToCsv(t)], {type: 'text/csv'}), name: base + '.csv'}];
+        if(fmt === 'html') return [{blob: new Blob([kind === 'md' ? mdToHtml(t, base) : '<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8"><title>' + esc(base) + '</title></head><body><pre style="white-space:pre-wrap;font:14px/1.5 ui-monospace,monospace">' + esc(t) + '</pre></body></html>\n'], {type: 'text/html'}), name: base + '.html'}];
+        if(fmt === 'txt') return [{blob: new Blob([kind === 'html' ? htmlToText(t) : t], {type: 'text/plain'}), name: base + '.txt'}];
+        if(kind === 'html') t = htmlToText(t);
+        if(kind === 'json'){ try { t = JSON.stringify(JSON.parse(t), null, 2); } catch(e){} }
+        return (/[^\u0000-\u00ff]/.test(t) ? textToUnicodePdf(t) : Promise.resolve(buildTextPdf(t))).then(function(b){ return [{blob: b, name: base + '.pdf'}]; });
+      });
+    }
+
     /* ---------- conversion ---------- */
-    function baseName(n){ return n.replace(/\.[^.]+$/, '') || 'file'; }
-    function convertOne(it, mode, o){
-      if(mode === 'aud') return decodeAudio(it.file, o.rate, o.mono).then(function(b){ return [{blob: b, name: baseName(it.file.name) + '.wav'}]; });
-      if(mode === 'txt') return (it.text != null ? Promise.resolve(it.text) : it.file.text()).then(function(t){ return [{blob: buildTextPdf(t), name: baseName(it.name) + '.pdf'}]; });
+    function frameCanvas(src, w, h, bg){
+      var c = document.createElement('canvas'); c.width = w; c.height = h;
+      var x = c.getContext('2d'); if(bg){ x.fillStyle = bg; x.fillRect(0, 0, w, h); }
+      var r = Math.min(w / src.width, h / src.height), dw = Math.round(src.width * r), dh = Math.round(src.height * r);
+      x.drawImage(src, Math.floor((w - dw) / 2), Math.floor((h - dh) / 2), dw, dh);
+      return c;
+    }
+    function gifOptions(o){ return {colors: o.gcol, dither: o.dither, transparent: o.gtrans, loop: o.gloop}; }
+    function convertImage(it, o){
       return readImage(it.file).then(function(src){
         var f = o.fmt, c;
         function done(blob, ext){ URL.revokeObjectURL(src.url); if(!blob) throw new Error('This browser can’t encode ' + ext.toUpperCase()); return [{blob: blob, name: baseName(it.file.name) + '.' + ext}]; }
         if(f === 'ico') return encodeICO(src, o.icoSizes).then(function(b){ return done(b, 'ico'); });
-        c = canvasFor(src, {maxW: o.maxW, maxH: o.maxH, bg: (f === 'jpeg' || f === 'bmp' || f === 'pdf') ? o.bg : null});
+        var flat = (f === 'jpeg' || f === 'bmp' || f === 'pdf' || (f === 'gif' && !o.gtrans)) ? o.bg : null;
+        c = canvasFor(src, {maxW: o.maxW, maxH: o.maxH, bg: flat});
         if(f === 'bmp') return done(encodeBMP(c), 'bmp');
+        if(f === 'gif'){
+          if(o.merge){ it.canvas = c; URL.revokeObjectURL(src.url); return []; }
+          var blob = encodeGif([{data: c.getContext('2d').getImageData(0, 0, c.width, c.height).data, delay: 10}], c.width, c.height, gifOptions(o));
+          return done(blob, 'gif');
+        }
         if(f === 'pdf') return toBlob(c, 'image/jpeg', o.q).then(function(b){ return b.arrayBuffer(); }).then(function(ab){
           URL.revokeObjectURL(src.url);
           it.page = {w: c.width, h: c.height, jpeg: new Uint8Array(ab)};
@@ -1015,68 +1377,164 @@ function mountFileConverter(container, cfg){
         return toBlob(c, type, o.q).then(function(b){ return done(b && b.type === type ? b : null, f === 'jpeg' ? 'jpg' : f); });
       });
     }
-    function readOpts(mode){
-      var g = function(id){ var e = $('#' + id); return e ? e : null; };
-      if(mode === 'aud') return {rate: +g('fv-rate').value, mono: g('fv-mono').checked};
-      if(mode === 'txt') return {};
+    function convertOne(it, o){
+      if(mode === 'doc') return convertDoc(it, o.fmt, o);
+      if(mode === 'img') return convertImage(it, o);
+      if(mode === 'aud' && o.fmt === 'wav' && !(o.ss > 0)){
+        return decodeAudio(it.file, o.rate, o.mono).then(function(b){ return [{blob: b, name: baseName(it.file.name) + '.wav'}]; }, function(){ return ffConvert(it, 'wav', o); });
+      }
+      return ffConvert(it, o.fmt, o);
+    }
+    function readOpts(){
+      var g = function(id){ return $('#' + id); }, fmt = g('fv-fmt').value;
       var sizes = [16, 32, 48, 64, 128, 256].filter(function(s){ return g('fv-ico' + s).checked; });
-      return {fmt: g('fv-fmt').value, q: (+g('fv-q').value) / 100, maxW: parseInt(g('fv-w').value, 10) || 0, maxH: parseInt(g('fv-h').value, 10) || 0,
-        bg: g('fv-bg').value, icoSizes: sizes.length ? sizes : [32], merge: g('fv-merge').checked};
+      return {fmt: fmt, q: (+g('fv-q').value) / 100, maxW: parseInt(g('fv-w').value, 10) || 0, maxH: parseInt(g('fv-h').value, 10) || 0, bg: g('fv-bg').value,
+        icoSizes: sizes.length ? sizes : [32], merge: g('fv-merge').checked, gcol: +g('fv-gcol').value, dither: g('fv-dither').checked, gtrans: g('fv-gtrans').checked, gloop: g('fv-gloop').checked,
+        delay: Math.max(20, parseInt(g('fv-delay').value, 10) || 500),
+        w: +g('vc-w').value, fps: +g('vc-fps').value, vq: +g('vc-q').value, ss: parseFloat(g('vc-ss').value) || 0, t: parseFloat(g('vc-t').value) || 0, mute: g('vc-mute').checked, loop: g('vc-loop').checked,
+        br: g('ac-br').value, rate: +g('ac-rate').value, mono: g('ac-mono').checked, dscale: +g('fv-dscale').value};
+    }
+    function finalise(o){
+      /* combined outputs: one PDF, or one animated GIF, from every image */
+      if(mode !== 'img' || !o.merge) return;
+      if(o.fmt === 'pdf'){
+        var pages = items.filter(function(i){ return i.page; }).map(function(i){ return i.page; });
+        if(pages.length) items.push({id: ++seq, name: 'combined.pdf', file: {name: 'combined.pdf', size: 0}, state: 'done', out: [{blob: buildImagePdf(pages), name: 'combined.pdf'}], result: true});
+      } else if(o.fmt === 'gif'){
+        var cs = items.filter(function(i){ return i.canvas; }).map(function(i){ return i.canvas; });
+        if(cs.length){
+          var w = cs[0].width, h = cs[0].height;
+          var frames = cs.map(function(c){ var fc = frameCanvas(c, w, h, o.gtrans ? null : o.bg); return {data: fc.getContext('2d').getImageData(0, 0, w, h).data, delay: Math.round(o.delay / 10)}; });
+          items.push({id: ++seq, name: 'animation.gif', file: {name: 'animation.gif', size: 0}, state: 'done', out: [{blob: encodeGif(frames, w, h, gifOptions(o)), name: 'animation.gif'}], result: true});
+        }
+      }
+      items.forEach(function(i){ delete i.canvas; });
     }
     function run(){
       if(busy || !items.length) return;
-      items = items.filter(function(i){ return !i.result; });   // drop an old combined PDF before re-running
-      var mode = $('#fv-mode').value, o = readOpts(mode);
-      busy = true; $('#fv-go').disabled = true;
-      var chain = Promise.resolve();
+      items = items.filter(function(i){ return !i.result; });
+      var o = readOpts(); if(mode === 'vid' || mode === 'aud') o.q = o.vq;
+      busy = true; cancelled = false; $('#fv-go').disabled = true; $('#fv-prev').innerHTML = ''; $('#fv-bar').hidden = (mode !== 'vid' && mode !== 'aud'); $('#fv-fill').style.width = '0';
+      $('#fv-cancel').hidden = !(mode === 'vid' || mode === 'aud' || (mode === 'doc' && docKind(items[0].file.name) === 'pdf'));
+      if(mode === 'img' && o.merge && o.fmt === 'gif' && items.length < 2) o.merge = false;
+      var chain = Promise.resolve(), idx = 0, total = items.length;
       items.forEach(function(it){
         chain = chain.then(function(){
-          it.state = 'work'; it.out = null; drawList();
-          return convertOne(it, mode, o).then(function(out){ it.out = out; it.state = 'done'; }, function(e){ it.state = 'err'; it.err = e.message || 'Failed'; });
+          if(cancelled){ it.state = 'err'; it.err = 'Cancelled'; return; }
+          it.state = 'work'; it.out = null; it.sub = ''; idx++; $('#fv-fill').style.width = '0'; drawList();
+          return convertOne(it, o).then(function(out){ it.out = out; it.state = 'done'; }, function(e){ it.state = 'err'; it.err = e.message || 'Failed'; });
         }).then(drawList);
       });
       chain.then(function(){
-        if(mode === 'img' && o.fmt === 'pdf' && o.merge){
-          var pages = items.filter(function(i){ return i.page; }).map(function(i){ return i.page; });
-          if(pages.length) items.push({id: ++seq, name: 'combined.pdf', file: {name: 'combined.pdf', size: 0}, state: 'done', out: [{blob: buildImagePdf(pages), name: 'combined.pdf'}], result: true});
-        }
-        busy = false; $('#fv-go').disabled = false; drawList();
-        var ok = items.filter(function(i){ return i.state === 'done'; }).length;
-        notify(ok + ' of ' + items.filter(function(i){ return !i.result; }).length + ' converted', ok ? 'ok' : 'err');
+        try { finalise(o); } catch(e){ notify('Could not build the combined file: ' + e.message, 'err'); }
+        busy = false; $('#fv-go').disabled = false; $('#fv-cancel').hidden = true; drawList();
+        setTimeout(function(){ if(!busy) $('#fv-bar').hidden = true; }, 1000);
+        var ok = items.filter(function(i){ return i.state === 'done' && !i.result; }).length;
+        notify(ok + ' of ' + total + ' converted', ok ? 'ok' : 'err');
+        var done = items.filter(function(i){ return i.out && i.out.length; });
+        if(done.length === 1 && done[0].out.length === 1) showPreview(done[0].out[0]);
       });
+    }
+    function showPreview(x){
+      var b = x.blob, t = b.type || '', el;
+      if(b.size > 150 * 1048576 || !/^(video|audio|image)\/(mp4|webm|quicktime|mpeg|ogg|wav|flac|gif|webp|png|jpeg)/.test(t)) return;
+      el = document.createElement(/^image/.test(t) ? 'img' : /^audio/.test(t) ? 'audio' : 'video');
+      if(el.tagName === 'IMG') el.alt = 'Preview of the converted file'; else el.controls = true;
+      el.style.cssText = 'max-width:100%;max-height:360px;margin-top:8px;border-radius:6px'; el.src = URL.createObjectURL(b);
+      $('#fv-prev').innerHTML = ''; $('#fv-prev').appendChild(el);
     }
 
     /* ---------- list ---------- */
+    function rowStatus(it){
+      var outSize = it.out ? it.out.reduce(function(s, x){ return s + x.blob.size; }, 0) : 0;
+      return it.state === 'work' ? esc(it.sub || 'Converting…') : it.state === 'err' ? '<span class="fail">' + esc(it.err) + '</span>' :
+        it.state === 'done' ? (it.out.length ? fmtSize(it.file.size || 0) + ' → <b>' + fmtSize(outSize) + '</b>' + (it.out.length > 1 ? ' · ' + it.out.length + ' files' : '') : 'Added to the combined file') : 'Ready · ' + fmtSize(it.file.size || 0);
+    }
+    function drawStatus(it){ var n = body.querySelector('[data-st="' + it.id + '"]'); if(n) n.innerHTML = rowStatus(it); }
     function drawList(){
-      var list = $('#fv-list'); list.hidden = !items.length;
+      var list = $('#fv-list'), real = items.filter(function(i){ return !i.result; }); list.hidden = !items.length;
       list.innerHTML = items.map(function(it){
-        var outSize = it.out ? it.out.reduce(function(s, x){ return s + x.blob.size; }, 0) : 0;
-        var status = it.state === 'work' ? 'Converting…' : it.state === 'err' ? '<span class="fail">' + esc(it.err) + '</span>' : it.state === 'done' ? (it.out.length ? fmtSize(it.file.size || 0) + ' → <b>' + fmtSize(outSize) + '</b>' : 'Added to combined PDF') : 'Ready';
-        return '<div class="fv-row"><div class="gd-main"><div class="gd-title">' + esc(it.name) + '</div><div class="gd-sub">' + status + (!it.state ? ' · ' + fmtSize(it.file.size || 0) : '') + '</div></div>'+
-          (it.out && it.out.length ? '<button type="button" class="game-btn secondary" data-save="' + it.id + '">Save</button>' : '') +
-          (it.result ? '' : '<button type="button" class="hist-clear" data-rm="' + it.id + '" aria-label="Remove">✕</button>') + '</div>';
+        return '<div class="fv-row"><div class="gd-main"><div class="gd-title">' + esc(it.name) + '</div><div class="gd-sub" data-st="' + it.id + '">' + rowStatus(it) + '</div></div>' +
+          (it.out && it.out.length ? '<button type="button" class="game-btn secondary" data-save="' + it.id + '">Save' + (it.out.length > 1 ? ' all' : '') + '</button>' : '') +
+          (it.result ? '' : '<button type="button" class="hist-clear" data-rm="' + it.id + '" aria-label="Remove ' + esc(it.name) + '">✕</button>') + '</div>';
       }).join('');
-      var done = items.filter(function(i){ return i.out && i.out.length; });
-      $('#fv-go').disabled = busy || !items.filter(function(i){ return !i.result; }).length;
-      $('#fv-zip').disabled = !done.length; $('#fv-clear').disabled = !items.length || busy;
-      $('#fv-sum').textContent = items.length ? items.filter(function(i){ return !i.result; }).length + ' file(s)' : '';
+      $('#fv-go').disabled = busy || !real.length; $('#fv-zip').disabled = !items.some(function(i){ return i.out && i.out.length; }); $('#fv-clear').disabled = !items.length || busy;
+      $('#fv-sum').textContent = real.length ? real.length + ' file' + (real.length === 1 ? '' : 's') : '';
+    }
+
+    /* ---------- format / option visibility ---------- */
+    function fmtList(){
+      var list = FORMATS[mode];
+      if(mode === 'doc' && items.length){ var al = DOC_TARGETS[docKind(items[0].file.name)] || ['pdf']; list = list.filter(function(f){ return al.indexOf(f[0]) > -1; }); }
+      return list;
+    }
+    function bestDefault(ext){
+      var m = {img: {png: 'jpeg', jpg: 'png', jpeg: 'png', webp: 'png', gif: 'png', svg: 'png', bmp: 'png'}, vid: {mp4: 'gif', gif: 'mp4', webm: 'mp4', mov: 'mp4'}, aud: {mp3: 'wav', wav: 'mp3', flac: 'mp3', m4a: 'mp3', ogg: 'mp3'}}[mode] || {};
+      return m[ext] || FORMATS[mode][0][0];
+    }
+    function refreshFormats(pick){
+      var sel = $('#fv-fmt'), cur = pick || sel.value, list = fmtList();
+      sel.innerHTML = list.map(function(f){ return opt(f[0], f[1], f[0] === cur); }).join('');
+      if(!list.some(function(f){ return f[0] === cur; })) sel.value = list[0][0];
+      sel.dispatchEvent(new Event('input', {bubbles: true}));
+      fmtUi();
+    }
+    function fmtUi(){
+      var f = $('#fv-fmt').value;
+      Array.prototype.forEach.call(body.querySelectorAll('[data-m]:not(button)'), function(n){
+        var fs = n.getAttribute('data-f');
+        n.hidden = n.getAttribute('data-m') !== mode || (fs && fs.split(' ').indexOf(f) < 0);
+      });
+      $('#fv-mergel').textContent = f === 'gif' ? 'Combine all images into one animated GIF' : 'Combine all images into one PDF (one page each)';
+      $('#fv-delay-f').hidden = $('#fv-delay-f').hidden || !$('#fv-merge').checked;
+      $('#fv-gloopl').hidden = !$('#fv-merge').checked;
+      $('#fv-qv').textContent = $('#fv-q').value;
+      $('#vc-qv').textContent = QL[$('#vc-q').value - 1];
+      $('#vc-mutel').hidden = f === 'gif' || f === 'webp'; $('#vc-loopl').hidden = !(f === 'gif' || f === 'webp');
+      if(mode === 'vid' && f === 'gif'){ if($('#vc-fps').value === '0'){ $('#vc-fps').value = '12'; $('#vc-fps').dispatchEvent(new Event('input', {bubbles: true})); } if($('#vc-w').value === '0'){ $('#vc-w').value = '480'; $('#vc-w').dispatchEvent(new Event('input', {bubbles: true})); } }
+    }
+    function setMode(m, keepItems){
+      mode = m;
+      Array.prototype.forEach.call(body.querySelectorAll('#fv-seg button'), function(b){ b.classList.toggle('on', b.getAttribute('data-m') === m); });
+      $('#fv-file').accept = MODES[m].accept; $('#fv-hint').textContent = MODES[m].hint;
+      if(!keepItems) items = [];
+      fmtTouched = false; $('#fv-prev').innerHTML = '';
+      refreshFormats(bestDefault('')); drawList();
+    }
+    function modeFor(f){
+      var e = extOf(f.name), t = f.type || '';
+      if(/^audio\//.test(t) || /^(mp3|wav|flac|ogg|oga|m4a|aac|opus|wma|aiff)$/.test(e)) return 'aud';
+      if(e === 'gif') return 'gif';
+      if(/^video\//.test(t) || /^(mp4|mov|mkv|avi|flv|wmv|m4v|3gp|ts|mpg|mpeg|webm)$/.test(e)) return 'vid';
+      if(/^image\//.test(t) || /^(png|jpe?g|webp|bmp|svg|avif|ico|heic|heif|tiff?|jfif)$/.test(e)) return 'img';
+      if(/^(pdf|txt|md|markdown|csv|json|html?|xml|log)$/.test(e) || /^text\//.test(t) || t === 'application/pdf' || t === 'application/json') return 'doc';
+      return null;
     }
     function addFiles(files){
-      var m = $('#fv-mode').value;
-      Array.prototype.forEach.call(files, function(f){
-        items = items.filter(function(i){ return !i.result; });
-        items.push({id: ++seq, file: f, name: f.name});
+      files = Array.prototype.slice.call(files); if(!files.length) return;
+      var first = modeFor(files[0]); if(first === 'gif') first = (mode === 'img' && items.length) ? 'img' : 'vid';
+      if(first && first !== mode) setMode(first);
+      var keep = [], skipped = 0;
+      files.forEach(function(f){
+        var m = modeFor(f); if(m === 'gif') m = (mode === 'img' || mode === 'vid') ? mode : 'vid';
+        if(m === mode || m === null) keep.push(f); else skipped++;
       });
+      items = items.filter(function(i){ return !i.result; });
+      keep.forEach(function(f){ items.push({id: ++seq, file: f, name: f.name}); });
+      if(skipped) notify(skipped + ' file' + (skipped === 1 ? '' : 's') + ' skipped: they don’t belong on the ' + MODES[mode].label + ' tab', 'warn');
+      if(keep.length && !fmtTouched) refreshFormats(bestDefault(extOf(items[0].file.name))); else refreshFormats();
       drawList();
-      if(m === 'img'){ var f = $('#fv-fmt'); if(f) fmtUi(); }
     }
+
+    /* ---------- events ---------- */
     $('#fv-file').addEventListener('change', function(){ addFiles(this.files); this.value = ''; });
     var drop = $('#fv-drop');
     ['dragenter', 'dragover'].forEach(function(t){ drop.addEventListener(t, function(e){ e.preventDefault(); drop.classList.add('over'); }); });
     ['dragleave', 'drop'].forEach(function(t){ drop.addEventListener(t, function(e){ e.preventDefault(); drop.classList.remove('over'); }); });
     drop.addEventListener('drop', function(e){ if(e.dataTransfer && e.dataTransfer.files.length) addFiles(e.dataTransfer.files); });
     $('#fv-go').addEventListener('click', run);
-    $('#fv-clear').addEventListener('click', function(){ items = []; drawList(); });
+    $('#fv-clear').addEventListener('click', function(){ items = []; $('#fv-prev').innerHTML = ''; refreshFormats(); drawList(); });
+    $('#fv-cancel').addEventListener('click', function(){ cancelled = true; if(vsFF.inst){ try { vsFF.inst.terminate(); } catch(e){} vsFF.inst = null; vsFF.loading = null; } });
     $('#fv-zip').addEventListener('click', function(){
       var files = [], used = {};
       items.forEach(function(i){ (i.out || []).forEach(function(x){ files.push(x); }); });
@@ -1088,27 +1546,258 @@ function mountFileConverter(container, cfg){
     $('#fv-list').addEventListener('click', function(e){
       var s = e.target.closest('[data-save]'), r = e.target.closest('[data-rm]');
       if(s){ var it = items.filter(function(i){ return String(i.id) === s.getAttribute('data-save'); })[0]; if(it) it.out.forEach(function(x){ saveBlob(x.name, x.blob); }); }
-      if(r && !busy){ items = items.filter(function(i){ return String(i.id) !== r.getAttribute('data-rm'); }); drawList(); }
+      if(r && !busy){ items = items.filter(function(i){ return String(i.id) !== r.getAttribute('data-rm'); }); refreshFormats(); drawList(); }
     });
-    body.addEventListener('input', function(e){ if(e.target.id === 'fv-q') $('#fv-qv').textContent = e.target.value; });
-    body.addEventListener('change', function(e){ if(e.target.id === 'fv-fmt') fmtUi(); });
-    body.addEventListener('click', function(e){
-      if(e.target.id === 'fv-addtext'){
-        var t = $('#fv-paste').value; if(!t.trim()){ notify('Paste some text first', 'warn'); return; }
-        items = items.filter(function(i){ return !i.result; });
-        items.push({id: ++seq, text: t, name: 'pasted-text-' + (items.length + 1) + '.txt', file: {name: 'pasted-text.txt', size: t.length}}); $('#fv-paste').value = ''; drawList();
-      }
-    });
-    $('#fv-seg').addEventListener('click', function(e){
-      var b = e.target.closest('[data-m]'); if(!b) return;
-      $('#fv-mode').value = b.getAttribute('data-m'); $('#fv-mode').dispatchEvent(new Event('change', {bubbles: true}));
-    });
-    $('#fv-mode').addEventListener('change', setMode);
-    if(cfg.mode) $('#fv-mode').value = cfg.mode;
-    setMode();
+    body.addEventListener('input', function(e){ if(e.target.id === 'fv-q' || e.target.id === 'vc-q') fmtUi(); });
+    body.addEventListener('change', function(e){ if(e.target.id === 'fv-fmt'){ fmtTouched = true; fmtUi(); } if(e.target.id === 'fv-merge') fmtUi(); });
+    $('#fv-seg').addEventListener('click', function(e){ var b = e.target.closest('[data-m]'); if(b && !busy) setMode(b.getAttribute('data-m')); });
+    onUnmount(body, function(){ if(vsFF.inst){ try { vsFF.inst.terminate(); } catch(e){} } });
+    setMode('img');
   });
 }
 PLAYABLES['file-converter'] = mountFileConverter;
+
+
+/* ==================================================================
+   tools / pdf-compressor
+   ================================================================== */
+// Three methods, all in the browser (pdf-lib + pdf.js load from jsDelivr on first use; the PDF is never uploaded):
+//   smart    - recompress and downscale the images inside the PDF, keep text and vector graphics untouched
+//   raster   - redraw every page as a JPEG: smallest result, but text is no longer selectable
+//   lossless - rewrite the file with compressed object streams and optional metadata removal
+function mountPdfCompressor(container){
+  mountEmbed(container, 'TOOL / PDF COMPRESSOR', function(body){
+    var PRESETS = {
+      light:    {label: 'Light (best quality)',   q: 85, side: 3000, dpi: 150},
+      balanced: {label: 'Balanced (recommended)', q: 72, side: 2000, dpi: 110},
+      strong:   {label: 'Strong',                 q: 55, side: 1400, dpi: 96},
+      extreme:  {label: 'Extreme (smallest)',     q: 40, side: 1000, dpi: 72}
+    };
+    function opt(v, l, sel){ return '<option value="' + v + '"' + (sel ? ' selected' : '') + '>' + l + '</option>'; }
+    body.innerHTML =
+      '<p class="tool-msg">Shrink PDFs with a preset or your own settings. <b>Smart</b> keeps text sharp and selectable and recompresses the images; <b>Rasterise</b> turns pages into pictures for the smallest files; <b>Lossless</b> only tidies the file structure. Files stay on your device.</p>' +
+      '<label class="fv-drop" id="pc-drop" for="pc-file"><b>Drop PDF files here</b> or click to choose<span>Scanned documents and image-heavy PDFs shrink the most.</span></label>' +
+      '<input type="file" id="pc-file" accept="application/pdf,.pdf" multiple hidden data-nopersist>' +
+      '<div class="tool-grid">' +
+        '<div class="field"><label for="pc-preset">Preset</label><select id="pc-preset">' + Object.keys(PRESETS).map(function(k){ return opt(k, PRESETS[k].label, k === 'balanced'); }).join('') + opt('custom', 'Custom') + '</select></div>' +
+        '<div class="field"><label for="pc-method">Method</label><select id="pc-method">' + opt('smart', 'Smart: keep text, recompress images', 1) + opt('raster', 'Rasterise pages (text not selectable)') + opt('lossless', 'Lossless clean-up only') + '</select></div>' +
+        '<div class="field" id="pc-q-f"><label for="pc-q">JPEG quality <span id="pc-qv">72</span>%</label><input id="pc-q" type="range" min="20" max="95" value="72"></div>' +
+        '<div class="field" id="pc-side-f"><label for="pc-side">Largest image side</label><select id="pc-side">' + opt(0, 'Original size') + [3000, 2000, 1600, 1400, 1200, 1000, 800].map(function(n){ return opt(n, n + ' px', n === 2000); }).join('') + '</select></div>' +
+        '<div class="field" id="pc-dpi-f" hidden><label for="pc-dpi">Page resolution</label><select id="pc-dpi">' + [[72, '72 dpi (screen, smallest)'], [96, '96 dpi'], [110, '110 dpi'], [150, '150 dpi (readable print)'], [200, '200 dpi'], [300, '300 dpi (print)']].map(function(d){ return opt(d[0], d[1], d[0] === 110); }).join('') + '</select></div>' +
+      '</div>' +
+      '<div class="tool-row"><label id="pc-grey-l"><input type="checkbox" id="pc-grey"> Convert images to greyscale</label> <label><input type="checkbox" id="pc-meta" checked> Remove metadata (title, author, XMP)</label></div>' +
+      '<div class="tool-row"><button class="game-btn" id="pc-go" disabled>Compress</button><button class="game-btn secondary" id="pc-zip" disabled>Download all (.zip)</button><button class="game-btn secondary" id="pc-clear" disabled>Clear</button><span class="hint" id="pc-sum"></span></div>' +
+      '<div class="gd-list" id="pc-list" hidden></div>' +
+      '<div class="tool-output" id="pc-note" aria-live="polite"></div>';
+
+    var $ = function(s){ return body.querySelector(s); };
+    var items = [], busy = false, seq = 0;
+
+    function readOpts(){ return {method: $('#pc-method').value, q: (+$('#pc-q').value) / 100, side: +$('#pc-side').value, dpi: +$('#pc-dpi').value, grey: $('#pc-grey').checked, meta: $('#pc-meta').checked}; }
+    function setVal(id, v){ var e = $('#' + id); e.value = v; e.dispatchEvent(new Event('input', {bubbles: true})); }
+    function ui(){
+      var m = $('#pc-method').value;
+      $('#pc-q-f').hidden = m === 'lossless'; $('#pc-side-f').hidden = m !== 'smart'; $('#pc-dpi-f').hidden = m !== 'raster';
+      $('#pc-grey-l').hidden = m === 'lossless'; $('#pc-qv').textContent = $('#pc-q').value;
+      var nt = $('#pc-note'); nt.textContent = m === 'raster' ? 'Rasterising redraws every page as a picture. Text can no longer be selected or searched, and links are lost.' : m === 'lossless' ? 'Lossless clean-up rarely saves more than a few percent. Use Smart or Rasterise for real savings.' : '';
+      nt.hidden = !nt.textContent;
+    }
+    var applying = false;
+    function applyPreset(k){ var p = PRESETS[k]; if(!p) return; applying = true; setVal('pc-q', p.q); setVal('pc-side', p.side); setVal('pc-dpi', p.dpi); applying = false; ui(); }
+
+    function toJpeg(c, q){ return new Promise(function(res){ c.toBlob(res, 'image/jpeg', q); }).then(function(b){ return b.arrayBuffer(); }).then(function(ab){ return new Uint8Array(ab); }); }
+    function greyscale(x, w, h){
+      var d = x.getImageData(0, 0, w, h), p = d.data;
+      for(var i = 0; i < p.length; i += 4){ var g = (p[i] * 299 + p[i + 1] * 587 + p[i + 2] * 114) / 1000 | 0; p[i] = p[i + 1] = p[i + 2] = g; }
+      x.putImageData(d, 0, 0);
+    }
+    function name(L, o){ return L.PDFName.of(o); }
+    function filterOf(L, dict){
+      var f = dict.get(name(L, 'Filter')); if(!f) return '';
+      if(f instanceof L.PDFArray){ if(f.size() !== 1) return 'multi'; f = f.lookup(0); }
+      return f instanceof L.PDFName ? f.decodeText() : 'other';
+    }
+    function comps(L, ctx, dict){
+      var cs = ctx.lookup(dict.get(name(L, 'ColorSpace')));
+      if(cs instanceof L.PDFName){ var n = cs.decodeText(); return n === 'DeviceRGB' ? 3 : n === 'DeviceGray' ? 1 : 0; }
+      if(cs instanceof L.PDFArray && cs.size() === 2){
+        var kind = cs.lookup(0);
+        if(kind instanceof L.PDFName && kind.decodeText() === 'ICCBased'){ var prof = ctx.lookup(cs.get(1)); var nn = prof && prof.dict && ctx.lookup(prof.dict.get(name(L, 'N'))); return nn && nn.asNumber ? ([1, 3].indexOf(nn.asNumber()) > -1 ? nn.asNumber() : 0) : 0; }
+      }
+      return 0;
+    }
+    function num(L, ctx, dict, key){ var v = ctx.lookup(dict.get(name(L, key))); return v && v.asNumber ? v.asNumber() : 0; }
+
+    function recompressImage(L, ctx, ref, stream, o){
+      var dict = stream.dict, w = num(L, ctx, dict, 'Width'), h = num(L, ctx, dict, 'Height'), n = comps(L, ctx, dict), f = filterOf(L, dict);
+      if(!w || !h || !n || num(L, ctx, dict, 'BitsPerComponent') !== 8) return Promise.resolve(false);
+      if(dict.has(name(L, 'Mask')) || dict.has(name(L, 'Decode')) || ctx.lookup(dict.get(name(L, 'ImageMask'))) === L.PDFBool.True) return Promise.resolve(false);
+      var sm = ctx.lookup(dict.get(name(L, 'SMask'))); if(sm && sm.dict && sm.dict.has(name(L, 'Matte'))) return Promise.resolve(false);
+      if(f !== 'DCTDecode' && f !== 'FlateDecode') return Promise.resolve(false);
+      if(w * h < 4096) return Promise.resolve(false);                       // icons and tiny pictures: not worth it
+      var src;
+      if(f === 'DCTDecode'){
+        src = createImageBitmap(new Blob([stream.contents], {type: 'image/jpeg'}));
+      } else {
+        var raw; try { raw = L.decodePDFRawStream(stream).decode(); } catch(e){ return Promise.resolve(false); }
+        if(!raw || raw.length < w * h * n) return Promise.resolve(false);
+        var id = new ImageData(w, h), px = id.data, i, j;
+        if(n === 3) for(i = 0, j = 0; i < w * h; i++, j += 3){ px[i * 4] = raw[j]; px[i * 4 + 1] = raw[j + 1]; px[i * 4 + 2] = raw[j + 2]; px[i * 4 + 3] = 255; }
+        else for(i = 0; i < w * h; i++){ px[i * 4] = px[i * 4 + 1] = px[i * 4 + 2] = raw[i]; px[i * 4 + 3] = 255; }
+        src = createImageBitmap(id);
+      }
+      return src.then(function(bmp){
+        var s = o.side > 0 ? Math.min(1, o.side / Math.max(bmp.width, bmp.height)) : 1, nw = Math.max(1, Math.round(bmp.width * s)), nh = Math.max(1, Math.round(bmp.height * s));
+        var c = document.createElement('canvas'); c.width = nw; c.height = nh;
+        var x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, nw, nh); x.imageSmoothingQuality = 'high'; x.drawImage(bmp, 0, 0, nw, nh);
+        if(bmp.close) bmp.close();
+        if(o.grey) greyscale(x, nw, nh);
+        return toJpeg(c, o.q).then(function(bytes){
+          c.width = c.height = 0;
+          if(bytes.length > stream.contents.length * 0.92) return false;       // not worth it: keep the original
+          var nd = dict.clone(ctx);
+          nd.set(name(L, 'Filter'), name(L, 'DCTDecode')); nd.delete(name(L, 'DecodeParms'));
+          nd.set(name(L, 'Width'), L.PDFNumber.of(nw)); nd.set(name(L, 'Height'), L.PDFNumber.of(nh)); nd.set(name(L, 'BitsPerComponent'), L.PDFNumber.of(8));
+          if(o.grey || n !== 3 || f === 'DCTDecode' && n === 1) nd.set(name(L, 'ColorSpace'), name(L, 'DeviceRGB'));
+          ctx.assign(ref, L.PDFRawStream.of(nd, bytes));
+          return true;
+        });
+      }, function(){ return false; });
+    }
+    function stripMeta(L, pdf){
+      try { var info = pdf.getInfoDict(); info.keys().slice().forEach(function(k){ info.delete(k); }); } catch(e){}
+      try { pdf.catalog.delete(L.PDFName.of('Metadata')); } catch(e){}
+    }
+    function smart(it, buf, o, lossless){
+      return vsLoadPdfLib().then(function(L){
+        return L.PDFDocument.load(buf, {updateMetadata: false}).then(function(pdf){
+          var ctx = pdf.context, list = lossless ? [] : ctx.enumerateIndirectObjects().filter(function(e){
+            var s = e[1]; return s instanceof L.PDFRawStream && ctx.lookup(s.dict.get(name(L, 'Subtype'))) === name(L, 'Image');
+          }), done = 0, changed = 0, chain = Promise.resolve();
+          list.forEach(function(e){ chain = chain.then(function(){
+            it.sub = 'Recompressing image ' + (++done) + ' of ' + list.length; drawStatus(it);
+            return recompressImage(L, ctx, e[0], e[1], o).then(function(ok){ if(ok) changed++; }, function(){});
+          }); });
+          return chain.then(function(){
+            if(o.meta) stripMeta(L, pdf);
+            return pdf.save({useObjectStreams: true}).then(function(bytes){ return {bytes: bytes, note: list.length ? changed + ' of ' + list.length + ' images recompressed' : lossless ? '' : 'no images found'}; });
+          });
+        });
+      });
+    }
+    function raster(it, buf, o){
+      return Promise.all([vsLoadPdfJs(), vsLoadPdfLib()]).then(function(libs){
+        var js = libs[0], L = libs[1];
+        return js.getDocument({data: new Uint8Array(buf.slice(0))}).promise.then(function(doc){
+          return L.PDFDocument.create().then(function(out){
+            var chain = Promise.resolve();
+            for(var n = 1; n <= doc.numPages; n++) (function(n){ chain = chain.then(function(){
+              it.sub = 'Page ' + n + ' of ' + doc.numPages; drawStatus(it);
+              return doc.getPage(n).then(function(pg){
+                var base = pg.getViewport({scale: 1}), vp = pg.getViewport({scale: o.dpi / 72}), c = document.createElement('canvas');
+                c.width = Math.ceil(vp.width); c.height = Math.ceil(vp.height);
+                var x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+                return pg.render({canvasContext: x, viewport: vp}).promise.then(function(){
+                  if(o.grey) greyscale(x, c.width, c.height);
+                  return toJpeg(c, o.q);
+                }).then(function(bytes){ c.width = c.height = 0; return out.embedJpg(bytes); }).then(function(img){
+                  var page = out.addPage([base.width, base.height]); page.drawImage(img, {x: 0, y: 0, width: base.width, height: base.height});
+                });
+              });
+            }); })(n);
+            return chain.then(function(){ var pages = doc.numPages; doc.destroy(); out.setProducer('Velocity Systems'); out.setCreator('Velocity Systems'); return out.save({useObjectStreams: true}).then(function(bytes){ return {bytes: bytes, note: pages + (pages === 1 ? ' page' : ' pages') + ' rasterised'}; }); });
+          });
+        });
+      });
+    }
+    function compress(it, o){
+      return it.file.arrayBuffer().then(function(buf){
+        if(o.method === 'raster') return raster(it, buf, o);
+        return smart(it, buf, o, o.method === 'lossless');
+      }).then(function(r){
+        var orig = it.file.size, saved = orig - r.bytes.length, base = it.file.name.replace(/\.pdf$/i, '');
+        if(saved <= 0){
+          it.out = [{blob: it.file.slice(0, orig, 'application/pdf'), name: base + '-compressed.pdf'}];
+          it.note = 'No savings possible with these settings, so the original is kept. Try a stronger preset.';
+          it.nogain = true;
+        } else {
+          it.out = [{blob: new Blob([r.bytes], {type: 'application/pdf'}), name: base + '-compressed.pdf'}];
+          it.note = r.note; it.nogain = false;
+        }
+      }).catch(function(e){
+        var m = String(e && e.message || e);
+        throw new Error(/encrypt|password/i.test(m) ? 'This PDF is password-protected. Remove the password first.' : /Invalid PDF|No PDF header|Failed to parse/i.test(m) ? 'This file is not a valid PDF.' : m);
+      });
+    }
+
+    function rowStatus(it){
+      if(it.state === 'work') return esc(it.sub || 'Working…');
+      if(it.state === 'err') return '<span class="fail">' + esc(it.err) + '</span>';
+      if(it.state === 'done'){
+        var a = it.file.size, b = it.nogain ? a : it.out[0].blob.size, pct = a ? Math.round((1 - b / a) * 100) : 0;
+        return it.nogain ? esc(it.note) : fmtSize(a) + ' → <b>' + fmtSize(b) + '</b> (−' + pct + '%)' + (it.note ? ' · ' + esc(it.note) : '');
+      }
+      return 'Ready · ' + fmtSize(it.file.size);
+    }
+    function drawStatus(it){ var n = body.querySelector('[data-st="' + it.id + '"]'); if(n) n.innerHTML = rowStatus(it); }
+    function drawList(){
+      var list = $('#pc-list'); list.hidden = !items.length;
+      list.innerHTML = items.map(function(it){
+        return '<div class="fv-row"><div class="gd-main"><div class="gd-title">' + esc(it.file.name) + '</div><div class="gd-sub" data-st="' + it.id + '">' + rowStatus(it) + '</div></div>' +
+          (it.out ? '<button type="button" class="game-btn secondary" data-save="' + it.id + '">Save</button>' : '') +
+          '<button type="button" class="hist-clear" data-rm="' + it.id + '" aria-label="Remove ' + esc(it.file.name) + '">✕</button></div>';
+      }).join('');
+      var done = items.filter(function(i){ return i.state === 'done'; }), a = 0, b = 0;
+      done.forEach(function(i){ a += i.file.size; b += i.nogain ? i.file.size : i.out[0].blob.size; });
+      $('#pc-go').disabled = busy || !items.length; $('#pc-zip').disabled = !done.length; $('#pc-clear').disabled = !items.length || busy;
+      $('#pc-sum').textContent = done.length > 1 ? 'Total ' + fmtSize(a) + ' → ' + fmtSize(b) : items.length ? items.length + ' file' + (items.length === 1 ? '' : 's') : '';
+    }
+    function add(files){
+      var bad = 0;
+      Array.prototype.forEach.call(files, function(f){
+        if(/\.pdf$/i.test(f.name) || f.type === 'application/pdf') items.push({id: ++seq, file: f}); else bad++;
+      });
+      if(bad) notify(bad + ' file' + (bad === 1 ? ' is' : 's are') + ' not a PDF and was skipped', 'warn');
+      drawList();
+    }
+    function run(){
+      if(busy || !items.length) return;
+      var o = readOpts(), chain = Promise.resolve(); busy = true; drawList();
+      items.forEach(function(it){ chain = chain.then(function(){
+        it.state = 'work'; it.out = null; it.sub = 'Reading…'; drawList();
+        return compress(it, o).then(function(){ it.state = 'done'; }, function(e){ it.state = 'err'; it.err = e.message || 'Failed'; });
+      }).then(drawList); });
+      chain.then(function(){
+        busy = false; drawList();
+        var ok = items.filter(function(i){ return i.state === 'done'; }).length;
+        notify(ok + ' of ' + items.length + ' compressed', ok ? 'ok' : 'err');
+      });
+    }
+
+    $('#pc-file').addEventListener('change', function(){ add(this.files); this.value = ''; });
+    var drop = $('#pc-drop');
+    ['dragenter', 'dragover'].forEach(function(t){ drop.addEventListener(t, function(e){ e.preventDefault(); drop.classList.add('over'); }); });
+    ['dragleave', 'drop'].forEach(function(t){ drop.addEventListener(t, function(e){ e.preventDefault(); drop.classList.remove('over'); }); });
+    drop.addEventListener('drop', function(e){ if(e.dataTransfer && e.dataTransfer.files.length) add(e.dataTransfer.files); });
+    $('#pc-go').addEventListener('click', run);
+    $('#pc-clear').addEventListener('click', function(){ items = []; drawList(); });
+    $('#pc-zip').addEventListener('click', function(){
+      var used = {}, outs = []; items.forEach(function(i){ if(i.out) outs.push(i.out[0]); });
+      Promise.all(outs.map(function(x){ return x.blob.arrayBuffer().then(function(ab){ var n = x.name, k = 1; while(used[n]) n = x.name.replace(/(\.[^.]*)?$/, ' (' + (k++) + ')$1'); used[n] = 1; return {name: n, data: new Uint8Array(ab)}; }); }))
+        .then(function(list){ saveBlob('compressed-pdfs.zip', makeZip(list)); });
+    });
+    $('#pc-list').addEventListener('click', function(e){
+      var s = e.target.closest('[data-save]'), r = e.target.closest('[data-rm]');
+      if(s){ var it = items.filter(function(i){ return String(i.id) === s.getAttribute('data-save'); })[0]; if(it && it.out) saveBlob(it.out[0].name, it.out[0].blob); }
+      if(r && !busy){ items = items.filter(function(i){ return String(i.id) !== r.getAttribute('data-rm'); }); drawList(); }
+    });
+    $('#pc-preset').addEventListener('change', function(){ applyPreset(this.value); });
+    $('#pc-method').addEventListener('change', ui);
+    ['pc-q', 'pc-side', 'pc-dpi'].forEach(function(id){ $('#' + id).addEventListener('input', function(){ ui(); if(!applying && $('#pc-preset').value !== 'custom'){ var p = PRESETS[$('#pc-preset').value]; if(p && (+$('#pc-q').value !== p.q || +$('#pc-side').value !== p.side || +$('#pc-dpi').value !== p.dpi)) setVal('pc-preset', 'custom'); } }); });
+    ui();
+  });
+}
+PLAYABLES['pdf-compressor'] = mountPdfCompressor;
 
 /* ==================================================================
    tools / fraction-calculator
@@ -1733,13 +2422,6 @@ function mountHashGenerator(container){
   });
 }
 PLAYABLES['hash-generator'] = mountHashGenerator;
-
-/* ==================================================================
-   tools / image-converter
-   ================================================================== */
-// The Image Converter is the File Converter's image mode on its own page.
-function mountImageConverter(container){ mountFileConverter(container, {mode: 'img', only: true, label: 'TOOL / IMAGE CONVERTER'}); }
-PLAYABLES['image-converter'] = mountImageConverter;
 
 /* ==================================================================
    tools / image-resizer

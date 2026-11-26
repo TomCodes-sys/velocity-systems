@@ -17,8 +17,6 @@
   <url><loc>https://velocitysystems.pages.dev/games/tetris.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/games/wordle.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/image-metadata.html</loc></url>
-  <url><loc>https://velocitysystems.pages.dev/tools/video-converter.html</loc></url>
-  <url><loc>https://velocitysystems.pages.dev/tools/audio-converter.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/storage-visualiser.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/api-request-tester.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/file-comparison.html</loc></url>
@@ -57,7 +55,6 @@
   <url><loc>https://velocitysystems.pages.dev/tools/bulk-image-compressor.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/image-resizer.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/watermark-tool.html</loc></url>
-  <url><loc>https://velocitysystems.pages.dev/tools/image-converter.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/screen-capture.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/video-trimmer.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/fraction-calculator.html</loc></url>
@@ -66,6 +63,7 @@
   <url><loc>https://velocitysystems.pages.dev/tools/json-csv.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/regex-tester.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/uuid-generator.html</loc></url>
+  <url><loc>https://velocitysystems.pages.dev/tools/file-converter.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/timestamp-converter.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/base-converter.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/case-converter.html</loc></url>
@@ -94,7 +92,7 @@
   <url><loc>https://velocitysystems.pages.dev/tools/hash-generator.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/dice-coin.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/game-deals.html</loc></url>
-  <url><loc>https://velocitysystems.pages.dev/tools/file-converter.html</loc></url>
+  <url><loc>https://velocitysystems.pages.dev/tools/pdf-compressor.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/currency-converter.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/world-clock.html</loc></url>
   <url><loc>https://velocitysystems.pages.dev/tools/color-converter.html</loc></url>

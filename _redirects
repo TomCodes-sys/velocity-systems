@@ -1,0 +1,7 @@
+# Old converter pages now live in the combined File Converter
+/tools/image-converter        /tools/file-converter.html  301
+/tools/image-converter.html   /tools/file-converter.html  301
+/tools/video-converter        /tools/file-converter.html  301
+/tools/video-converter.html   /tools/file-converter.html  301
+/tools/audio-converter        /tools/file-converter.html  301
+/tools/audio-converter.html   /tools/file-converter.html  301

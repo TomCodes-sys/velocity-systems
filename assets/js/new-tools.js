@@ -23,96 +23,9 @@
     var $=function(s){return body.querySelector(s);};$('#fc-run').addEventListener('click',async function(){var a=$('#fc-a').files[0],b=$('#fc-b').files[0];if(!a||!b){$('#fc-result').textContent='Choose both files first.';return;}var btn=this;btn.disabled=true;btn.textContent='Comparing…';try{var ab=await a.arrayBuffer(),bb=await b.arrayBuffer(),ha=await crypto.subtle.digest('SHA-256',ab),hb=await crypto.subtle.digest('SHA-256',bb),hex=function(x){return Array.from(new Uint8Array(x)).map(function(v){return v.toString(16).padStart(2,'0');}).join('');},sameHash=hex(ha)===hex(hb),sameSize=a.size===b.size,first=-1;if($('#fc-mode').value==='exact'){var x=new Uint8Array(ab),y=new Uint8Array(bb),limit=Math.min(x.length,y.length);for(var i=0;i<limit;i++)if(x[i]!==y[i]){first=i;break;}if(first<0&&x.length!==y.length)first=limit;}var identical=sameSize&&sameHash;$('#fc-result').innerHTML='<strong>'+(identical?'Files are identical':sameSize?'Files differ despite matching sizes':'Files are different sizes')+'</strong><dl class="metadata-list"><dt>First file</dt><dd>'+esc(a.name)+' · '+bytes(a.size)+' · '+esc(a.type||'Unknown type')+' · '+new Date(a.lastModified).toLocaleString()+'</dd><dt>Second file</dt><dd>'+esc(b.name)+' · '+bytes(b.size)+' · '+esc(b.type||'Unknown type')+' · '+new Date(b.lastModified).toLocaleString()+'</dd><dt>SHA-256 A</dt><dd><code>'+hex(ha)+'</code></dd><dt>SHA-256 B</dt><dd><code>'+hex(hb)+'</code></dd><dt>Hash match</dt><dd>'+(sameHash?'Yes':'No')+'</dd>'+(first>=0?'<dt>First differing byte</dt><dd>'+first.toLocaleString()+' (0-based offset'+(first===limit&&x.length!==y.length?'; end-of-file on shorter file':'')+')</dd>':'')+'</dl>';}catch(e){$('#fc-result').textContent='Comparison failed: '+(e.message||'The browser could not read the files or calculate SHA-256.');}finally{btn.disabled=false;btn.textContent='Compare files';}});
   });}
 
-  function mountAudioConverter(container){mountEmbed(container,'TOOL / AUDIO CONVERTER',function(body){
-    body.innerHTML='<p class="tool-msg">Convert common audio formats, or pull the audio out of a video, in your browser using FFmpeg WebAssembly. The processing engine is downloaded on first use (roughly tens of MB) and then runs locally. Browser memory limits apply to long or high-resolution audio.</p><label class="field"><span class="field-label">Choose audio file</span><input id="ac-file" type="file" accept="audio/*,video/*,.mp3,.wav,.flac,.ogg,.m4a,.aac,.opus,.mp4,.mkv,.mov,.webm"></label><div class="tool-grid"><label class="field"><span class="field-label">Output format</span><select id="ac-format"><option value="mp3">MP3</option><option value="wav">WAV</option><option value="flac">FLAC</option><option value="ogg">OGG Vorbis</option><option value="m4a">M4A (AAC)</option><option value="opus">Opus</option></select></label><label class="field"><span class="field-label">MP3 / OGG bitrate</span><select id="ac-bitrate"><option>96</option><option>128</option><option selected>192</option><option>256</option><option>320</option></select></label><label class="field"><span class="field-label">Sample rate</span><select id="ac-rate"><option value="0">Keep source</option><option value="22050">22.05 kHz</option><option value="44100">44.1 kHz</option><option value="48000">48 kHz</option></select></label></div><div class="tool-row"><button class="game-btn" id="ac-run" disabled>Convert audio</button><a class="game-btn" id="ac-download" hidden>Download converted audio</a></div><div class="tool-output" id="ac-status" aria-live="polite">Choose an audio file to begin.</div>';
-    var $=function(s){return body.querySelector(s);},file=null,ff=null,outputUrl='';$('#ac-file').addEventListener('change',function(){file=this.files[0]||null;$('#ac-run').disabled=!file;$('#ac-status').textContent=file?file.name+' · '+bytes(file.size):'Choose an audio file to begin.';$('#ac-download').hidden=true;});
-    async function load(){if(ff)return ff;$('#ac-status').textContent='Loading FFmpeg engine…';var mod=await import('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js');var util=await import('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/esm/index.js');ff=new mod.FFmpeg();ff.on('log',function(e){if(e.message)$('#ac-status').textContent=e.message.slice(-240);});await ff.load({coreURL:await util.toBlobURL('https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js','text/javascript'),wasmURL:await util.toBlobURL('https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm','application/wasm')});ff._fetchFile=util.fetchFile;return ff;}
-    $('#ac-run').addEventListener('click',async function(){if(!file)return;var btn=this,format=$('#ac-format').value,ext=(file.name.split('.').pop()||'audio').replace(/[^a-z0-9]/gi,'').slice(0,8)||'audio',input='input.'+ext,out='converted.'+format;btn.disabled=true;btn.textContent='Preparing…';$('#ac-download').hidden=true;try{var engine=await load();$('#ac-status').textContent='Reading audio…';await engine.writeFile(input,await engine._fetchFile(file));var args=['-i',input];var rate=$('#ac-rate').value;if(rate!=='0')args.push('-ar',rate);if(format==='mp3')args.push('-b:a',$('#ac-bitrate').value+'k');if(format==='ogg')args.push('-c:a','libvorbis','-b:a',$('#ac-bitrate').value+'k');if(format==='flac')args.push('-c:a','flac');if(format==='m4a')args.push('-vn','-c:a','aac','-b:a',$('#ac-bitrate').value+'k');if(format==='opus')args.push('-vn','-c:a','libopus','-b:a',$('#ac-bitrate').value+'k');if(format==='wav')args.push('-c:a','pcm_s16le');args.push(out);$('#ac-status').textContent='Converting…';await engine.exec(args);var data=await engine.readFile(out),mime={mp3:'audio/mpeg',wav:'audio/wav',flac:'audio/flac',ogg:'audio/ogg',m4a:'audio/mp4',opus:'audio/ogg'}[format],blob=new Blob([data.buffer],{type:mime});if(outputUrl)URL.revokeObjectURL(outputUrl);outputUrl=URL.createObjectURL(blob);var name=file.name.replace(/\.[^.]+$/,'')+'.'+format;$('#ac-download').href=outputUrl;$('#ac-download').download=name;$('#ac-download').textContent='Download '+name+' · '+bytes(blob.size);$('#ac-download').hidden=false;$('#ac-status').textContent='Conversion complete · '+bytes(file.size)+' → '+bytes(blob.size)+'.';try{await engine.deleteFile(input);await engine.deleteFile(out);}catch(e){}}catch(e){$('#ac-status').textContent='Conversion failed: '+(e.message||'FFmpeg could not process this file. Check that the browser supports WebAssembly and the network allows the first-time engine download.');}finally{btn.disabled=false;btn.textContent='Convert audio';}});
-    onUnmount(body,function(){if(outputUrl)URL.revokeObjectURL(outputUrl);if(ff)try{ff.terminate();}catch(e){}});
-  });}
-
-
-  /* Video converter: any common video, GIF or audio file to any other format, using FFmpeg WebAssembly. */
-  function mountVideoConverter(container){mountEmbed(container,'TOOL / VIDEO CONVERTER',function(body){
-    var OUT={
-      mp4:{l:'MP4 (H.264 + AAC)',v:1,args:['-c:v','libx264','-pix_fmt','yuv420p','-preset','veryfast','-c:a','aac','-movflags','+faststart'],mime:'video/mp4'},
-      webm:{l:'WebM (VP8 + Vorbis)',v:1,args:['-c:v','libvpx','-b:v','0','-c:a','libvorbis'],mime:'video/webm'},
-      mov:{l:'MOV (H.264 + AAC)',v:1,args:['-c:v','libx264','-pix_fmt','yuv420p','-preset','veryfast','-c:a','aac'],mime:'video/quicktime'},
-      mkv:{l:'MKV (H.264 + AAC)',v:1,args:['-c:v','libx264','-pix_fmt','yuv420p','-preset','veryfast','-c:a','aac'],mime:'video/x-matroska'},
-      avi:{l:'AVI (MPEG-4 + MP3)',v:1,args:['-c:v','mpeg4','-vtag','xvid','-c:a','libmp3lame'],mime:'video/x-msvideo'},
-      gif:{l:'Animated GIF',v:1,gif:1,mime:'image/gif'},
-      webp:{l:'Animated WebP',v:1,webp:1,mime:'image/webp'},
-      mp3:{l:'MP3 (audio only)',a:1,args:['-vn','-c:a','libmp3lame'],mime:'audio/mpeg'},
-      m4a:{l:'M4A / AAC (audio only)',a:1,args:['-vn','-c:a','aac'],mime:'audio/mp4'},
-      ogg:{l:'OGG Vorbis (audio only)',a:1,args:['-vn','-c:a','libvorbis'],mime:'audio/ogg'},
-      wav:{l:'WAV (audio only)',a:1,args:['-vn','-c:a','pcm_s16le'],mime:'audio/wav'},
-      flac:{l:'FLAC (audio only)',a:1,args:['-vn','-c:a','flac'],mime:'audio/flac'}
-    };
-    body.innerHTML='<p class="tool-msg">Convert between video, GIF and audio formats in your browser with FFmpeg WebAssembly, in either direction: MP4 to GIF, GIF to MP4, MOV to WebM, video to MP3 and more. The engine (tens of MB) downloads on first use and then runs locally; your files are never uploaded. Long or high-resolution clips need a lot of memory and time.</p>'+
-    '<label class="fv-drop" id="vc-drop" for="vc-file"><b>Drop a video, GIF or audio file here</b> or click to choose<span id="vc-name"></span></label><input id="vc-file" type="file" accept="video/*,audio/*,image/gif,.mkv,.avi,.mov,.flv,.wmv,.m4v,.3gp,.gif,.webp,.ts" hidden data-nopersist>'+
-    '<div class="tool-grid"><label class="field"><span class="field-label">Convert to</span><select id="vc-fmt">'+Object.keys(OUT).map(function(k){return '<option value="'+k+'">'+OUT[k].l+'</option>';}).join('')+'</select></label>'+
-    '<label class="field" id="vc-wf"><span class="field-label">Max width</span><select id="vc-w"><option value="0">Keep original</option><option value="1920">1920 px</option><option value="1280">1280 px</option><option value="854">854 px</option><option value="640">640 px</option><option value="480">480 px</option><option value="320">320 px</option></select></label>'+
-    '<label class="field" id="vc-ff"><span class="field-label">Frame rate</span><select id="vc-fps"><option value="0">Keep original</option><option value="30">30 fps</option><option value="24">24 fps</option><option value="15">15 fps</option><option value="12">12 fps</option><option value="10">10 fps</option><option value="5">5 fps</option></select></label>'+
-    '<label class="field" id="vc-qf"><span class="field-label">Quality <span id="vc-qv">Balanced</span></span><input id="vc-q" type="range" min="1" max="5" value="3"></label>'+
-    '<label class="field"><span class="field-label">Start at (seconds)</span><input id="vc-ss" inputmode="decimal" placeholder="0"></label><label class="field"><span class="field-label">Length (seconds)</span><input id="vc-t" inputmode="decimal" placeholder="Whole file"></label></div>'+
-    '<div class="tool-row"><label id="vc-mutel" style="display:inline-flex;gap:6px;align-items:center;font-size:12px"><input type="checkbox" id="vc-mute"> Remove audio</label><label id="vc-loopl" style="display:inline-flex;gap:6px;align-items:center;font-size:12px"><input type="checkbox" id="vc-loop" checked> Loop forever (GIF / WebP)</label></div>'+
-    '<div class="tool-row"><button class="game-btn" id="vc-run" disabled>Convert</button><button class="game-btn secondary" id="vc-cancel" hidden>Cancel</button><a class="game-btn" id="vc-dl" hidden>Download</a></div>'+
-    '<div style="height:8px;background:var(--surface-2);border:1px solid var(--line);border-radius:6px;overflow:hidden" id="vc-bar" hidden><div id="vc-fill" style="height:100%;width:0;background:var(--accent)"></div></div>'+
-    '<div class="tool-output" id="vc-status" aria-live="polite">Choose a file to begin.</div><div id="vc-prev" style="margin-top:8px"></div>';
-    var $=function(s){return body.querySelector(s);},file=null,ff=null,url='',busy=false,QL=['Smallest','Small','Balanced','Good','Best'];
-    function fmtSel(){var o=OUT[$('#vc-fmt').value],v=!!o.v;$('#vc-wf').hidden=!v;$('#vc-ff').hidden=!v;$('#vc-qf').hidden=!!o.gif&&false;$('#vc-mutel').hidden=!v||!!o.gif||!!o.webp;$('#vc-loopl').hidden=!(o.gif||o.webp);
-      if(o.gif&&$('#vc-fps').value==='0')$('#vc-fps').value='12';if(o.gif&&$('#vc-w').value==='0')$('#vc-w').value='480';
-      $('#vc-fps').dispatchEvent(new Event('input',{bubbles:true}));$('#vc-w').dispatchEvent(new Event('input',{bubbles:true}));}
-    $('#vc-fmt').addEventListener('change',fmtSel);fmtSel();
-    $('#vc-q').addEventListener('input',function(){$('#vc-qv').textContent=QL[this.value-1];});
-    function pick(f){if(!f)return;file=f;$('#vc-name').textContent=f.name+' · '+bytes(f.size);$('#vc-run').disabled=false;$('#vc-dl').hidden=true;$('#vc-prev').innerHTML='';
-      var isA=/^audio\//.test(f.type)||/\.(mp3|wav|flac|ogg|m4a|aac|opus)$/i.test(f.name);if(isA&&OUT[$('#vc-fmt').value].v){$('#vc-fmt').value='mp3';$('#vc-fmt').dispatchEvent(new Event('input',{bubbles:true}));fmtSel();}
-      if(/\.gif$/i.test(f.name)&&$('#vc-fmt').value==='gif'){$('#vc-fmt').value='mp4';$('#vc-fmt').dispatchEvent(new Event('input',{bubbles:true}));fmtSel();}
-      $('#vc-status').textContent=f.size>500*1048576?'This file is very large ('+bytes(f.size)+'). The browser may run out of memory.':'Ready. Choose a format and click Convert.';}
-    $('#vc-file').addEventListener('change',function(){pick(this.files[0]);this.value='';});
-    var drop=$('#vc-drop');['dragenter','dragover'].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();});});drop.addEventListener('drop',function(e){e.preventDefault();pick(e.dataTransfer.files[0]);});
-    async function load(){if(ff)return ff;$('#vc-status').textContent='Loading FFmpeg engine (first use only)…';var mod=await import('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js');var util=await import('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/esm/index.js');var e=new mod.FFmpeg();
-      e.on('progress',function(p){if(busy&&isFinite(p.progress)){$('#vc-fill').style.width=Math.max(0,Math.min(100,p.progress*100)).toFixed(1)+'%';$('#vc-status').textContent='Converting… '+Math.max(0,Math.min(100,Math.round(p.progress*100)))+'%';}});
-      e.on('log',function(m){if(m.message&&/error|invalid|unsupported|no such/i.test(m.message))e._lastErr=m.message;});
-      await e.load({coreURL:await util.toBlobURL('https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js','text/javascript'),wasmURL:await util.toBlobURL('https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm','application/wasm')});e._fetchFile=util.fetchFile;ff=e;return e;}
-    function build(fmt,input,out){
-      var o=OUT[fmt],a=[],ss=parseFloat($('#vc-ss').value),t=parseFloat($('#vc-t').value),q=+$('#vc-q').value,w=+$('#vc-w').value,fps=+$('#vc-fps').value;
-      if(ss>0)a.push('-ss',String(ss));a.push('-i',input);if(t>0)a.push('-t',String(t));
-      if(o.a){var br=['64k','96k','128k','192k','256k'][q-1];a.push.apply(a,o.args);if(fmt!=='wav'&&fmt!=='flac')a.push('-b:a',br);a.push(out);return a;}
-      var scale=(w>0?'scale=\'min('+w+',iw)\':-2':'scale=trunc(iw/2)*2:trunc(ih/2)*2');
-      if(o.gif){var f=fps||12,cols=[32,64,128,200,256][q-1];a.push('-an','-filter_complex','[0:v]fps='+f+','+(w>0?'scale=\'min('+w+',iw)\':-1:flags=lanczos':'scale=iw:-1:flags=lanczos')+',split[a][b];[a]palettegen=max_colors='+cols+'[p];[b][p]paletteuse=dither=bayer:bayer_scale=4','-loop',$('#vc-loop').checked?'0':'-1',out);return a;}
-      if(o.webp){var f2=fps||12;a.push('-an','-vf','fps='+f2+','+(w>0?'scale=\'min('+w+',iw)\':-1':'scale=iw:-1'),'-c:v','libwebp','-q:v',String([30,45,60,75,90][q-1]),'-loop',$('#vc-loop').checked?'0':'1',out);return a;}
-      var vf=[];if(fps>0)vf.push('fps='+fps);vf.push(scale);vf.push('format=yuv420p');a.push('-vf',vf.join(','));
-      var crf=[34,30,26,22,18][q-1];
-      if(fmt==='webm'){a.push('-c:v','libvpx','-crf',String(crf+4),'-b:v','1M','-c:a','libvorbis');}
-      else if(fmt==='avi'){a.push('-c:v','mpeg4','-q:v',String([8,6,4,3,2][q-1]),'-vtag','xvid','-c:a','libmp3lame');}
-      else a.push.apply(a,o.args.slice(0,o.args.indexOf('-preset')+2)),a.push('-crf',String(crf),'-c:a','aac');
-      if($('#vc-mute').checked){a=a.filter(function(x){return x!=='-c:a'&&x!=='aac'&&x!=='libvorbis'&&x!=='libmp3lame';});a.push('-an');}
-      if(fmt==='mp4')a.push('-movflags','+faststart');a.push(out);return a;
-    }
-    $('#vc-run').addEventListener('click',async function(){
-      if(!file||busy)return;var btn=this,fmt=$('#vc-fmt').value,o=OUT[fmt],ext=(file.name.split('.').pop()||'bin').replace(/[^a-z0-9]/gi,'').slice(0,8)||'bin',input='input.'+ext,out='output.'+fmt;
-      busy=true;btn.disabled=true;$('#vc-cancel').hidden=false;$('#vc-dl').hidden=true;$('#vc-prev').innerHTML='';$('#vc-bar').hidden=false;$('#vc-fill').style.width='0';
-      try{var e=await load();e._lastErr='';$('#vc-status').textContent='Reading file…';await e.writeFile(input,await e._fetchFile(file));$('#vc-status').textContent='Converting…';
-        var rc=await e.exec(build(fmt,input,out));if(rc!==0&&rc!==undefined)throw new Error(e._lastErr||'FFmpeg could not convert this file to '+o.l+'.');
-        var data=await e.readFile(out);if(!data||!data.length)throw new Error('The conversion produced an empty file. The input may have no '+(o.a?'audio':'video')+' stream.');
-        var blob=new Blob([data.buffer],{type:o.mime});if(url)URL.revokeObjectURL(url);url=URL.createObjectURL(blob);var name=file.name.replace(/\.[^.]+$/,'')+'.'+fmt;
-        $('#vc-dl').href=url;$('#vc-dl').download=name;$('#vc-dl').textContent='Download '+name+' · '+bytes(blob.size);$('#vc-dl').hidden=false;$('#vc-fill').style.width='100%';
-        $('#vc-status').textContent='Done: '+bytes(file.size)+' → '+bytes(blob.size)+'.';
-        var el=o.gif||o.webp?'img':o.a?'audio':'video';if(blob.size<150*1048576){var pv=document.createElement(el);if(el==='img'){pv.alt='Preview of the converted file';pv.style.maxWidth='100%';}else{pv.controls=true;pv.style.maxWidth='100%';pv.style.maxHeight='360px';}pv.src=url;$('#vc-prev').appendChild(pv);}
-        try{await e.deleteFile(input);await e.deleteFile(out);}catch(x){}
-      }catch(err){var msg=String(err&&err.message||err);$('#vc-status').textContent=/terminate|abort/i.test(msg)?'Conversion cancelled.':'Conversion failed: '+msg+(/memory|alloc/i.test(msg)?' The file may be too large for this browser.':'');if(/terminate|abort/i.test(msg))ff=null;}
-      finally{busy=false;btn.disabled=false;$('#vc-cancel').hidden=true;setTimeout(function(){if(!busy)$('#vc-bar').hidden=true;},1200);}
-    });
-    $('#vc-cancel').addEventListener('click',function(){if(ff){try{ff.terminate();}catch(e){}ff=null;}});
-    onUnmount(body,function(){if(url)URL.revokeObjectURL(url);if(ff)try{ff.terminate();}catch(e){}});
-  });}
-
   PLAYABLES['storage-visualiser']=mountStorage;
   PLAYABLES['api-request-tester']=mountApiTester;
   PLAYABLES['file-comparison']=mountFileCompare;
-  PLAYABLES['audio-converter']=mountAudioConverter;
-  PLAYABLES['video-converter']=mountVideoConverter;
 })();
 
-(function(){var id=document.body.getAttribute("data-id"),slot=document.getElementById("embed-slot"),ids=["audio-converter","video-converter","storage-visualiser","api-request-tester","file-comparison"];if(slot&&ids.indexOf(id)>=0&&PLAYABLES[id])PLAYABLES[id](slot);})();
+(function(){var id=document.body.getAttribute("data-id"),slot=document.getElementById("embed-slot"),ids=["storage-visualiser","api-request-tester","file-comparison"];if(slot&&ids.indexOf(id)>=0&&PLAYABLES[id])PLAYABLES[id](slot);})();
