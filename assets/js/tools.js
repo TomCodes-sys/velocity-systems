@@ -1015,7 +1015,7 @@ function mountFileConverter(container){
     function opt(v, l, sel){ return '<option value="' + v + '"' + (sel ? ' selected' : '') + '>' + l + '</option>'; }
     function field(id, label, inner, m, f){ return '<div class="field" id="' + id + '-f" data-m="' + m + '"' + (f ? ' data-f="' + f + '"' : '') + '><label for="' + id + '">' + label + '</label>' + inner + '</div>'; }
     body.innerHTML =
-      '<div class="tool-row"><span class="seg" id="fv-seg">' + Object.keys(MODES).map(function(k, i){ return '<button type="button" data-m="' + k + '"' + (i ? '' : ' class="on"') + '>' + MODES[k].label + '</button>'; }).join('') + '</span></div>' +
+      '<div class="tool-row"><span class="seg slide" id="fv-seg"><i class="seg-thumb"></i>' + Object.keys(MODES).map(function(k, i){ return '<button type="button" data-m="' + k + '"' + (i ? '' : ' class="on"') + '>' + MODES[k].label + '</button>'; }).join('') + '</span></div>' +
       '<label class="fv-drop" id="fv-drop" for="fv-file"><b>Drop files here</b> or click to choose<span id="fv-hint"></span></label>' +
       '<input type="file" id="fv-file" multiple hidden data-nopersist>' +
       '<div class="tool-grid">' +
@@ -1031,7 +1031,7 @@ function mountFileConverter(container){
         field('vc-q', 'Quality <span id="vc-qv">Balanced</span>', '<input id="vc-q" type="range" min="1" max="5" value="3">', 'vid', 'mp4 webm mov mkv avi gif webp jpg mp3 m4a ogg opus') +
         field('vc-ss', 'Start at (seconds)', '<input id="vc-ss" inputmode="decimal" placeholder="0">', 'vid') +
         field('vc-t', 'Length (seconds)', '<input id="vc-t" inputmode="decimal" placeholder="Whole file">', 'vid', 'mp4 webm mov mkv avi gif webp mp3 m4a ogg opus wav flac') +
-        field('ac-br', 'Bitrate', '<select id="ac-br">' + opt('64k', '64 kbps') + opt('96k', '96 kbps') + opt('128k', '128 kbps') + opt('192k', '192 kbps', 1) + opt('256k', '256 kbps') + opt('320k', '320 kbps') + '</select>', 'aud', 'mp3 m4a ogg opus') +
+        field('ac-br', 'Bitrate', '<select id="ac-br">' + opt('src', 'Source (match input)', 1) + opt('64k', '64 kbps') + opt('96k', '96 kbps') + opt('128k', '128 kbps') + opt('192k', '192 kbps') + opt('256k', '256 kbps') + opt('320k', '320 kbps') + '</select>', 'aud', 'mp3 m4a ogg opus') +
         field('ac-rate', 'Sample rate', '<select id="ac-rate">' + opt(0, 'Keep original') + opt(48000, '48 kHz') + opt(44100, '44.1 kHz') + opt(22050, '22.05 kHz') + opt(16000, '16 kHz') + '</select>', 'aud', 'mp3 m4a ogg wav flac') +
         field('fv-dscale', 'Page resolution', '<select id="fv-dscale">' + opt(1, 'Standard (1×)') + opt(1.5, 'Sharp (1.5×)') + opt(2, 'High (2×)', 1) + opt(3, 'Very high (3×)') + '</select>', 'doc', 'png jpg') +
       '</div>' +
@@ -1215,6 +1215,26 @@ function mountFileConverter(container){
       if(fmt === 'mp4') a.push('-movflags', '+faststart');
       a.push(out); return a;
     }
+    /* "Source" bitrate: average bitrate of the input (size / duration), clamped to what the encoder allows. */
+    function resolveBr(it, fmt, o){
+      if(o.br !== 'src' || !AUDIO_ONLY(fmt) || fmt === 'wav' || fmt === 'flac') return Promise.resolve(o);
+      var FALL = '192k', lim = {mp3: [32, 320], m4a: [32, 320], ogg: [32, 320], opus: [16, 320]}[fmt];
+      if(mode !== 'aud') return Promise.resolve(Object.assign({}, o, {br: FALL}));
+      var lossless = /^(wav|flac|aiff?|alac)$/.test(extOf(it.file.name));
+      return new Promise(function(res){
+        var a = new Audio(), u = URL.createObjectURL(it.file), done = false;
+        function fin(k){ if(done) return; done = true; URL.revokeObjectURL(u); a.removeAttribute('src'); res(Object.assign({}, o, {br: k})); }
+        a.preload = 'metadata';
+        a.onloadedmetadata = function(){
+          var d = a.duration; if(!isFinite(d) || d <= 0) return fin(FALL);
+          var k = lossless ? lim[1] : Math.round(it.file.size * 8 / d / 1000);
+          fin(Math.max(lim[0], Math.min(lim[1], k)) + 'k');
+        };
+        a.onerror = function(){ fin(FALL); };
+        setTimeout(function(){ fin(FALL); }, 4000);
+        a.src = u;
+      });
+    }
     function ffConvert(it, fmt, o){
       var ext = (extOf(it.file.name) || 'bin').replace(/[^a-z0-9]/g, '').slice(0, 8) || 'bin', input = 'input.' + ext, out = 'output.' + fmt, ff;
       return vsLoadFFmpeg(function(m){ it.sub = m; drawStatus(it); }).then(function(e){
@@ -1224,7 +1244,7 @@ function mountFileConverter(container){
         return it.file.arrayBuffer().then(function(ab){ return ff.writeFile(input, new Uint8Array(ab)); });
       }).then(function(){
         it.sub = 'Converting…'; drawStatus(it);
-        return ff.exec(ffArgs(fmt, input, out, o));
+        return resolveBr(it, fmt, o).then(function(oo){ return ff.exec(ffArgs(fmt, input, out, oo)); });
       }).then(function(rc){
         if(rc !== 0 && rc !== undefined) throw new Error(vsFF.lastErr || 'FFmpeg could not convert this file to ' + fmt.toUpperCase() + '.');
         return ff.readFile(out);
@@ -1495,7 +1515,7 @@ function mountFileConverter(container){
     }
     function setMode(m, keepItems){
       mode = m;
-      Array.prototype.forEach.call(body.querySelectorAll('#fv-seg button'), function(b){ b.classList.toggle('on', b.getAttribute('data-m') === m); });
+      Array.prototype.forEach.call(body.querySelectorAll('#fv-seg button'), function(b){ b.classList.toggle('on', b.getAttribute('data-m') === m); }); posSeg();
       $('#fv-file').accept = MODES[m].accept; $('#fv-hint').textContent = MODES[m].hint;
       if(!keepItems) items = [];
       fmtTouched = false; $('#fv-prev').innerHTML = '';
@@ -1550,6 +1570,16 @@ function mountFileConverter(container){
     });
     body.addEventListener('input', function(e){ if(e.target.id === 'fv-q' || e.target.id === 'vc-q') fmtUi(); });
     body.addEventListener('change', function(e){ if(e.target.id === 'fv-fmt'){ fmtTouched = true; fmtUi(); } if(e.target.id === 'fv-merge') fmtUi(); });
+    function posSeg(instant){
+      var seg = $('#fv-seg'), th = seg && seg.querySelector('.seg-thumb'), on = seg && seg.querySelector('button.on');
+      if(!th || !on || !on.offsetWidth) return;
+      if(instant) th.classList.add('nomove');
+      th.style.setProperty('--x', on.offsetLeft + 'px'); th.style.setProperty('--y', on.offsetTop + 'px');
+      th.style.setProperty('--w', on.offsetWidth + 'px'); th.style.setProperty('--h', on.offsetHeight + 'px');
+      if(instant){ th.offsetWidth; th.classList.remove('nomove'); }
+    }
+    requestAnimationFrame(function(){ posSeg(true); });
+    if(window.ResizeObserver) new ResizeObserver(function(){ posSeg(true); }).observe($('#fv-seg'));
     $('#fv-seg').addEventListener('click', function(e){ var b = e.target.closest('[data-m]'); if(b && !busy) setMode(b.getAttribute('data-m')); });
     onUnmount(body, function(){ if(vsFF.inst){ try { vsFF.inst.terminate(); } catch(e){} } });
     setMode('img');
@@ -7172,11 +7202,12 @@ function mountMicrophoneTester(container){
       '<canvas id="mic-scope" height="64" style="width:100%;height:64px;margin-top:10px;background:var(--surface-2);border:1px solid var(--line);border-radius:6px"></canvas>'+
       '<p class="hint" id="mic-info"></p><p class="hint" id="mic-clip" style="color:#ff6b6b" hidden>Clipping detected: the input is too loud. Lower the gain or move back from the microphone.</p>'+
       '<p class="hint" id="mic-status" role="status">Microphone is off. Audio stays in this browser unless you choose to download it.</p></div>'+
-      '<div class="result-card" id="mic-rec-card" hidden><div class="field-label">Recording <span id="mic-rec-time" style="float:right;font-family:var(--font-mono)">0:00</span></div><audio id="mic-audio" controls style="width:100%"></audio></div>';
+      '<div class="result-card" id="mic-rec-card" hidden><div class="field-label">Recording <span id="mic-rec-time" style="float:right;font-family:var(--font-mono)">0:00</span></div><audio id="mic-audio" controls style="width:100%"></audio></div>'+
+      '<div class="result-card" id="mic-hist-card" hidden><div class="field-label">Recording history <span id="mic-hist-count" style="font-family:var(--font-mono)"></span><button type="button" class="game-btn secondary" id="mic-hist-clear" style="float:right;padding:4px 10px;font-size:11px">Clear all</button></div><p class="hint" style="margin:4px 0 0">Kept in this tab only. Closing or reloading the page removes them, so download any you want to keep.</p><div id="mic-hist"></div></div>';
     var q=function(s){return body.querySelector(s);};
     var device=q('#mic-device'),delay=q('#mic-delay'),label=q('#mic-delay-label'),reset=q('#mic-delay-reset'),gain=q('#mic-gain'),gainLabel=q('#mic-gain-label'),monitorSw=q('#mic-monitor'),
         start=q('#mic-start'),stop=q('#mic-stop'),mute=q('#mic-mute'),record=q('#mic-record'),play=q('#mic-play'),download=q('#mic-download'),status=q('#mic-status'),
-        level=q('#mic-level'),peak=q('#mic-peak'),db=q('#mic-db'),scope=q('#mic-scope'),info=q('#mic-info'),clip=q('#mic-clip'),audio=q('#mic-audio'),recCard=q('#mic-rec-card'),recTime=q('#mic-rec-time');
+        level=q('#mic-level'),peak=q('#mic-peak'),db=q('#mic-db'),scope=q('#mic-scope'),info=q('#mic-info'),clip=q('#mic-clip'),audio=q('#mic-audio'),recCard=q('#mic-rec-card'),recTime=q('#mic-rec-time'),histCard=q('#mic-hist-card'),histList=q('#mic-hist'),histCount=q('#mic-hist-count'),histClear=q('#mic-hist-clear');
     var stream=null,ctx=null,source=null,analyser=null,gainNode=null,delayNode=null,monGain=null,raf=0,recorder=null,chunks=[],recordUrl=null,peakHold=0,peakAt=0,clipAt=0,recT0=0,recTimer=0,muted=false,starting=false;
     function setSw(el,on){el.classList.toggle('on',on);el.setAttribute('aria-checked',on);}
     function isOn(el){return el.classList.contains('on');}
@@ -7258,6 +7289,23 @@ function mountMicrophoneTester(container){
     [['#mic-ns','ns'],['#mic-ec','ec'],['#mic-agc','agc']].forEach(function(p){var el=q(p[0]);el.addEventListener('click',function(){var on=!isOn(el);setSw(el,on);lw(p[1],on);if(stream){stopMic();begin();}});});
     device.addEventListener('change',function(){if(stream){stopMic();begin();}});
     function fmt(s){s=Math.floor(s);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');}
+    var hist=[],hseq=0;
+    function histSync(){histCard.hidden=!hist.length;histCount.textContent=hist.length?'('+hist.length+')':'';}
+    function histAdd(url,ext,dur,size){
+      var n=++hseq,row=document.createElement('div');
+      row.style.cssText='display:flex;flex-direction:column;gap:6px;padding:10px 0;border-top:1px solid var(--line);margin-top:10px';
+      var meta=document.createElement('div');meta.style.cssText='display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;font:11px var(--font-mono);color:var(--muted)';
+      var txt=document.createElement('span');txt.textContent='#'+n+' · '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})+' · '+fmt(dur)+' · '+Math.round(size/1024)+' KB';
+      var act=document.createElement('span');act.style.cssText='display:flex;gap:6px';
+      var dl=document.createElement('a');dl.className='game-btn secondary';dl.textContent='Download';dl.href=url;dl.download='microphone-test-'+n+'.'+ext;
+      var del=document.createElement('button');del.type='button';del.className='game-btn secondary';del.textContent='Delete';
+      var au=document.createElement('audio');au.controls=true;au.preload='metadata';au.src=url;au.style.width='100%';
+      act.appendChild(dl);act.appendChild(del);meta.appendChild(txt);meta.appendChild(act);row.appendChild(meta);row.appendChild(au);
+      var entry={url:url,row:row};hist.unshift(entry);histList.insertBefore(row,histList.firstChild);
+      del.addEventListener('click',function(){au.pause();hist.splice(hist.indexOf(entry),1);row.remove();URL.revokeObjectURL(url);histSync();});
+      histSync();
+    }
+    histClear.addEventListener('click',function(){hist.forEach(function(h){URL.revokeObjectURL(h.url);});hist=[];histList.innerHTML='';histSync();});
     record.addEventListener('click',function(){
       if(!stream||!window.MediaRecorder)return;
       if(recorder&&recorder.state==='recording'){recorder.stop();return;}
@@ -7268,7 +7316,7 @@ function mountMicrophoneTester(container){
       recorder.ondataavailable=function(e){if(e.data&&e.data.size)chunks.push(e.data);};
       recorder.onstop=function(){
         clearInterval(recTimer);record.textContent='Start recording';
-        var blob=new Blob(chunks,{type:recorder.mimeType||'audio/webm'});if(recordUrl)URL.revokeObjectURL(recordUrl);recordUrl=URL.createObjectURL(blob);
+        var blob=new Blob(chunks,{type:recorder.mimeType||'audio/webm'});recordUrl=URL.createObjectURL(blob);histAdd(URL.createObjectURL(blob),/ogg/.test(blob.type)?'ogg':/mp4/.test(blob.type)?'m4a':'webm',(Date.now()-recT0)/1000,blob.size);
         audio.src=recordUrl;recCard.hidden=false;download.href=recordUrl;download.setAttribute('download','microphone-test.'+(/ogg/.test(blob.type)?'ogg':/mp4/.test(blob.type)?'m4a':'webm'));download.hidden=false;play.disabled=false;
         status.textContent='Recording ready ('+fmt((Date.now()-recT0)/1000)+', '+Math.round(blob.size/1024)+' KB). Play it back or download the file.';
       };
@@ -7277,7 +7325,7 @@ function mountMicrophoneTester(container){
       record.textContent='Stop recording';status.textContent='Recording microphone input…';
     });
     play.addEventListener('click',function(){audio.play().catch(function(){status.textContent='Playback was blocked. Use the audio player controls.';});});
-    onUnmount('microphone-tester',function(){stopMic();if(recordUrl)URL.revokeObjectURL(recordUrl);});
+    onUnmount('microphone-tester',function(){stopMic();if(recordUrl)URL.revokeObjectURL(recordUrl);hist.forEach(function(h){URL.revokeObjectURL(h.url);});});
     var sd=+ls('delay',DEF_DELAY);delay.value=isFinite(sd)?sd:DEF_DELAY;applyDelay();applyMonitor();
     devices();
   },{persist:false});

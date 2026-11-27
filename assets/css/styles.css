@@ -1778,3 +1778,33 @@ a,button,summary,select,[role=button],label{touch-action:manipulation}
 .more-main small{display:block;color:var(--muted);font-size:12px;line-height:1.4;margin-top:2px}
 
 input::placeholder,textarea::placeholder{color:var(--muted);opacity:.9}
+
+/* ---- Settings: gap between choice buttons ---- */
+.setting-row>div:not(.font-grid){gap:6px;flex-wrap:wrap;justify-content:flex-end}
+
+/* ---- Gradient angle control ---- */
+.angle-ctl{display:flex;align-items:center;gap:12px;height:36px}
+.angle-dial{position:relative;width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:var(--surface-2);cursor:grab;touch-action:none;flex-shrink:0;transition:border-color .15s}
+.angle-dial:hover,.angle-dial.drag{border-color:var(--accent)}
+.angle-dial.drag{cursor:grabbing}
+.angle-dial::after{content:"";position:absolute;left:50%;top:50%;width:5px;height:5px;margin:-2.5px;border-radius:50%;background:var(--accent)}
+.angle-dial i{position:absolute;inset:0;transition:transform .12s ease-out}
+.angle-dial.drag i{transition:none}
+.angle-dial i::before{content:"";position:absolute;left:50%;top:4px;width:2px;height:12px;margin-left:-1px;border-radius:2px;background:var(--accent)}
+.angle-ctl input[type=range]{width:120px;accent-color:var(--accent);margin:0}
+.angle-out{min-width:38px;font:11px var(--font-mono);color:var(--text);text-align:right}
+@media(prefers-reduced-motion:reduce){.angle-dial i{transition:none}}
+
+/* ---- Library platform tags ---- */
+.plat{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 6px;border:1px solid var(--line);border-radius:var(--rad);color:var(--muted);background:var(--surface-1);font:700 10px var(--font-mono);letter-spacing:.04em}
+.plat svg{display:block}
+.plat b{font:inherit}
+.plat-all{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
+
+/* ---- Sliding segmented control ---- */
+.seg.slide{position:relative;background:var(--surface-2)}
+.seg.slide button{position:relative;z-index:1;background:transparent;transition:color .2s}
+.seg.slide button.on{background:transparent}
+.seg-thumb{position:absolute;left:0;top:0;width:var(--w,0);height:var(--h,0);transform:translate(var(--x,0),var(--y,0));background:var(--accent);z-index:0;pointer-events:none;transition:transform .32s cubic-bezier(.3,1.3,.5,1),width .32s cubic-bezier(.3,1.3,.5,1),height .2s}
+.seg-thumb.nomove{transition:none}
+@media(prefers-reduced-motion:reduce){.seg-thumb,.seg.slide button{transition:none}}

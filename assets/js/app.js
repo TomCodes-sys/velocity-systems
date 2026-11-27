@@ -361,10 +361,32 @@ function favoriteButtonHtml(item, size){
 }
 // Compact list/grid card — text only, no thumbnail. The image itself only
 // ever appears on the item's own detail page (see pageDetail's hero-img).
+var PLAT_SVG = {
+  windows:'<path d="M3 5.5l7.5-1v7H3zM11.5 4.4L21 3v8.5h-9.5zM3 12.5h7.5v7L3 18.5zM11.5 12.5H21V21l-9.5-1.4z"/>',
+  macos:'<path d="M16.4 12.6c0-2.2 1.8-3.2 1.9-3.3-1-1.5-2.6-1.7-3.2-1.7-1.4-.1-2.6.8-3.3.8s-1.7-.8-2.8-.8C7.5 7.6 6.1 8.5 5.4 9.8c-1.5 2.6-.4 6.5 1.1 8.6.7 1 1.6 2.2 2.7 2.1 1.1 0 1.5-.7 2.8-.7s1.7.7 2.8.7 1.9-1 2.6-2.1c.8-1.2 1.2-2.3 1.2-2.4-.1 0-2.2-.8-2.2-3.4zM14.3 6.2c.6-.7 1-1.7.9-2.7-.9 0-1.9.6-2.5 1.3-.5.6-1 1.6-.9 2.6 1 .1 1.9-.5 2.5-1.2z"/>',
+  linux:'<path d="M12 2.5c-2 0-3 1.8-3 4 0 1.2-.4 2-1.2 3.2C6.6 11.3 5.5 13.5 5.5 16c0 1.2.5 2 1.5 2.4-.2.8.2 1.4 1.2 1.6.9.2 1.8 0 2.4-.6.6.2 1.3.2 1.9.2s1.3 0 1.9-.2c.6.6 1.5.8 2.4.6 1-.2 1.4-.8 1.2-1.6 1-.4 1.5-1.2 1.5-2.4 0-2.5-1.1-4.7-2.3-6.3C15.4 8.5 15 7.7 15 6.5c0-2.2-1-4-3-4z"/><circle cx="10.2" cy="7" r=".9" fill="var(--surface-1)"/><circle cx="13.8" cy="7" r=".9" fill="var(--surface-1)"/><path d="M10.5 9.2h3L12 10.6z" fill="var(--surface-1)"/>'
+};
+function platformTagsHtml(platform){
+  var p = String(platform||'').toLowerCase();
+  var win = /windows/.test(p), mac = /mac/.test(p), lin = /linux/.test(p), multi = /multi/.test(p), web = /\bweb\b/.test(p);
+  var all = multi || (win && mac && lin);
+  var svg = function(k){ return '<svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true">'+PLAT_SVG[k]+'</svg>'; };
+  var tag = function(label, inner, cls){ return '<span class="plat'+(cls?' '+cls:'')+'" title="'+label+'" aria-label="'+label+'">'+inner+'</span>'; };
+  var out = '';
+  if(all) out += tag('Windows, macOS and Linux', icon('layers',{size:13})+'<b>All</b>', 'plat-all');
+  else {
+    if(win) out += tag('Windows', svg('windows'));
+    if(mac) out += tag('macOS', svg('macos'));
+    if(lin) out += tag('Linux', svg('linux'));
+    if(web) out += tag('Web', icon('globe',{size:13}));
+  }
+  return out;
+}
 function contentCardHtml(item){
   var tags = item.tags.slice(0,3).map(function(t){ return '<a href="'+searchUrl({tag:t})+'" class="card-tag-link">#'+esc(t)+'</a>'; }).join('');
   var foot = item.openSource ? '<span class="badge ok">Open Source</span>' : '';
   foot += item.free ? '<span class="badge">Free</span>' : (!item.openSource ? '<span class="badge">'+esc(item.status)+'</span>' : '');
+  if(item.kind==='library') foot = platformTagsHtml(item.platform) + foot;
   // The whole card is clickable via a full-card overlay link (so users don't
   // have to aim for the title). The favorite button and tag links sit in
   // their own stacking context above it so they still work independently.
@@ -565,13 +587,13 @@ function layoutNavPins(){
   links.forEach(function(l){ l.style.display = ''; });
   if(!links.length) return;
   var widths = links.map(function(l){return l.offsetWidth + 6;});
-  var total = widths.reduce(function(a,b){return a+b;},0);
+  var total = widths.reduce(function(a,b){return a+b;},0) - 6; /* n items have n-1 gaps */
   var avail = Math.max(0,container.clientWidth);
   /* Only reserve the overflow button when there really is overflow. This avoids
      needlessly hiding the last pin behind the menu while a little space remains. */
-  if(total <= avail) return;
+  if(total <= avail + 1) return;
   moreWrap.style.display = '';
-  var reserve = moreWrap.offsetWidth + 6;
+  var reserve = moreWrap.offsetWidth;
   avail = Math.max(0,avail-reserve);
   var used = 0, overflow = [];
   links.forEach(function(l,i){
@@ -1120,7 +1142,7 @@ function pageSettings(){
         '<div class="custom-theme-field"><label for="custom-accent">Accent</label><input type="color" id="custom-accent" value="'+(settings.customAccent||'#3b82f6')+'"></div>'+
         '<div class="custom-theme-field"><label for="custom-bg">Background</label><input type="color" id="custom-bg" value="'+(settings.customSurface||'#0a0a0c')+'"></div>'+
         '<div class="custom-theme-field"><label for="custom-gradient-end">Gradient colour</label><input type="color" id="custom-gradient-end" value="'+(settings.customGradientEnd||'#26334a')+'"></div>'+
-        '<div class="custom-theme-field"><label for="custom-gradient-angle">Gradient angle</label><input type="number" id="custom-gradient-angle" min="0" max="360" step="5" value="'+(settings.customGradientAngle||135)+'"></div>'+
+        '<div class="custom-theme-field"><label for="custom-gradient-angle">Gradient angle</label><div class="angle-ctl"><div class="angle-dial" id="custom-angle-dial" role="presentation" title="Drag to set the angle"><i></i></div><input type="range" id="custom-gradient-angle" min="0" max="360" step="5" value="'+(settings.customGradientAngle==null?135:settings.customGradientAngle)+'"><output class="angle-out" id="custom-angle-out" for="custom-gradient-angle"></output></div></div>'+
         '<label class="custom-gradient-toggle"><input type="checkbox" id="custom-gradient-enabled" '+(settings.customGradientEnabled?'checked':'')+'> Use gradient background</label>'+
         '<div class="custom-theme-preview" id="custom-theme-preview">Preview</div>'+
         '<button class="game-btn" id="custom-theme-apply">Use this theme</button>'+
@@ -1181,10 +1203,23 @@ function pageSettings(){
   }
   if(qs('#custom-accent')){
     ['#custom-accent','#custom-bg','#custom-gradient-end','#custom-gradient-angle','#custom-gradient-enabled'].forEach(function(id){qs(id).addEventListener('input',updateThemePreview);});
+    (function(){
+      var rng=qs('#custom-gradient-angle'),dial=qs('#custom-angle-dial'),needle=dial.querySelector('i'),out=qs('#custom-angle-out');
+      function sync(){var v=+rng.value||0;needle.style.transform='rotate('+v+'deg)';out.textContent=v+'\u00b0';}
+      function fromPointer(e){
+        var r=dial.getBoundingClientRect(),dx=e.clientX-(r.left+r.width/2),dy=e.clientY-(r.top+r.height/2);
+        var a=Math.round(((Math.atan2(dx,-dy)*180/Math.PI+360)%360)/5)*5;
+        rng.value=a>=360?0:a;rng.dispatchEvent(new Event('input',{bubbles:true}));
+      }
+      dial.addEventListener('pointerdown',function(e){dial.setPointerCapture(e.pointerId);dial.classList.add('drag');fromPointer(e);});
+      dial.addEventListener('pointermove',function(e){if(dial.classList.contains('drag'))fromPointer(e);});
+      ['pointerup','pointercancel'].forEach(function(t){dial.addEventListener(t,function(){dial.classList.remove('drag');});});
+      rng.addEventListener('input',sync);sync();
+    })();
     updateThemePreview();
     qs('#custom-theme-apply').addEventListener('click',function(){
       settings.customAccent=qs('#custom-accent').value;settings.customSurface=qs('#custom-bg').value;
-      settings.customGradientEnd=qs('#custom-gradient-end').value;settings.customGradientAngle=Math.max(0,Math.min(360,Number(qs('#custom-gradient-angle').value)||135));
+      settings.customGradientEnd=qs('#custom-gradient-end').value;settings.customGradientAngle=Math.max(0,Math.min(360,Number(qs('#custom-gradient-angle').value)));
       settings.customGradientEnabled=qs('#custom-gradient-enabled').checked;saveSettings();applyTheme();selectTheme('custom');
     });
   }
